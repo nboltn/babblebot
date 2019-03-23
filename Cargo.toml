@@ -1,0 +1,19 @@
+[package]
+name = "babblebot"
+version = "0.1.0"
+authors = ["toovs <toovs@tutamail.com>"]
+edition = "2018"
+
+[dependencies]
+bcrypt = "0.3"
+config = "0.9"
+clap = { version = "2.32", features = ["yaml"] }
+redis = "0.10"
+url = "1.7"
+irc = "0.13"
+reqwest = "0.9"
+serde = { version = "1.0", features = ["derive"] }
+itertools = "0.8"
+rocket = "0.4"
+rocket_contrib = { version = "0.4", features = ["json", "handlebars_templates", "redis_pool"] }
+r2d2_redis = "0.8.0"

@@ -1,0 +1,38 @@
+name: babblebot
+version: "0.1.0"
+author: toovs <toovs@tutamail.com>
+subcommands:
+  - add_channel:
+      args:
+          - bot:
+              short: b
+              takes_value: true
+          - botToken:
+              short: n
+              takes_value: true
+          - channel:
+              short: c
+              takes_value: true
+              required: true
+          - channelToken:
+              short: t
+              takes_value: true
+              required: true
+          - password:
+              short: p
+              takes_value: true
+              required: true
+  - add_command:
+      args:
+          - channel:
+              short: c
+              takes_value: true
+              required: true
+          - name:
+              short: n
+              takes_value: true
+              required: true
+          - content:
+              short: t
+              takes_value: true
+              required: true
