@@ -5,6 +5,10 @@ use rocket_contrib::databases::redis;
 #[database("redis")]
 pub struct RedisConnection(redis::Connection);
 
+pub enum ThreadAction {
+    Kill
+}
+
 pub enum Setting {
     String(String),
     Bool(bool)
