@@ -38,29 +38,37 @@ fn main() {
 
     let manager = RedisConnectionManager::new(&redis_host[..]).unwrap();
     let pool = r2d2::Pool::builder().build(manager).unwrap();
-    let con = Arc::new(pool.get().unwrap());
+    let pool_clone = pool.clone();
 
-    if let Some(matches) = matches.subcommand_matches("add_channel") { add_channel(con.clone(), &settings, matches) }
+    if let Some(matches) = matches.subcommand_matches("add_channel") { add_channel(pool.clone(), &settings, matches) }
     else {
-        thread::spawn(|| { rocket::ignite().mount("/", routes![web::index, web::name]).attach(Template::fairing()).attach(RedisConnection::fairing()).launch() });
-        let mut bots: HashMap<String, (HashSet<String>, Config)> = HashMap::new();
-        let bs: HashSet<String> = con.smembers("bots").unwrap();
-        for bot in bs {
-            let passphrase: String = con.get(format!("bot:{}:token", bot)).unwrap();
-            let channel_hash: HashSet<String> = con.smembers(format!("bot:{}:channels", bot)).unwrap();
-            let mut channels: Vec<String> = Vec::new();
-            channels.extend(channel_hash.iter().cloned().map(|chan| { format!("#{}", chan) }));
-            let config = Config {
-                server: Some("irc.chat.twitch.tv".to_owned()),
-                use_ssl: Some(true),
-                nickname: Some(bot.to_owned()),
-                password: Some(format!("oauth:{}", passphrase)),
-                channels: Some(channels),
-                ..Default::default()
-            };
-            bots.insert(bot.to_owned(), (channel_hash, config));
+        thread::spawn(move || { rocket::ignite().mount("/", routes![web::index, web::name]).attach(Template::fairing()).attach(RedisConnection::fairing()).launch() });
+        thread::spawn(move || { new_channel_listener(pool.clone()) });
+        thread::spawn(move || {
+            let con = Arc::new(pool_clone.get().unwrap());
+            let mut bots: HashMap<String, (HashSet<String>, Config)> = HashMap::new();
+            let bs: HashSet<String> = con.smembers("bots").unwrap();
+            for bot in bs {
+                let passphrase: String = con.get(format!("bot:{}:token", bot)).unwrap();
+                let channel_hash: HashSet<String> = con.smembers(format!("bot:{}:channels", bot)).unwrap();
+                let mut channels: Vec<String> = Vec::new();
+                channels.extend(channel_hash.iter().cloned().map(|chan| { format!("#{}", chan) }));
+                let config = Config {
+                    server: Some("irc.chat.twitch.tv".to_owned()),
+                    use_ssl: Some(true),
+                    nickname: Some(bot.to_owned()),
+                    password: Some(format!("oauth:{}", passphrase)),
+                    channels: Some(channels),
+                    ..Default::default()
+                };
+                bots.insert(bot.to_owned(), (channel_hash, config));
+            }
+            run_reactor(pool_clone, bots);
+        });
+
+        loop {
+            thread::sleep(time::Duration::from_secs(60));
         }
-        run_reactor(pool.clone(), bots);
     }
 }
 
@@ -99,6 +107,35 @@ fn run_reactor(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, bots: HashM
     }
 }
 
+fn new_channel_listener(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
+    let con = pool.get().unwrap();
+    let mut conn = pool.get().unwrap();
+    let mut ps = conn.as_pubsub();
+    ps.subscribe("new_channels").unwrap();
+    loop {
+        let msg = ps.get_message().unwrap();
+        let channel: String = msg.get_payload().unwrap();
+
+        let mut bots: HashMap<String, (HashSet<String>, Config)> = HashMap::new();
+        let bot: String = con.get(format!("channel:{}:bot", channel)).unwrap();
+        let passphrase: String = con.get(format!("bot:{}:token", bot)).unwrap();
+        let mut channel_hash: HashSet<String> = HashSet::new();
+        let mut channels: Vec<String> = Vec::new();
+        channel_hash.insert(channel.to_owned());
+        channels.extend(channel_hash.iter().cloned().map(|chan| { format!("#{}", chan) }));
+        let config = Config {
+            server: Some("irc.chat.twitch.tv".to_owned()),
+            use_ssl: Some(true),
+            nickname: Some(bot.to_owned()),
+            password: Some(format!("oauth:{}", passphrase)),
+            channels: Some(channels),
+            ..Default::default()
+        };
+        bots.insert(bot.to_owned(), (channel_hash, config));
+        run_reactor(pool.clone(), bots);
+    }
+}
+
 fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>) {
     let msg_handler = move |client: &IrcClient, message: Message| -> error::Result<()> {
         match message.command {
@@ -111,16 +148,29 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                     for cmd in commands::native_commands.iter() {
                         if format!("!{}", cmd.0) == word {
                             if let Some(tags) = message.tags {
-                                let mut mod_ = false;
+                                let mut badges: HashMap<String, String> = HashMap::new();
                                 tags.iter().for_each(|tag| {
                                     if let Some(value) = &tag.1 {
-                                        if tag.0 == "mod" && value == "1" { mod_ = true }
+                                        if tag.0 == "badges" {
+                                            let bs: Vec<&str> = value.split_whitespace().collect();
+                                            for bstr in bs.iter() {
+                                                let badge: Vec<&str> = bstr.split("/").collect();
+                                                badges.insert(badge[0].to_owned(), badge[1].to_owned());
+                                            }
+                                        }
                                     }
                                 });
+                                let mut auth = false;
+                                if let Some(value) = badges.get("broadcaster") {
+                                    if value == "1" { auth = true }
+                                }
+                                if let Some(value) = badges.get("moderator") {
+                                    if value == "1" { auth = true }
+                                }
                                 if args.len() == 0 {
-                                    if !cmd.2 || mod_ { (cmd.1)(con.clone(), &client, channel, &args) }
+                                    if !cmd.2 || auth { (cmd.1)(con.clone(), &client, channel, &args) }
                                 } else {
-                                    if !cmd.3 || mod_ { (cmd.1)(con.clone(), &client, channel, &args) }
+                                    if !cmd.3 || auth { (cmd.1)(con.clone(), &client, channel, &args) }
                                 }
                             }
                             break;
@@ -157,16 +207,16 @@ fn live_update(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: St
                             let live: String = con.get(format!("channel:{}:live", channel)).unwrap();
                             if json.total == 0 {
                                 if live == "true" {
-                                    let _ : () = con.set(format!("channel:{}:live", channel), false).unwrap();
+                                    let _: () = con.set(format!("channel:{}:live", channel), false).unwrap();
                                 }
                             } else {
                                 if live == "false" {
-                                    let _ : () = con.set(format!("channel:{}:live", channel), true).unwrap();
+                                    let _: () = con.set(format!("channel:{}:live", channel), true).unwrap();
                                     // reset notice timers
                                     let keys: Vec<String> = con.keys(format!("channel:{}:notices:*:messages", channel)).unwrap();
                                     for key in keys.iter() {
                                         let int: Vec<&str> = key.split(":").collect();
-                                        let _ : () = con.set(format!("channel:{}:notices:{}:countdown", channel, int[3]), int[3].clone()).unwrap();
+                                        let _: () = con.set(format!("channel:{}:notices:{}:countdown", channel, int[3]), int[3].clone()).unwrap();
                                     }
                                 }
                             }
@@ -220,17 +270,18 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                 });
 
                 if int != 0 {
-                    let _ : () = con.set(format!("channel:{}:notices:{}:countdown", channel, int), int.clone()).unwrap();
+                    let _: () = con.set(format!("channel:{}:notices:{}:countdown", channel, int), int.clone()).unwrap();
                     let notice: String = con.lpop(format!("channel:{}:notices:{}:messages", channel, int)).unwrap();
                     client.send_privmsg(format!("#{}", channel), notice.clone()).unwrap();
-                    let _ : () = con.rpush(format!("channel:{}:notices:{}:messages", channel, int), notice).unwrap();
+                    let _: () = con.rpush(format!("channel:{}:notices:{}:messages", channel, int), notice).unwrap();
                 }
             }
         }
     });
 }
 
-fn add_channel(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, settings: &config::Config, matches: &ArgMatches) {
+fn add_channel(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, settings: &config::Config, matches: &ArgMatches) {
+    let con = Arc::new(pool.get().unwrap());
     let mut bot_token: String;
     let bot_name = matches.value_of("bot").unwrap_or("babblerbot");
     let channel_name = matches.value_of("channel").unwrap();
@@ -245,6 +296,7 @@ fn add_channel(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManage
     let _: () = con.sadd("channels", channel_name).unwrap();
     let _: () = con.sadd(format!("bot:{}:channels", bot_name), channel_name).unwrap();
     let _: () = con.set(format!("bot:{}:token", bot_name), bot_token).unwrap();
+    let _: () = con.set(format!("channel:{}:bot", channel_name), bot_name).unwrap();
     let _: () = con.set(format!("channel:{}:token", channel_name), channel_token).unwrap();
     let _: () = con.set(format!("channel:{}:password", channel_name), channel_password).unwrap();
     let _: () = con.set(format!("channel:{}:live", channel_name), false).unwrap();
@@ -261,6 +313,7 @@ fn add_channel(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManage
                 Ok(json) => {
                     let _: () = con.set(format!("channel:{}:id", channel_name), &json.data[0].id).unwrap();
                     let _: () = con.set(format!("channel:{}:display_name", channel_name), &json.data[0].display_name).unwrap();
+                    let _: () = con.publish("new_channels", channel_name).unwrap();
                     println!("channel {} has been added", channel_name)
                 }
             }
