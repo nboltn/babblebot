@@ -1,0 +1,25 @@
+html,
+body {
+  height: 100%;
+}
+.section {
+  padding: 0;
+  overflow: auto;
+}
+.section .content {
+  width: 1200px;
+  margin: auto;
+}
+#section-top {
+  background-image: url("/assets/images/dark_mosaic.png");
+  height: 100%;
+}
+#section-features {
+  background-image: url("/assets/images/sayagata.png");
+}
+#title {
+  font-family: Overpass Mono;
+  color: #45806f;
+  font-size: 2em;
+  margin: 20px 0;
+}

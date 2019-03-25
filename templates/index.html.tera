@@ -1,0 +1,10 @@
+{% extends "common/base" %}
+{%- block title %}Babblebot{%- endblock title %}
+
+{%- block body %}
+<div class="section" id="section-top">
+  <div class="content">
+    <div id="title">Babblebot</div>
+  </div>
+</div>
+{%- endblock body %}

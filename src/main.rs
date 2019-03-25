@@ -6,6 +6,7 @@ mod util;
 mod web;
 
 use crate::types::*;
+use crate::util::*;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc,mpsc};
@@ -24,6 +25,7 @@ use reqwest::header;
 use rocket;
 use rocket::routes;
 use rocket_contrib::templates::Template;
+use rocket_contrib::serve::StaticFiles;
 use r2d2_redis::{r2d2, redis, RedisConnectionManager};
 use r2d2_redis::redis::Commands;
 
@@ -42,10 +44,10 @@ fn main() {
 
     if let Some(matches) = matches.subcommand_matches("add_channel") { add_channel(pool.clone(), &settings, matches) }
     else {
-        thread::spawn(move || { rocket::ignite().mount("/", routes![web::index, web::name]).attach(Template::fairing()).attach(RedisConnection::fairing()).launch() });
-        thread::spawn(move || { new_channel_listener(pool.clone()) });
+        thread::spawn(move || { rocket::ignite().mount("/assets", StaticFiles::from("assets")).mount("/", routes![web::index, web::name]).attach(Template::fairing()).attach(RedisConnection::fairing()).launch() });
+        thread::spawn(move || { new_channel_listener(pool_clone) });
         thread::spawn(move || {
-            let con = Arc::new(pool_clone.get().unwrap());
+            let con = Arc::new(pool.get().unwrap());
             let mut bots: HashMap<String, (HashSet<String>, Config)> = HashMap::new();
             let bs: HashSet<String> = con.smembers("bots").unwrap();
             for bot in bs {
@@ -61,14 +63,13 @@ fn main() {
                     channels: Some(channels),
                     ..Default::default()
                 };
-                bots.insert(bot.to_owned(), (channel_hash, config));
+                bots.insert(bot.to_owned(), (channel_hash.clone(), config));
+                for channel in channel_hash.iter() { live_update(pool.clone(), channel.to_owned()) }
             }
-            run_reactor(pool_clone, bots);
+            run_reactor(pool.clone(), bots);
         });
 
-        loop {
-            thread::sleep(time::Duration::from_secs(60));
-        }
+        loop { thread::sleep(time::Duration::from_secs(60)) }
     }
 }
 
@@ -87,7 +88,6 @@ fn run_reactor(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, bots: HashM
                 let (sender, receiver) = mpsc::channel();
                 senders.insert(channel.to_owned(), sender);
                 spawn_timers(client.clone(), pool.clone(), channel.to_owned(), receiver);
-                live_update(pool.clone(), channel.to_owned());
             }
         });
         let res = reactor.run();
@@ -112,6 +112,7 @@ fn new_channel_listener(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
     let mut conn = pool.get().unwrap();
     let mut ps = conn.as_pubsub();
     ps.subscribe("new_channels").unwrap();
+
     loop {
         let msg = ps.get_message().unwrap();
         let channel: String = msg.get_payload().unwrap();
@@ -131,7 +132,8 @@ fn new_channel_listener(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
             channels: Some(channels),
             ..Default::default()
         };
-        bots.insert(bot.to_owned(), (channel_hash, config));
+        bots.insert(bot.to_owned(), (channel_hash.clone(), config));
+        for channel in channel_hash.iter() { live_update(pool.clone(), channel.to_owned()) }
         run_reactor(pool.clone(), bots);
     }
 }
@@ -145,33 +147,29 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                 let mut words = msg.split_whitespace();
                 if let Some(word) = words.next() {
                     let args: Vec<&str> = words.collect();
+                    let mut badges: HashMap<String, String> = HashMap::new();
+                    if let Some(tags) = message.tags {
+                        tags.iter().for_each(|tag| {
+                            if let Some(value) = &tag.1 {
+                                if tag.0 == "badges" {
+                                    let bs: Vec<&str> = value.split_whitespace().collect();
+                                    for bstr in bs.iter() {
+                                        let badge: Vec<&str> = bstr.split("/").collect();
+                                        badges.insert(badge[0].to_owned(), badge[1].to_owned());
+                                    }
+                                }
+                            }
+                        });
+                    }
                     for cmd in commands::native_commands.iter() {
                         if format!("!{}", cmd.0) == word {
-                            if let Some(tags) = message.tags {
-                                let mut badges: HashMap<String, String> = HashMap::new();
-                                tags.iter().for_each(|tag| {
-                                    if let Some(value) = &tag.1 {
-                                        if tag.0 == "badges" {
-                                            let bs: Vec<&str> = value.split_whitespace().collect();
-                                            for bstr in bs.iter() {
-                                                let badge: Vec<&str> = bstr.split("/").collect();
-                                                badges.insert(badge[0].to_owned(), badge[1].to_owned());
-                                            }
-                                        }
-                                    }
-                                });
-                                let mut auth = false;
-                                if let Some(value) = badges.get("broadcaster") {
-                                    if value == "1" { auth = true }
-                                }
-                                if let Some(value) = badges.get("moderator") {
-                                    if value == "1" { auth = true }
-                                }
-                                if args.len() == 0 {
-                                    if !cmd.2 || auth { (cmd.1)(con.clone(), &client, channel, &args) }
-                                } else {
-                                    if !cmd.3 || auth { (cmd.1)(con.clone(), &client, channel, &args) }
-                                }
+                            let mut auth = false;
+                            if let Some(value) = badges.get("broadcaster") { if value == "1" { auth = true } }
+                            if let Some(value) = badges.get("moderator") { if value == "1" { auth = true } }
+                            if args.len() == 0 {
+                                if !cmd.2 || auth { (cmd.1)(con.clone(), &client, channel, &args) }
+                            } else {
+                                if !cmd.3 || auth { (cmd.1)(con.clone(), &client, channel, &args) }
                             }
                             break;
                         }
@@ -196,7 +194,7 @@ fn live_update(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: St
         let con = Arc::new(pool.get().unwrap());
         let id: String = con.get(format!("channel:{}:id", channel)).unwrap();
         loop {
-            let rsp = util::twitch_request_get(con.clone(), &channel, &format!("https://api.twitch.tv/kraken/streams?channel={}", id));
+            let rsp = twitch_request_get(con.clone(), &channel, &format!("https://api.twitch.tv/kraken/streams?channel={}", id));
             match rsp {
                 Err(err) => { println!("{}", err) },
                 Ok(mut rsp) => {
