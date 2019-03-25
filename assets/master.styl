@@ -6,6 +6,7 @@ teal   = #45806F
 
 html, body
   height: 100%
+  font-family: Overpass Mono
 
 .section
   padding: 0
@@ -17,12 +18,35 @@ html, body
 #section-top
   background-image: url(/assets/images/dark_mosaic.png)
   height: 100%
+  #title
+    display: inline-block
+    color: teal
+    font-size: 2em
+    margin: 20px 0
+  #login
+    float: right
+    margin-top: 36px
+    color: teal
+    a
+      color: teal
+      &:hover
+        text-decoration: underline
+  #features
+    margin-top: 80px
+    .signup
+      color: teal
+      a
+        color: teal
+        &:hover
+          text-decoration: underline
+    .group
+      color: gold
+    .feature
+      color: orange
+      a
+        color: orange
+        &:hover
+          text-decoration: underline
 
 #section-features
   background-image: url(/assets/images/sayagata.png)
-
-#title
-  font-family: Overpass Mono
-  color: teal
-  font-size: 2em
-  margin: 20px 0

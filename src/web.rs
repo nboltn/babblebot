@@ -15,10 +15,3 @@ pub fn index(conn: RedisConnection) -> Template {
     let mut context: HashMap<&str, String> = HashMap::new();
     Template::render("index", &context)
 }
-
-#[get("/<name>")]
-pub fn name(conn: RedisConnection, name: String) -> Template {
-    let mut context: HashMap<&str, String> = HashMap::new();
-    context.insert("name", display_name(&conn, name));
-    Template::render("name", &context)
-}

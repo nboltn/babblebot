@@ -1,6 +1,7 @@
 html,
 body {
   height: 100%;
+  font-family: Overpass Mono;
 }
 .section {
   padding: 0;
@@ -14,12 +15,47 @@ body {
   background-image: url("/assets/images/dark_mosaic.png");
   height: 100%;
 }
-#section-features {
-  background-image: url("/assets/images/sayagata.png");
-}
-#title {
-  font-family: Overpass Mono;
+#section-top #title {
+  display: inline-block;
   color: #45806f;
   font-size: 2em;
   margin: 20px 0;
+}
+#section-top #login {
+  float: right;
+  margin-top: 36px;
+  color: #45806f;
+}
+#section-top #login a {
+  color: #45806f;
+}
+#section-top #login a:hover {
+  text-decoration: underline;
+}
+#section-top #features {
+  margin-top: 80px;
+}
+#section-top #features .signup {
+  color: #45806f;
+}
+#section-top #features .signup a {
+  color: #45806f;
+}
+#section-top #features .signup a:hover {
+  text-decoration: underline;
+}
+#section-top #features .group {
+  color: #8f771f;
+}
+#section-top #features .feature {
+  color: #c43f1d;
+}
+#section-top #features .feature a {
+  color: #c43f1d;
+}
+#section-top #features .feature a:hover {
+  text-decoration: underline;
+}
+#section-features {
+  background-image: url("/assets/images/sayagata.png");
 }

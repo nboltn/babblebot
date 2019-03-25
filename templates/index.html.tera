@@ -4,7 +4,26 @@
 {%- block body %}
 <div class="section" id="section-top">
   <div class="content">
-    <div id="title">Babblebot</div>
+    <div id="header">
+      <div id="title">Babblebot</div>
+      <div id="login"><a href="javascript:void(0)">login</a></div>
+    </div>
+    <div id="features">
+      <div class="group">the best bot on twitch</div>
+      <div class="feature">> fully <a href="https://gitlab.com/toovs/babblebot" target="_blank">open-source</a></div>
+      <div class="feature">> free hosting</div>
+      <div class="feature">> active development</div>
+      <br>
+      <div class="group">features include</div>
+      <div class="feature">> pubg, fortnite, and other game api integration</div>
+      <div class="feature" data-balloon="(ex. throw a grenade in-game when a certain amount of bits are received)" data-balloon-pos="down">> local computer integration for fun and unique stream interactivity</div>
+      <br>
+      <div class="group">with an active subscription get</div>
+      <div class="feature">> custom bot name</div>
+      <div class="feature">> priority feature requests</div>
+      <br><br>
+      <div class="signup"><a href="javascript:void(0)">sign up with an invite code now</a></div>
+    </div>
   </div>
 </div>
 {%- endblock body %}

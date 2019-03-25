@@ -44,7 +44,7 @@ fn main() {
 
     if let Some(matches) = matches.subcommand_matches("add_channel") { add_channel(pool.clone(), &settings, matches) }
     else {
-        thread::spawn(move || { rocket::ignite().mount("/assets", StaticFiles::from("assets")).mount("/", routes![web::index, web::name]).attach(Template::fairing()).attach(RedisConnection::fairing()).launch() });
+        thread::spawn(move || { rocket::ignite().mount("/assets", StaticFiles::from("assets")).mount("/", routes![web::index]).attach(Template::fairing()).attach(RedisConnection::fairing()).launch() });
         thread::spawn(move || { new_channel_listener(pool_clone) });
         thread::spawn(move || {
             let con = Arc::new(pool.get().unwrap());
@@ -200,7 +200,7 @@ fn live_update(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: St
                 Ok(mut rsp) => {
                     let json: Result<KrakenStreams,_> = rsp.json();
                     match json {
-                        Err(err) => { println!("{}", err) }
+                        Err(err) => { println!("{}", err);println!("{}",rsp.text().unwrap()); }
                         Ok(json) => {
                             let live: String = con.get(format!("channel:{}:live", channel)).unwrap();
                             if json.total == 0 {
