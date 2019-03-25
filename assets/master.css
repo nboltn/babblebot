@@ -18,10 +18,11 @@ body {
 #section-top #title {
   display: inline-block;
   color: #45806f;
-  font-size: 2em;
+  font-size: 2.2em;
   margin: 20px 0;
 }
 #section-top #login {
+  font-size: 1.2em;
   float: right;
   margin-top: 36px;
   color: #45806f;
@@ -34,6 +35,7 @@ body {
 }
 #section-top #features {
   margin-top: 80px;
+  font-size: 1.2em;
 }
 #section-top #features .signup {
   color: #45806f;
