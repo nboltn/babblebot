@@ -1,6 +1,6 @@
 /target
 **/*.rs.bk
-dist/*
+bin/*
 Cargo.lock
 Rocket.toml
 Settings.toml
