@@ -35,10 +35,10 @@ body {
 }
 #section-top #features {
   margin-top: 80px;
-  font-size: 1.2em;
 }
 #section-top #features .signup {
   color: #45806f;
+  font-size: 1.2em;
 }
 #section-top #features .signup a {
   color: #45806f;
@@ -48,9 +48,11 @@ body {
 }
 #section-top #features .group {
   color: #8f771f;
+  font-size: 1.2em;
 }
 #section-top #features .feature {
   color: #c43f1d;
+  font-size: 1.1em;
 }
 #section-top #features .feature a {
   color: #c43f1d;
