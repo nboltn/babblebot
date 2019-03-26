@@ -1,5 +1,6 @@
 use crate::types::*;
 use std::collections::HashMap;
+use bcrypt::{DEFAULT_COST, hash, verify};
 use config;
 use reqwest;
 use reqwest::header;
@@ -45,7 +46,7 @@ pub fn signup(con: RedisConnection, data: Form<ApiSignupReq>) -> Json<ApiSignupR
             let json: Result<HelixUsers,_> = rsp.json();
             match json {
                 Err(err) => {
-                    let json: ApiSignupRsp = ApiSignupRsp { success: false, error: Some("token".to_owned()) }; // should be unknown twitch error
+                    let json: ApiSignupRsp = ApiSignupRsp { success: false, error: Some("token".to_owned()) };
                     return Json(json);
                 }
                 Ok(json) => {
@@ -68,7 +69,7 @@ pub fn signup(con: RedisConnection, data: Form<ApiSignupReq>) -> Json<ApiSignupR
                             let _: () = con.sadd(format!("bot:{}:channels", &bot_name), &json.data[0].login).unwrap();
                             let _: () = con.set(format!("channel:{}:bot", &json.data[0].login), "babblerbot").unwrap();
                             let _: () = con.set(format!("channel:{}:token", &json.data[0].login), &data.token).unwrap();
-                            let _: () = con.set(format!("channel:{}:password", &json.data[0].login), &data.password).unwrap();
+                            let _: () = con.set(format!("channel:{}:password", &json.data[0].login), hash(&data.password, DEFAULT_COST).unwrap()).unwrap();
                             let _: () = con.set(format!("channel:{}:live", &json.data[0].login), false).unwrap();
                             let _: () = con.set(format!("channel:{}:id", &json.data[0].login), &json.data[0].id).unwrap();
                             let _: () = con.set(format!("channel:{}:display_name", &json.data[0].login), &json.data[0].display_name).unwrap();
