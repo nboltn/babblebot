@@ -1,5 +1,7 @@
 #![feature(proc_macro_hygiene, decl_macro)]
 
+#[macro_use] extern crate rocket;
+
 mod commands;
 mod types;
 mod util;
@@ -22,7 +24,6 @@ use irc::error;
 use irc::client::prelude::*;
 use reqwest;
 use reqwest::header;
-use rocket;
 use rocket::routes;
 use rocket_contrib::templates::Template;
 use rocket_contrib::serve::StaticFiles;
@@ -44,7 +45,7 @@ fn main() {
 
     if let Some(matches) = matches.subcommand_matches("add_channel") { add_channel(pool.clone(), &settings, matches) }
     else {
-        thread::spawn(move || { rocket::ignite().mount("/assets", StaticFiles::from("assets")).mount("/", routes![web::index]).attach(Template::fairing()).attach(RedisConnection::fairing()).launch() });
+        thread::spawn(move || { rocket::ignite().mount("/assets", StaticFiles::from("assets")).mount("/", routes![web::index, web::login, web::signup]).attach(Template::fairing()).attach(RedisConnection::fairing()).launch() });
         thread::spawn(move || { new_channel_listener(pool_clone) });
         thread::spawn(move || {
             let con = Arc::new(pool.get().unwrap());
@@ -116,7 +117,6 @@ fn new_channel_listener(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
     loop {
         let msg = ps.get_message().unwrap();
         let channel: String = msg.get_payload().unwrap();
-
         let mut bots: HashMap<String, (HashSet<String>, Config)> = HashMap::new();
         let bot: String = con.get(format!("channel:{}:bot", channel)).unwrap();
         let passphrase: String = con.get(format!("bot:{}:token", bot)).unwrap();
@@ -222,6 +222,7 @@ fn live_update(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: St
                     }
                 }
             }
+            thread::sleep(time::Duration::from_secs(60));
         }
     });
 }
@@ -280,20 +281,24 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
 
 fn add_channel(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, settings: &config::Config, matches: &ArgMatches) {
     let con = Arc::new(pool.get().unwrap());
+    let mut bot_name: String;
     let mut bot_token: String;
-    let bot_name = matches.value_of("bot").unwrap_or("babblerbot");
+    match matches.value_of("bot") {
+        Some(bot) => { bot_name = bot.to_owned(); },
+        None => { bot_name = settings.get_str("bot_name").unwrap(); }
+    }
+    match matches.value_of("botToken") {
+        Some(token) => { bot_token = token.to_owned(); },
+        None => { bot_token = settings.get_str("bot_token").unwrap(); }
+    }
     let channel_name = matches.value_of("channel").unwrap();
     let channel_token = matches.value_of("channelToken").unwrap();
     let channel_password = hash(matches.value_of("password").unwrap(), DEFAULT_COST).unwrap();
-    match matches.value_of("botToken") {
-        Some(token) => { bot_token = token.to_owned(); },
-        None => { bot_token = settings.get_str("token").unwrap(); }
-    }
 
-    let _: () = con.sadd("bots", bot_name).unwrap();
+    let _: () = con.sadd("bots", &bot_name).unwrap();
     let _: () = con.sadd("channels", channel_name).unwrap();
-    let _: () = con.sadd(format!("bot:{}:channels", bot_name), channel_name).unwrap();
-    let _: () = con.set(format!("bot:{}:token", bot_name), bot_token).unwrap();
+    let _: () = con.sadd(format!("bot:{}:channels", &bot_name), channel_name).unwrap();
+    let _: () = con.set(format!("bot:{}:token", &bot_name), bot_token).unwrap();
     let _: () = con.set(format!("channel:{}:bot", channel_name), bot_name).unwrap();
     let _: () = con.set(format!("channel:{}:token", channel_name), channel_token).unwrap();
     let _: () = con.set(format!("channel:{}:password", channel_name), channel_password).unwrap();

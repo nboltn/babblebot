@@ -8,15 +8,43 @@ html, body
   height: 100%
   font-family: Overpass Mono
 
+.hidden
+  display: none
+
+.modal
+  .modal-card-body
+    position: relative
+    .bg
+      background-image: url(/assets/images/funky-lines.png)
+      position: absolute
+      top: 0
+      left: 0
+      right: 0
+      bottom: 0
+    form
+      position: relative
+      a
+        color: #363636
+        &:hover
+          text-decoration: underline
+
 .section
   padding: 0
   overflow: auto
+  position: relative
+  .bg
+    position: absolute
+    top: 0
+    bottom: 0
+    left: 0
+    right: 0
   .content
     width: 1200px
     margin: auto
 
 #section-top
-  background-image: url(/assets/images/dark_mosaic.png)
+  .bg
+    background-image: url(/assets/images/dark_mosaic.png)
   height: 100%
   #title
     display: inline-block
@@ -34,9 +62,9 @@ html, body
         text-decoration: underline
   #features
     margin-top: 80px
-    .signup
+    #signup
       color: teal
-      font-size: 1.2em
+      font-size: 1.1em
       a
         color: teal
         &:hover

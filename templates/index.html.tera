@@ -3,7 +3,8 @@
 
 {%- block body %}
 <div class="section" id="section-top">
-  <div class="content">
+  <div class='bg'></div>
+  <div class="content hidden animated fadeIn">
     <div id="header">
       <div id="title">Babblebot</div>
       <div id="login"><a href="javascript:void(0)">login</a></div>
@@ -22,8 +23,142 @@
       <div class="feature">> custom bot name</div>
       <div class="feature">> priority feature requests</div>
       <br><br>
-      <div class="signup"><a href="javascript:void(0)">sign up with an invite code now</a></div>
+      <div id="signup"><a href="javascript:void(0)">sign up with an invite code now</a></div>
     </div>
   </div>
 </div>
+
+<div class="modal animated fadeIn" id="login-modal">
+  <div class="modal-background"></div>
+  <div class="modal-card">
+    <header class="modal-card-head">
+      <p class="modal-card-title">Login</p>
+      <button class="delete mclose" aria-label="close"></button>
+    </header>
+    <section class="modal-card-body">
+      <div class='bg'></div>
+      <form>
+        <div class="field">
+          <label class="label">channel</label>
+          <div class="control">
+            <input class="input" type="text" placeholder="channel">
+          </div>
+        </div>
+        <div class="field">
+          <label class="label">password</label>
+          <div class="control">
+            <input class="input" type="password" placeholder="password">
+          </div>
+        </div>
+      </form>
+    </section>
+    <footer class="modal-card-foot">
+      <button class="button is-link">Login</button>
+      <button class="button mclose">Cancel</button>
+    </footer>
+  </div>
+</div>
+
+<div class="modal animated fadeIn" id="signup-modal">
+  <div class="modal-background"></div>
+  <div class="modal-card">
+    <header class="modal-card-head">
+      <p class="modal-card-title">Signup</p>
+      <button class="delete mclose" aria-label="close"></button>
+    </header>
+    <section class="modal-card-body">
+      <div class='bg'></div>
+      <form>
+        <div class="field token">
+          <label class="label">access token</label>
+          <div class="control has-icons-right">
+            <input class="input" type="text" name="token" placeholder="access token">
+            <span class="icon is-small is-right hidden">
+              <i class="fas fa-exclamation-triangle"></i>
+            </span>
+          </div>
+          <p class="help is-danger hidden">invalid access code</p>
+          <p class="help"><a href="http://bit.ly/babblebot-twitch-token" target="_blank">token link</a></p>
+        </div>
+        <div class="field">
+          <label class="label">password</label>
+          <div class="control">
+            <input class="input" type="password" name="password" placeholder="password">
+          </div>
+        </div>
+        <div class="field invite">
+          <label class="label">invite code</label>
+          <div class="control has-icons-right">
+            <input class="input" type="text" name="invite" placeholder="invite code">
+            <span class="icon is-small is-right hidden">
+              <i class="fas fa-exclamation-triangle"></i>
+            </span>
+          </div>
+          <p class="help is-danger hidden">invalid invite code</p>
+        </div>
+      </form>
+    </section>
+    <footer class="modal-card-foot">
+      <button class="button is-link">Signup</button>
+      <button class="button mclose">Cancel</button>
+    </footer>
+  </div>
+</div>
+
+<script type='text/javascript'>
+  u.ready = function (fn) { document.readyState !== 'loading'? fn(): u(document).on('DOMContentLoaded', fn) }
+  u.ready(function(){ u('.section .content').removeClass('hidden') })
+  u('#login').on('click', function(){ u('#login-modal').addClass('is-active') })
+  u('#signup').on('click', function(){ u('#signup-modal').addClass('is-active') })
+  u('#login-modal .mclose').on('click', function(){ u('#login-modal').removeClass('is-active') })
+  u('#signup-modal .mclose').on('click', function(){ u('#signup-modal').removeClass('is-active') })
+  u('#signup-modal .is-link').on('click', function(){ u('#signup-modal form').trigger('submit') })
+
+  u('#login-modal form').handle('submit', async e => {
+    const body = u(e.target).serialize();
+    const data = await fetch('/api/login', {
+      method: 'POST',
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body
+    }).then(res => res.json());
+
+    u('#signup-modal .field.invite span.icon').addClass('hidden');
+    u('#signup-modal .field.invite .help.is-danger').addClass('hidden');
+    u('#signup-modal .field.invite input').removeClass('is-danger');
+
+    if (data.success) {
+      // redirect to dashboard
+    } else {
+      u('#signup-modal .field.invite span.icon').removeClass('hidden');
+      u('#signup-modal .field.invite .help.is-danger').removeClass('hidden');
+      u('#signup-modal .field.invite input').addClass('is-danger');
+    }
+  })
+
+  u('#signup-modal form').handle('submit', async e => {
+    const body = u(e.target).serialize();
+    const data = await fetch('/api/signup', {
+      method: 'POST',
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body
+    }).then(res => res.json());
+
+    u('#signup-modal .field span.icon').addClass('hidden');
+    u('#signup-modal .field .help.is-danger').addClass('hidden');
+    u('#signup-modal .field input').removeClass('is-danger');
+
+    if (data.success) {
+      u('#signup-modal').removeClass('is-active');
+    } else {
+      var field = '#signup-modal .field.';
+      var icon = field.concat(data.error).concat(' span.icon');
+      var help = field.concat(data.error).concat(' .help.is-danger');
+      var input = field.concat(data.error).concat(' input');
+
+      u(icon).removeClass('hidden');
+      u(help).removeClass('hidden');
+      u(input).addClass('is-danger');
+    }
+  })
+</script>
 {%- endblock body %}

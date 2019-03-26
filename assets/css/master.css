@@ -3,17 +3,50 @@ body {
   height: 100%;
   font-family: Overpass Mono;
 }
+.hidden {
+  display: none;
+}
+.modal .modal-card-body {
+  position: relative;
+}
+.modal .modal-card-body .bg {
+  background-image: url("/assets/images/funky-lines.png");
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+.modal .modal-card-body form {
+  position: relative;
+}
+.modal .modal-card-body form a {
+  color: #363636;
+}
+.modal .modal-card-body form a:hover {
+  text-decoration: underline;
+}
 .section {
   padding: 0;
   overflow: auto;
+  position: relative;
+}
+.section .bg {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  right: 0;
 }
 .section .content {
   width: 1200px;
   margin: auto;
 }
 #section-top {
-  background-image: url("/assets/images/dark_mosaic.png");
   height: 100%;
+}
+#section-top .bg {
+  background-image: url("/assets/images/dark_mosaic.png");
 }
 #section-top #title {
   display: inline-block;
@@ -36,14 +69,14 @@ body {
 #section-top #features {
   margin-top: 80px;
 }
-#section-top #features .signup {
+#section-top #features #signup {
   color: #45806f;
-  font-size: 1.2em;
+  font-size: 1.1em;
 }
-#section-top #features .signup a {
+#section-top #features #signup a {
   color: #45806f;
 }
-#section-top #features .signup a:hover {
+#section-top #features #signup a:hover {
   text-decoration: underline;
 }
 #section-top #features .group {

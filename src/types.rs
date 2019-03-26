@@ -1,4 +1,5 @@
 use serde::{Serialize, Deserialize};
+use rocket::request::FromForm;
 use rocket_contrib::database;
 use rocket_contrib::databases::redis;
 
@@ -22,6 +23,7 @@ pub struct HelixUsers {
 #[derive(Debug, Deserialize)]
 pub struct HelixUsersData {
     pub id: String,
+    pub login: String,
     pub display_name: String
 }
 
@@ -45,4 +47,31 @@ pub struct KrakenChannel {
 pub struct KrakenStreams {
     #[serde(rename = "_total")]
     pub total: i16
+}
+
+#[derive(Serialize)]
+pub struct ApiLoginRsp {
+    pub success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>
+}
+
+#[derive(Serialize)]
+pub struct ApiSignupRsp {
+    pub success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>
+}
+
+#[derive(FromForm)]
+pub struct ApiLoginReq {
+    pub channel: String,
+    pub password: String
+}
+
+#[derive(FromForm)]
+pub struct ApiSignupReq {
+    pub token: String,
+    pub password: String,
+    pub invite: String
 }
