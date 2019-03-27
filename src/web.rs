@@ -5,7 +5,8 @@ use config;
 use reqwest;
 use reqwest::header;
 use rocket;
-use rocket::{routes,get,post};
+use rocket::Request;
+use rocket::{routes,get,post,error};
 use rocket::request::Form;
 use rocket_contrib::json::Json;
 use rocket_contrib::templates::Template;
@@ -15,6 +16,12 @@ use r2d2_redis::redis::Commands;
 fn display_name(con: &redis::Connection, name: String) -> String {
     return con.get(format!("channel:{}:display_name", name)).unwrap_or("".to_owned());
 }
+
+#[catch(500)]
+pub fn internal_error() -> &'static str { "500" }
+
+#[catch(404)]
+pub fn not_found() -> &'static str { "404" }
 
 #[get("/")]
 pub fn index(con: RedisConnection) -> Template {

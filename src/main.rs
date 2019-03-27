@@ -1,4 +1,4 @@
-#![feature(proc_macro_hygiene, decl_macro)]
+#![feature(proc_macro_hygiene, decl_macro, custom_attribute)]
 
 #[macro_use] extern crate rocket;
 
@@ -45,7 +45,15 @@ fn main() {
 
     if let Some(matches) = matches.subcommand_matches("add_channel") { add_channel(pool.clone(), &settings, matches) }
     else {
-        thread::spawn(move || { rocket::ignite().mount("/assets", StaticFiles::from("assets")).mount("/", routes![web::index, web::login, web::signup]).attach(Template::fairing()).attach(RedisConnection::fairing()).launch() });
+        thread::spawn(move || {
+            rocket::ignite()
+              .mount("/assets", StaticFiles::from("assets"))
+              .mount("/", routes![web::index, web::login, web::signup])
+              .register(catchers![web::internal_error, web::not_found])
+              .attach(Template::fairing())
+              .attach(RedisConnection::fairing())
+              .launch()
+        });
         thread::spawn(move || { new_channel_listener(pool_clone) });
         thread::spawn(move || {
             let con = Arc::new(pool.get().unwrap());
