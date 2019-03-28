@@ -294,7 +294,6 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
         let con = pool.get().unwrap();
         loop {
             let rsp = receiver.recv_timeout(time::Duration::from_secs(30));
-            println!("timer");
             match rsp {
                 Ok(action) => {
                     match action {

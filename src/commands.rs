@@ -12,9 +12,9 @@ use itertools::Itertools;
 use r2d2_redis::r2d2;
 use r2d2_redis::redis::Commands;
 
-pub const native_commands: [(&str, fn(Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, &IrcClient, &str, &Vec<&str>), bool, bool); 11] = [("echo", echo_cmd, true, true),("set", set_cmd, true, true),("unset", unset_cmd, true, true),("command", command_cmd, true, true),("title", title_cmd, false, true),("game", game_cmd, false, true), ("notices", notices_cmd, true, true), ("moderation", moderation_cmd, true, true), ("runads", runads_cmd, true, true), ("multi", multi_cmd, false, true), ("counters", counters_cmd, true, true)];
+pub const native_commands: [(&str, fn(Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, &IrcClient, &str, &Vec<&str>), bool, bool); 11] = [("echo", echo_cmd, true, true), ("set", set_cmd, true, true), ("unset", unset_cmd, true, true), ("command", command_cmd, true, true), ("title", title_cmd, false, true), ("game", game_cmd, false, true), ("notices", notices_cmd, true, true), ("moderation", moderation_cmd, true, true), ("runads", runads_cmd, true, true), ("multi", multi_cmd, false, true), ("counters", counters_cmd, true, true)];
 
-pub const command_vars: [(&str, fn(Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, &IrcClient, &str, &Message) -> String); 7] = [("cmd", cmd_var), ("uptime",  uptime_var),("user", user_var),("channel", channel_var), ("followage", followage_var), ("subcount", subcount_var), ("followcount", followcount_var)];
+pub const command_vars: [(&str, fn(Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, &IrcClient, &str, &Message) -> String); 7] = [("cmd", cmd_var), ("uptime", uptime_var), ("user", user_var), ("channel", channel_var), ("followage", followage_var), ("subcount", subcount_var), ("followcount", followcount_var)];
 
 fn cmd_var(_con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: &Message) -> String {
     "".to_string()
