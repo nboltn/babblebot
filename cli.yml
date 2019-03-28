@@ -22,17 +22,13 @@ subcommands:
               short: p
               takes_value: true
               required: true
-  - add_command:
+  - rename_channel:
       args:
+          - token:
+              short: t
+              takes_value: true
+              required: true
           - channel:
               short: c
-              takes_value: true
-              required: true
-          - name:
-              short: n
-              takes_value: true
-              required: true
-          - content:
-              short: t
               takes_value: true
               required: true

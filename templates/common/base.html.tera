@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html>
+<html class="{% block htmlClass %}{% endblock htmlClass %}">
 <head>
   <link rel="shortcut icon" href="/assets/images/favicon.ico">
   <link rel="stylesheet" type="text/css" href="https://cdnjs.cloudflare.com/ajax/libs/bulma/0.7.1/css/bulma.min.css">
@@ -9,7 +9,7 @@
   <link rel="stylesheet" type="text/css" href="/assets/css/master.css">
   <link rel="stylesheet" type="text/css" href="/assets/css/animate.css">
   <script type='text/javascript' src="/assets/js/umbrella.min.js"></script>
-  <title>{% block title %}{% endblock title %}</title>
+  <title></title>
 </head>
 <body>
     {%- block body %}{% endblock body -%}

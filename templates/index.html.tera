@@ -1,5 +1,5 @@
 {% extends "common/base" %}
-{%- block title %}Babblebot{%- endblock title %}
+{%- block htmlClass %}mosaic{%- endblock htmlClass %}
 
 {%- block body %}
 <div class="section" id="section-top">

@@ -1,7 +1,12 @@
-html,
-body {
-  height: 100%;
+html {
+  min-height: 100%;
   font-family: Overpass Mono;
+}
+html.mosaic {
+  background-image: url("/assets/images/dark_mosaic.png");
+}
+html.funky {
+  background-image: url("/assets/images/funky-lines.png");
 }
 .hidden {
   display: none;
@@ -28,25 +33,10 @@ body {
 }
 .section {
   padding: 0;
-  overflow: auto;
-  position: relative;
-}
-.section .bg {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  right: 0;
 }
 .section .content {
   width: 1200px;
   margin: auto;
-}
-#section-top {
-  height: 100%;
-}
-#section-top .bg {
-  background-image: url("/assets/images/dark_mosaic.png");
 }
 #section-top #title {
   display: inline-block;
@@ -93,6 +83,15 @@ body {
 #section-top #features .feature a:hover {
   text-decoration: underline;
 }
-#section-features {
-  background-image: url("/assets/images/sayagata.png");
+#navbar {
+  width: 260px;
+  background-image: url("/assets/images/dark_mosaic.png");
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+}
+#panes {
+  margin-left: 260px;
+  padding-left: 40px;
 }

@@ -40,7 +40,7 @@ fn main() {
 
     let manager = RedisConnectionManager::new(&redis_host[..]).unwrap();
     let pool = r2d2::Pool::builder().build(manager).unwrap();
-    let pool_clone = pool.clone();
+    let pool_c1 = pool.clone();
 
     if let Some(matches) = matches.subcommand_matches("add_channel") { add_channel(pool.clone(), &settings, matches) }
     else {
@@ -53,7 +53,7 @@ fn main() {
               .attach(RedisConnection::fairing())
               .launch()
         });
-        thread::spawn(move || { new_channel_listener(pool_clone) });
+        thread::spawn(move || { new_channel_listener(pool_c1) });
         thread::spawn(move || {
             let con = Arc::new(pool.get().unwrap());
             let mut bots: HashMap<String, (HashSet<String>, Config)> = HashMap::new();
@@ -96,6 +96,7 @@ fn run_reactor(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, bots: HashM
                 let (sender, receiver) = mpsc::channel();
                 senders.insert(channel.to_owned(), sender);
                 spawn_timers(client.clone(), pool.clone(), channel.to_owned(), receiver);
+                rename_channel_listener(pool.clone(), client.clone(), channel.to_owned(), senders.clone());
             }
         });
         let res = reactor.run();
@@ -106,7 +107,7 @@ fn run_reactor(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, bots: HashM
                 bots.iter().for_each(|(bot, channels)| {
                     for channel in channels.0.iter() {
                         if let Some(sender) = senders.get(channel) {
-                            sender.send(ThreadAction::Kill).unwrap();
+                            let _ = sender.send(ThreadAction::Kill);
                         }
                     }
                 });
@@ -143,6 +144,59 @@ fn new_channel_listener(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
         for channel in channel_hash.iter() { live_update(pool.clone(), channel.to_owned()) }
         run_reactor(pool.clone(), bots);
     }
+}
+
+fn rename_channel_listener(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, client: Arc<IrcClient>, channel: String, senders: HashMap<String, Sender<ThreadAction>>) {
+    thread::spawn(move || {
+        let con = pool.get().unwrap();
+        let mut conn = pool.get().unwrap();
+        let mut ps = conn.as_pubsub();
+        ps.subscribe(format!("channel:{}:rename", channel)).unwrap();
+
+        let msg = ps.get_message().unwrap();
+        let token: String = msg.get_payload().unwrap();
+
+        let req = reqwest::Client::new();
+        let rsp = req.get("https://api.twitch.tv/helix/users").header(header::AUTHORIZATION, format!("Bearer {}", &token)).send();
+        match rsp {
+            Err(e) => { eprintln!("{}", e) },
+            Ok(mut rsp) => {
+                let json: Result<HelixUsers,_> = rsp.json();
+                match json {
+                    Err(e) => { eprintln!("{}", e) },
+                    Ok(json) => {
+                        if let Some(sender) = senders.get(&channel) {
+                            let _ = sender.send(ThreadAction::Kill);
+                        }
+                        client.send_quit("").unwrap();
+
+                        let bot: String = con.get(format!("channel:{}:bot", &channel)).unwrap();
+                        let _: () = con.srem(format!("bot:{}:channels", &bot), &channel).unwrap();
+                        let _: () = con.sadd("bots", &json.data[0].login).unwrap();
+                        let _: () = con.sadd(format!("bot:{}:channels", &json.data[0].login), &channel).unwrap();
+                        let _: () = con.set(format!("bot:{}:token", &json.data[0].login), &token).unwrap();
+                        let _: () = con.set(format!("channel:{}:bot", &channel), &json.data[0].login).unwrap();
+
+                        let mut bots: HashMap<String, (HashSet<String>, Config)> = HashMap::new();
+                        let mut channel_hash: HashSet<String> = HashSet::new();
+                        let mut channels: Vec<String> = Vec::new();
+                        channel_hash.insert(channel.to_owned());
+                        channels.extend(channel_hash.iter().cloned().map(|chan| { format!("#{}", chan) }));
+                        let config = Config {
+                            server: Some("irc.chat.twitch.tv".to_owned()),
+                            use_ssl: Some(true),
+                            nickname: Some(bot.to_owned()),
+                            password: Some(format!("oauth:{}", token)),
+                            channels: Some(channels),
+                            ..Default::default()
+                        };
+                        bots.insert(bot.to_owned(), (channel_hash.clone(), config));
+                        run_reactor(pool.clone(), bots);
+                    }
+                }
+            }
+        }
+    });
 }
 
 fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>) {
@@ -240,6 +294,7 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
         let con = pool.get().unwrap();
         loop {
             let rsp = receiver.recv_timeout(time::Duration::from_secs(30));
+            println!("timer");
             match rsp {
                 Ok(action) => {
                     match action {
