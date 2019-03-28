@@ -19,11 +19,10 @@ use std::{thread,time};
 use clap::load_yaml;
 use config;
 use clap::{App, ArgMatches};
-use bcrypt::{DEFAULT_COST, hash, verify};
+use bcrypt::{DEFAULT_COST, hash};
 use irc::error;
 use irc::client::prelude::*;
-use reqwest;
-use reqwest::header;
+use reqwest::{self, header};
 use rocket::routes;
 use rocket_contrib::templates::Template;
 use rocket_contrib::serve::StaticFiles;
@@ -48,7 +47,7 @@ fn main() {
         thread::spawn(move || {
             rocket::ignite()
               .mount("/assets", StaticFiles::from("assets"))
-              .mount("/", routes![web::index, web::login, web::signup])
+              .mount("/", routes![web::index, web::index_auth, web::login, web::signup])
               .register(catchers![web::internal_error, web::not_found])
               .attach(Template::fairing())
               .attach(RedisConnection::fairing())

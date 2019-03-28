@@ -1,20 +1,48 @@
+extern crate jsonwebtoken as jwt;
+
 use crate::types::*;
 use std::collections::HashMap;
+use std::time::{Duration, SystemTime};
 use bcrypt::{DEFAULT_COST, hash, verify};
 use config;
 use reqwest;
 use reqwest::header;
-use rocket;
-use rocket::Request;
-use rocket::{routes,get,post,error};
-use rocket::request::Form;
+use rocket::{self, Outcome, routes,get,post,error};
+use rocket::http::{Status,Cookie,Cookies};
+use rocket::request::{self, Request, FromRequest, Form};
 use rocket_contrib::json::Json;
 use rocket_contrib::templates::Template;
 use rocket_contrib::databases::redis;
 use r2d2_redis::redis::Commands;
+use jwt::{encode, decode, Header, Algorithm, Validation};
 
-fn display_name(con: &redis::Connection, name: String) -> String {
-    return con.get(format!("channel:{}:display_name", name)).unwrap_or("".to_owned());
+impl<'a, 'r> FromRequest<'a, 'r> for Auth {
+    type Error = AuthError;
+
+    fn from_request(request: &'a Request<'r>) -> request::Outcome<Self, Self::Error> {
+        let mut settings = config::Config::default();
+        settings.merge(config::File::with_name("Settings")).unwrap();
+        settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
+
+        let auth_cookie = request.cookies().get_private("auth");
+        match auth_cookie {
+            None => Outcome::Forward(()),
+            Some(cookie) => {
+                let secret = settings.get_str("secret_key").unwrap();
+                let token = decode(&cookie.value(), secret.as_bytes(), &Validation::default());
+                match token {
+                    Err(e) => {
+                        eprintln!("{}",e);
+                        Outcome::Forward(())
+                    },
+                    Ok(token) => {
+                        let auth: Auth = token.claims;
+                        Outcome::Success(auth)
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[catch(500)]
@@ -24,15 +52,44 @@ pub fn internal_error() -> &'static str { "500" }
 pub fn not_found() -> &'static str { "404" }
 
 #[get("/")]
+pub fn index_auth(con: RedisConnection, auth: Auth) -> Template {
+    let mut context: HashMap<&str, String> = HashMap::new();
+    return Template::render("dashboard", &context);
+}
+
+#[get("/", rank=2)]
 pub fn index(con: RedisConnection) -> Template {
     let mut context: HashMap<&str, String> = HashMap::new();
     return Template::render("index", &context);
 }
 
 #[post("/api/login", data="<data>")]
-pub fn login(con: RedisConnection, data: Form<ApiLoginReq>) -> Json<ApiLoginRsp> {
-    let json: ApiLoginRsp = ApiLoginRsp { success: false, error: Some("invalid invite code".to_owned()) };
-    return Json(json);
+pub fn login(con: RedisConnection, data: Form<ApiLoginReq>, mut cookies: Cookies) -> Json<ApiLoginRsp> {
+    let mut settings = config::Config::default();
+    settings.merge(config::File::with_name("Settings")).unwrap();
+    settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
+
+    let exists: bool = con.sismember("channels", data.channel.to_lowercase()).unwrap();
+    if exists {
+        let hashed: String = con.get(format!("channel:{}:password", data.channel.to_lowercase())).unwrap();
+        let authed: bool = verify(&data.password, &hashed).unwrap();
+        if authed {
+            if let Ok(exp) = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
+                let secret = settings.get_str("secret_key").unwrap();
+                let auth = Auth { channel: data.channel.to_lowercase(), exp: exp.as_secs() + 2400000 };
+                let token = encode(&Header::default(), &auth, secret.as_bytes()).unwrap();
+                cookies.add_private(Cookie::new("auth", token));
+            }
+            let json: ApiLoginRsp = ApiLoginRsp { success: true, error: None };
+            return Json(json);
+        } else {
+            let json: ApiLoginRsp = ApiLoginRsp { success: false, error: Some("password".to_owned()) };
+            return Json(json);
+        }
+    } else {
+        let json: ApiLoginRsp = ApiLoginRsp { success: false, error: Some("channel".to_owned()) };
+        return Json(json);
+    }
 }
 
 #[post("/api/signup", data="<data>")]

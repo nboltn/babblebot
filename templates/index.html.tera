@@ -38,17 +38,25 @@
     <section class="modal-card-body">
       <div class='bg'></div>
       <form>
-        <div class="field">
+        <div class="field channel">
           <label class="label">channel</label>
-          <div class="control">
-            <input class="input" type="text" placeholder="channel">
+          <div class="control has-icons-right">
+            <input class="input" type="text" name="channel" placeholder="channel">
+            <span class="icon is-small is-right hidden">
+              <i class="fas fa-exclamation-triangle"></i>
+            </span>
           </div>
+          <p class="help is-danger hidden">channel not found</p>
         </div>
-        <div class="field">
+        <div class="field password">
           <label class="label">password</label>
-          <div class="control">
-            <input class="input" type="password" placeholder="password">
+          <div class="control has-icons-right">
+            <input class="input" type="password" name="password" placeholder="password">
+            <span class="icon is-small is-right hidden">
+              <i class="fas fa-exclamation-triangle"></i>
+            </span>
           </div>
+          <p class="help is-danger hidden">invalid password</p>
         </div>
       </form>
     </section>
@@ -111,6 +119,7 @@
   u('#login').on('click', function(){ u('#login-modal').addClass('is-active') })
   u('#signup').on('click', function(){ u('#signup-modal').addClass('is-active') })
   u('#login-modal .mclose').on('click', function(){ u('#login-modal').removeClass('is-active') })
+  u('#login-modal .is-link').on('click', function(){ u('#login-modal form').trigger('submit') })
   u('#signup-modal .mclose').on('click', function(){ u('#signup-modal').removeClass('is-active') })
   u('#signup-modal .is-link').on('click', function(){ u('#signup-modal form').trigger('submit') })
 
@@ -122,16 +131,21 @@
       body: body
     }).then(res => res.json());
 
-    u('#signup-modal .field.invite span.icon').addClass('hidden');
-    u('#signup-modal .field.invite .help.is-danger').addClass('hidden');
-    u('#signup-modal .field.invite input').removeClass('is-danger');
+    u('#login-modal .field span.icon').addClass('hidden');
+    u('#login-modal .field .help.is-danger').addClass('hidden');
+    u('#login-modal .field input').removeClass('is-danger');
 
     if (data.success) {
-      // redirect to dashboard
+      location.reload(true);
     } else {
-      u('#signup-modal .field.invite span.icon').removeClass('hidden');
-      u('#signup-modal .field.invite .help.is-danger').removeClass('hidden');
-      u('#signup-modal .field.invite input').addClass('is-danger');
+      var field = '#login-modal .field.';
+      var icon = field.concat(data.error).concat(' span.icon');
+      var help = field.concat(data.error).concat(' .help.is-danger');
+      var input = field.concat(data.error).concat(' input');
+
+      u(icon).removeClass('hidden');
+      u(help).removeClass('hidden');
+      u(input).addClass('is-danger');
     }
   })
 
@@ -148,7 +162,7 @@
     u('#signup-modal .field input').removeClass('is-danger');
 
     if (data.success) {
-      u('#signup-modal').removeClass('is-active');
+      location.reload(true);
     } else {
       var field = '#signup-modal .field.';
       var icon = field.concat(data.error).concat(' span.icon');

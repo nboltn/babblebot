@@ -6,6 +6,12 @@ use rocket_contrib::databases::redis;
 #[database("redis")]
 pub struct RedisConnection(redis::Connection);
 
+#[derive(Debug)]
+pub enum AuthError {
+    Missing,
+    Invalid
+}
+
 pub enum ThreadAction {
     Kill
 }
@@ -13,6 +19,12 @@ pub enum ThreadAction {
 pub enum Setting {
     String(String),
     Bool(bool)
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Auth {
+    pub channel: String,
+    pub exp: u64
 }
 
 #[derive(Debug, Deserialize)]

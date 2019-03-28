@@ -1,0 +1,32 @@
+{% extends "common/base" %}
+{%- block title %}Babblebot{%- endblock title %}
+
+{%- block body %}
+<div class="section" id="section-top">
+  <div class='bg'></div>
+  <div class="content hidden animated fadeIn">
+    <div id="header">
+      <div id="title">Babblebot</div>
+    </div>
+    <div id="features">
+      <div class="group">the best bot on twitch</div>
+      <div class="feature">> fully <a href="https://gitlab.com/toovs/babblebot" target="_blank">open-source</a></div>
+      <div class="feature">> free hosting</div>
+      <div class="feature">> active development</div>
+      <br>
+      <div class="group">features include</div>
+      <div class="feature">> pubg, fortnite, and other game api integration</div>
+      <div class="feature" data-balloon="(ex. throw a grenade in-game when a certain amount of bits are received)" data-balloon-pos="down">> local computer integration for fun and unique stream interactivity</div>
+      <br>
+      <div class="group">with an active subscription get</div>
+      <div class="feature">> custom bot name</div>
+      <div class="feature">> priority feature requests</div>
+    </div>
+  </div>
+</div>
+
+<script type='text/javascript'>
+  u.ready = function (fn) { document.readyState !== 'loading'? fn(): u(document).on('DOMContentLoaded', fn) }
+  u.ready(function(){ u('.section .content').removeClass('hidden') })
+</script>
+{%- endblock body %}
