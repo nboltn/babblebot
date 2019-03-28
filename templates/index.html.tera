@@ -115,7 +115,11 @@
 
 <script type='text/javascript'>
   u.ready = function (fn) { document.readyState !== 'loading'? fn(): u(document).on('DOMContentLoaded', fn) }
-  u.ready(function(){ u('.section .content').removeClass('hidden') })
+
+  var bg = new Image();
+  bg.src = "/assets/images/dark_mosaic.png";
+  bg.onload = function(){ u('.section .content').removeClass('hidden') }
+
   u('#login').on('click', function(){ u('#login-modal').addClass('is-active') })
   u('#signup').on('click', function(){ u('#signup-modal').addClass('is-active') })
   u('#login-modal .mclose').on('click', function(){ u('#login-modal').removeClass('is-active') })
