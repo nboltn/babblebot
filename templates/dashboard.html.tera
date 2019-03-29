@@ -1,11 +1,133 @@
-{% extends "common/base" %}
+{% extends 'common/base' %}
 {%- block htmlClass %}funky{%- endblock htmlClass %}
 
 {%- block body %}
-<div id="navbar">
-</div><div id="panes">
-</div><script type='text/javascript'>
+<div id='navbar'>
+  <div class='pane active' pane='dashboard'>Dashboard</div>
+  <div class='pane' pane='commands'>Commands</div>
+  <div class='pane' pane='notices'>Notices</div>
+</div><div id='panes'>
+  <div class='pane active' id='dashboard'>
+    <div class='section' id='info'>
+      <div class="title is-4">Stream Info</div>
+      <form id='title-form'>
+        <div class='field title-field'>
+          <label class='label'>Title</label>
+          <div class='control has-icons-right'>
+            <input class='input' type='text' name='title' id='status'>
+            <span class='icon is-small is-right hidden'>
+              <i class='fas fa-exclamation-triangle'></i>
+            </span>
+          </div>
+          <a class='button is-link' form='title'><i class="far fa-check-circle" form='title'></i></a>
+          <p class='help is-danger hidden'></p>
+        </div>
+      </form>
+      <form id='game-form'>
+        <div class='field game'>
+          <label class='label'>Game</label>
+          <div class='control has-icons-right'>
+            <input class='input' type='text' name='game' id='game'>
+            <span class='icon is-small is-right hidden'>
+              <i class='fas fa-exclamation-triangle'></i>
+            </span>
+          </div>
+          <a class='button is-link' form='game'><i class="far fa-check-circle" form='game'></i></a>
+          <p class='help is-danger hidden'></p>
+        </div>
+      </form>
+    </div>
+    <div class='section' id='account'>
+      <div class="title is-4">Account</div>
+      <form id='password-form'>
+        <div class='field password'>
+          <label class='label'>Password</label>
+          <div class='control has-icons-right'>
+            <input class='input' type='password' name='password'>
+            <span class='icon is-small is-right hidden'>
+              <i class='fas fa-exclamation-triangle'></i>
+            </span>
+          </div>
+          <a class='button is-link' form='password'><i class="far fa-check-circle" form='password'></i></a>
+          <p class='help is-danger hidden'></p>
+        </div>
+      </form>
+    </div>
+  </div>
+  <div class='pane' id='commands'>
+  </div>
+  <div class='pane' id='notices'>
+  </div>
+</div>
+
+<script type='text/javascript'>
   u.ready = function (fn) { document.readyState !== 'loading'? fn(): u(document).on('DOMContentLoaded', fn) }
-  u.ready(function(){ u('.section .content').removeClass('hidden') })
+
+  u('form .is-link').on('click', function(e){
+    u('#' + e.target.attributes.form.value + '-form').trigger('submit')
+  })
+
+  u('#navbar .pane').on('click', function(e){
+    u('#navbar .pane').removeClass('active')
+    u('#panes .pane').removeClass('active')
+    u(e.target).addClass('active')
+    u('#' + e.target.attributes.pane.value).addClass('active')
+  })
+
+  const form_handler = function(id, endpoint){
+    u(id).handle('submit', async e => {
+      const body = u(e.target).serialize();
+      const data = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'NoForward': '' },
+        body: body
+      }).then(res => res.json());
+
+      u('form .field span.icon').addClass('hidden');
+      u('form .field .help.is-danger').addClass('hidden');
+      u('form .field input').removeClass('is-danger');
+
+      if (data['field']) {
+        var field = id + ' .field.'.concat(data.field);
+        var icon = field.concat(' span.icon');
+        var help = field.concat(' .help.is-danger');
+        var input = field.concat(' input');
+        var message = field.concat(' .help');
+      }
+
+      if (data.success) {
+        u(id + ' .field .is-link').addClass('success');
+        setTimeout(function(){
+          u(id + ' .field .is-link').removeClass('success');
+        }, 4000);
+        if (endpoint == '/api/password') { u(id + ' .field input').nodes[0].value = '' }
+        if (data['success_value']) {
+          u(input).nodes[0].value = data.success_value;
+        }
+      } else {
+        u(icon).removeClass('hidden');
+        u(help).removeClass('hidden');
+        u(input).addClass('is-danger');
+        u(message).text(data.error_message);
+      }
+    })
+  }
+
+  form_handler('#password-form', '/api/password');
+  form_handler('#title-form', '/api/title');
+  form_handler('#game-form', '/api/game');
+
+  const fetch_data = async () => {
+    const data = await fetch('/api/data', {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'NoForward': '' }
+    }).then(res => res.json());
+
+    _.each(data.fields, function(value, field){
+      u('#' + field).nodes[0].value = value;
+    })
+  }
+
+  fetch_data();
 </script>
 {%- endblock body %}

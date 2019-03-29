@@ -80,7 +80,40 @@ html
   top: 0
   bottom: 0
   left: 0
+  .pane
+    color: white
+    float: right
+    text-align: right;
+    margin-top: 20px;
+    width: 200px;
+    padding: 8px 14px;
+    font-size: 1.5em;
+    &.active, &:hover
+      cursor: pointer
+      background-color: teal
 
 #panes
   margin-left: 260px
   padding-left: 40px
+  .pane
+    display: none
+    margin-top: 30px
+    &.active
+      display: block
+    .section
+      margin-bottom: 60px
+      form
+        margin-bottom: 10px
+        .field
+          .control
+            display: inline-block
+            width: 400px
+          .is-link
+            margin-left: 4px
+            opacity: 0.4
+            transition: background-color 200ms linear, opacity 200ms linear;
+            &.success
+              background-color: #22c65b
+              opacity: 1
+            &:hover
+              opacity: 1

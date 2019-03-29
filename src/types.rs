@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
 use rocket::request::FromForm;
 use rocket_contrib::database;
@@ -61,18 +62,20 @@ pub struct KrakenStreams {
     pub total: i16
 }
 
-#[derive(Serialize)]
-pub struct ApiLoginRsp {
-    pub success: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>
+#[derive(Debug, Serialize)]
+pub struct ApiData {
+    pub fields: HashMap<String,String>
 }
 
 #[derive(Serialize)]
-pub struct ApiSignupRsp {
+pub struct ApiRsp {
     pub success: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>
+    pub field: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub success_value: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_message: Option<String>
 }
 
 #[derive(FromForm)]
@@ -86,4 +89,19 @@ pub struct ApiSignupReq {
     pub token: String,
     pub password: String,
     pub invite: String
+}
+
+#[derive(FromForm)]
+pub struct ApiPasswordReq {
+    pub password: String
+}
+
+#[derive(FromForm)]
+pub struct ApiTitleReq {
+    pub title: String
+}
+
+#[derive(FromForm)]
+pub struct ApiGameReq {
+    pub game: String
 }

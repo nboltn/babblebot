@@ -53,11 +53,11 @@ fn set_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>,
         1 => {
             let _: () = con.hset(format!("channel:{}:settings", channel), args[0], true).unwrap();
             client.send_privmsg(format!("#{}", channel), format!("{} has been set to: true", args[0])).unwrap();
-        },
+        }
         2 => {
             let _: () = con.hset(format!("channel:{}:settings", channel), args[0], args[1]).unwrap();
             client.send_privmsg(format!("#{}", channel), format!("{} has been set to: {}", args[0], args[1])).unwrap();
-        },
+        }
         _ => {}
     }
 }
@@ -79,11 +79,11 @@ fn command_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManage
                     let _: () = con.hset(format!("channel:{}:commands:{}", channel, args[1]), "arg_protected", false).unwrap();
                     client.send_privmsg(format!("#{}", channel), format!("{} has been added", args[1])).unwrap();
                 }
-            },
+            }
             "remove" => {
                 let _: () = con.del(format!("channel:{}:commands:{}", channel, args[1])).unwrap();
                 client.send_privmsg(format!("#{}", channel), format!("{} has been removed", args[1])).unwrap();
-            },
+            }
             _ => {}
         }
     }
@@ -95,11 +95,11 @@ fn title_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>
         let rsp = twitch_request_get(con.clone(), channel, &format!("https://api.twitch.tv/kraken/channels/{}", id));
 
         match rsp {
-            Err(err) => { println!("{}", err) },
+            Err(e) => { println!("{}", e) }
             Ok(mut rsp) => {
                 let json: Result<KrakenChannel,_> = rsp.json();
                 match json {
-                    Err(err) => { println!("{}", err) }
+                    Err(e) => { println!("{}", e) }
                     Ok(json) => { client.send_privmsg(format!("#{}", channel), json.status).unwrap() }
                 }
             }
@@ -108,11 +108,11 @@ fn title_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>
         let rsp = twitch_request_put(con.clone(), channel, &format!("https://api.twitch.tv/kraken/channels/{}", id), format!("channel[status]={}", args[0]));
 
         match rsp {
-            Err(err) => { println!("{}", err) },
+            Err(e) => { println!("{}", e) }
             Ok(mut rsp) => {
                 let json: Result<KrakenChannel,_> = rsp.json();
                 match json {
-                    Err(err) => { println!("{}", err) }
+                    Err(e) => { println!("{}", e) }
                     Ok(json) => { client.send_privmsg(format!("#{}", channel), format!("Title is now set to: {}", json.status)).unwrap() }
                 }
             }
@@ -126,11 +126,11 @@ fn game_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>
         let rsp = twitch_request_get(con.clone(), channel, &format!("https://api.twitch.tv/kraken/channels/{}", id));
 
         match rsp {
-            Err(err) => { println!("{}", err) },
+            Err(e) => { println!("{}", e) }
             Ok(mut rsp) => {
                 let json: Result<KrakenChannel,_> = rsp.json();
                 match json {
-                    Err(err) => { println!("{}", err) }
+                    Err(e) => { println!("{}", e) }
                     Ok(json) => { client.send_privmsg(format!("#{}", channel), json.game).unwrap() }
                 }
             }
@@ -139,37 +139,25 @@ fn game_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>
         let rsp = twitch_request_get(con.clone(), channel, &format!("https://api.twitch.tv/helix/games?name={}", args.join(" ")));
 
         match rsp {
-            Err(err) => { println!("{}", err) },
+            Err(e) => { println!("{}", e) }
             Ok(mut rsp) => {
                 let json: Result<HelixGames,_> = rsp.json();
                 match json {
-                    Err(err) => { println!("{}", err) }
+                    Err(e) => { println!("{}", e) }
                     Ok(json) => {
                         if json.data.len() == 0 {
                             client.send_privmsg(format!("#{}", channel), format!("Unable to find a game matching: {}", args.join(" "))).unwrap()
                         } else {
-                            let rsp = twitch_request_put(con.clone(), channel, &format!("https://api.twitch.tv/kraken/channels/{}", id), format!("channel[game]={}", json.data[0].name));
+                            let name = &json.data[0].name;
+                            let rsp = twitch_request_put(con.clone(), channel, &format!("https://api.twitch.tv/kraken/channels/{}", id), format!("channel[game]={}", name));
 
                             match rsp {
-                                Err(err) => { println!("{}", err) },
+                                Err(e) => { println!("{}", e) }
                                 Ok(mut rsp) => {
                                     let json: Result<KrakenChannel,_> = rsp.json();
                                     match json {
-                                        Err(err) => { println!("{}", err) }
-                                        Ok(json) => {
-                                            let rsp = twitch_request_get(con.clone(), channel, &format!("https://api.twitch.tv/kraken/channels/{}", id));
-
-                                            match rsp {
-                                                Err(err) => { println!("{}", err) },
-                                                Ok(mut rsp) => {
-                                                    let json: Result<KrakenChannel,_> = rsp.json();
-                                                    match json {
-                                                        Err(err) => { println!("{}", err) }
-                                                        Ok(json) => { client.send_privmsg(format!("#{}", channel), format!("Game is now set to: {}", json.game)).unwrap() }
-                                                    }
-                                                }
-                                            }
-                                        }
+                                        Err(e) => { println!("{}", e) }
+                                        Ok(json) => { client.send_privmsg(format!("#{}", channel), format!("Game is now set to: {}", name)).unwrap() }
                                     }
                                 }
                             }
@@ -195,10 +183,10 @@ fn notices_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManage
                         } else {
                             client.send_privmsg(format!("#{}", channel), "notice interval must be a multiple of 30").unwrap();
                         }
-                    },
+                    }
                     Err(_) => {}
                 }
-            },
+            }
             _ => {}
         }
     }

@@ -91,7 +91,50 @@ html.funky {
   bottom: 0;
   left: 0;
 }
+#navbar .pane {
+  color: #f0efeb;
+  float: right;
+  text-align: right;
+  margin-top: 20px;
+  width: 200px;
+  padding: 8px 14px;
+  font-size: 1.5em;
+}
+#navbar .pane.active,
+#navbar .pane:hover {
+  cursor: pointer;
+  background-color: #45806f;
+}
 #panes {
   margin-left: 260px;
   padding-left: 40px;
+}
+#panes .pane {
+  display: none;
+  margin-top: 30px;
+}
+#panes .pane.active {
+  display: block;
+}
+#panes .pane .section {
+  margin-bottom: 60px;
+}
+#panes .pane .section form {
+  margin-bottom: 10px;
+}
+#panes .pane .section form .field .control {
+  display: inline-block;
+  width: 400px;
+}
+#panes .pane .section form .field .is-link {
+  margin-left: 4px;
+  opacity: 0.4;
+  transition: background-color 200ms linear, opacity 200ms linear;
+}
+#panes .pane .section form .field .is-link.success {
+  background-color: #22c65b;
+  opacity: 1;
+}
+#panes .pane .section form .field .is-link:hover {
+  opacity: 1;
 }

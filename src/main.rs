@@ -44,16 +44,16 @@ fn main() {
 
     if let Some(matches) = matches.subcommand_matches("add_channel") { add_channel(pool.clone(), &settings, matches) }
     else {
+        thread::spawn(move || { new_channel_listener(pool_c1) });
         thread::spawn(move || {
             rocket::ignite()
               .mount("/assets", StaticFiles::from("assets"))
-              .mount("/", routes![web::index, web::index_auth, web::login, web::signup])
+              .mount("/", routes![web::index, web::dashboard, web::data, web::login, web::signup, web::password, web::title, web::game])
               .register(catchers![web::internal_error, web::not_found])
               .attach(Template::fairing())
               .attach(RedisConnection::fairing())
               .launch()
         });
-        thread::spawn(move || { new_channel_listener(pool_c1) });
         thread::spawn(move || {
             let con = Arc::new(pool.get().unwrap());
             let mut bots: HashMap<String, (HashSet<String>, Config)> = HashMap::new();
@@ -159,11 +159,11 @@ fn rename_channel_listener(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>,
         let req = reqwest::Client::new();
         let rsp = req.get("https://api.twitch.tv/helix/users").header(header::AUTHORIZATION, format!("Bearer {}", &token)).send();
         match rsp {
-            Err(e) => { eprintln!("{}", e) },
+            Err(e) => { eprintln!("{}", e) }
             Ok(mut rsp) => {
                 let json: Result<HelixUsers,_> = rsp.json();
                 match json {
-                    Err(e) => { eprintln!("{}", e) },
+                    Err(e) => { eprintln!("{}", e) }
                     Ok(json) => {
                         if let Some(sender) = senders.get(&channel) {
                             let _ = sender.send(ThreadAction::Kill);
@@ -202,7 +202,7 @@ fn rename_channel_listener(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>,
 fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>) {
     let msg_handler = move |client: &IrcClient, message: Message| -> error::Result<()> {
         match message.command {
-            Command::PING(_,_) => { let _ = client.send_pong(":tmi.twitch.tv"); },
+            Command::PING(_,_) => { let _ = client.send_pong(":tmi.twitch.tv"); }
             Command::PRIVMSG(chan, msg) => {
                 let channel = &chan[1..];
                 let mut words = msg.split_whitespace();
@@ -257,11 +257,11 @@ fn live_update(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: St
         loop {
             let rsp = twitch_request_get(con.clone(), &channel, &format!("https://api.twitch.tv/kraken/streams?channel={}", id));
             match rsp {
-                Err(err) => { println!("{}", err) },
+                Err(e) => { println!("{}", e) }
                 Ok(mut rsp) => {
                     let json: Result<KrakenStreams,_> = rsp.json();
                     match json {
-                        Err(err) => { println!("{}", err);println!("{}",rsp.text().unwrap()); }
+                        Err(e) => { println!("{}", e); }
                         Ok(json) => {
                             let live: String = con.get(format!("channel:{}:live", channel)).unwrap();
                             if json.total == 0 {
@@ -299,7 +299,7 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                     match action {
                         ThreadAction::Kill => break
                     }
-                },
+                }
                 Err(err) => {
                     match err {
                         mpsc::RecvTimeoutError::Disconnected => break,
@@ -345,11 +345,11 @@ fn add_channel(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, settings: &
     let mut bot_name: String;
     let mut bot_token: String;
     match matches.value_of("bot") {
-        Some(bot) => { bot_name = bot.to_owned(); },
+        Some(bot) => { bot_name = bot.to_owned(); }
         None => { bot_name = settings.get_str("bot_name").unwrap(); }
     }
     match matches.value_of("botToken") {
-        Some(token) => { bot_token = token.to_owned(); },
+        Some(token) => { bot_token = token.to_owned(); }
         None => { bot_token = settings.get_str("bot_token").unwrap(); }
     }
     let channel_name = matches.value_of("channel").unwrap();
@@ -369,11 +369,11 @@ fn add_channel(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, settings: &
     let rsp = client.get("https://api.twitch.tv/helix/users").header(header::AUTHORIZATION, format!("Bearer {}", channel_token)).send();
 
     match rsp {
-        Err(err) => { println!("{}", err) },
+        Err(e) => { println!("{}", e) }
         Ok(mut rsp) => {
             let json: Result<types::HelixUsers,_> = rsp.json();
             match json {
-                Err(err) => { println!("{}", err) }
+                Err(e) => { println!("{}", e) }
                 Ok(json) => {
                     let _: () = con.set(format!("channel:{}:id", channel_name), &json.data[0].id).unwrap();
                     let _: () = con.set(format!("channel:{}:display_name", channel_name), &json.data[0].display_name).unwrap();
