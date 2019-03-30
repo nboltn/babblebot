@@ -98,7 +98,8 @@ pub fn data(con: RedisConnection, auth: Auth) -> Json<ApiData> {
         Err(err) => {
             println!("{}", err);
             let fields: HashMap<String, String> = HashMap::new();
-            let json = ApiData { fields: fields };
+            let commands: HashMap<String, String> = HashMap::new();
+            let json = ApiData { fields: fields, commands: commands };
             return Json(json);
         }
         Ok(mut rsp) => {
@@ -107,14 +108,27 @@ pub fn data(con: RedisConnection, auth: Auth) -> Json<ApiData> {
                 Err(err) => {
                     println!("{}", err);
                     let fields: HashMap<String, String> = HashMap::new();
-                    let json = ApiData { fields: fields };
+                    let commands: HashMap<String, String> = HashMap::new();
+                    let json = ApiData { fields: fields, commands: commands };
                     return Json(json);
                 }
                 Ok(json) => {
                     let mut fields: HashMap<String, String> = HashMap::new();
+                    let mut commands: HashMap<String, String> = HashMap::new();
+
                     fields.insert("status".to_owned(), json.status.to_owned());
                     fields.insert("game".to_owned(), json.game.to_owned());
-                    let json = ApiData { fields: fields };
+
+                    let keys: Vec<String> = con.keys(format!("channel:{}:commands:*", &auth.channel)).unwrap();
+                    for key in keys.iter() {
+                        let cmd: Vec<&str> = key.split(":").collect();
+                        let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", &auth.channel, cmd[3]), "message");
+                        if let Ok(message) = res {
+                            commands.insert(cmd[3].to_owned(), message);
+                        }
+                    }
+
+                    let json = ApiData { fields: fields, commands: commands };
                     return Json(json);
                 }
             }
@@ -328,5 +342,43 @@ pub fn game(con: RedisConnection, data: Form<ApiGameReq>, auth: Auth) -> Json<Ap
                 }
             }
         }
+    }
+}
+
+#[post("/api/new_command", data="<data>")]
+pub fn new_command(con: RedisConnection, data: Form<ApiSaveCommandReq>, auth: Auth) -> Json<ApiRsp> {
+    if !data.command.is_empty() && !data.message.is_empty() {
+        let _: () = con.hset(format!("channel:{}:commands:{}", &auth.channel, &data.command), "message", &data.message).unwrap();
+        let _: () = con.hset(format!("channel:{}:commands:{}", &auth.channel, &data.command), "cmd_protected", false).unwrap();
+        let _: () = con.hset(format!("channel:{}:commands:{}", &auth.channel, &data.command), "arg_protected", false).unwrap();
+        let json = ApiRsp { success: true, success_value: None, field: None, error_message: None };
+        return Json(json);
+    } else {
+        let json = ApiRsp { success: false, success_value: None, field: None, error_message: None };
+        return Json(json);
+    }
+}
+
+#[post("/api/save_command", data="<data>")]
+pub fn save_command(con: RedisConnection, data: Form<ApiSaveCommandReq>, auth: Auth) -> Json<ApiRsp> {
+    if !data.command.is_empty() && !data.message.is_empty() {
+        let _: () = con.hset(format!("channel:{}:commands:{}", &auth.channel, &data.command), "message", &data.message).unwrap();
+        let json = ApiRsp { success: true, success_value: None, field: None, error_message: None };
+        return Json(json);
+    } else {
+        let json = ApiRsp { success: false, success_value: None, field: None, error_message: None };
+        return Json(json);
+    }
+}
+
+#[post("/api/trash_command", data="<data>")]
+pub fn trash_command(con: RedisConnection, data: Form<ApiTrashCommandReq>, auth: Auth) -> Json<ApiRsp> {
+    if !data.command.is_empty() {
+        let _: () = con.del(format!("channel:{}:commands:{}", &auth.channel, &data.command)).unwrap();
+        let json = ApiRsp { success: true, success_value: None, field: None, error_message: None };
+        return Json(json);
+    } else {
+        let json = ApiRsp { success: false, success_value: None, field: None, error_message: None };
+        return Json(json);
     }
 }

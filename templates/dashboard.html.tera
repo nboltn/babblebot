@@ -2,132 +2,273 @@
 {%- block htmlClass %}funky{%- endblock htmlClass %}
 
 {%- block body %}
-<div id='navbar'>
-  <div class='pane active' pane='dashboard'>Dashboard</div>
-  <div class='pane' pane='commands'>Commands</div>
-  <div class='pane' pane='notices'>Notices</div>
-</div><div id='panes'>
-  <div class='pane active' id='dashboard'>
-    <div class='section' id='info'>
-      <div class="title is-4">Stream Info</div>
-      <form id='title-form'>
-        <div class='field title-field'>
-          <label class='label'>Title</label>
-          <div class='control has-icons-right'>
-            <input class='input' type='text' name='title' id='status'>
-            <span class='icon is-small is-right hidden'>
-              <i class='fas fa-exclamation-triangle'></i>
-            </span>
+<div id='app'>
+  <div id='navbar'>
+    <div class='pane active' v-on:click='pane("dashboard", $event)'>Dashboard</div>
+    <div class='pane' v-on:click='pane("commands", $event)'>Commands</div>
+    <div class='pane' v-on:click='pane("notices", $event)'>Notices</div>
+  </div><div id='panes'>
+    <div class='pane active' id='dashboard'>
+      <div class='section' id='info'>
+        <div class='title is-4'>Stream Info</div>
+        <form id='title-form' endpoint='/api/title' v-on:submit='submitField'>
+          <div class='field title-field'>
+            <label class='label'>Title</label>
+            <div class='control has-icons-right'>
+              <input class='input' type='text' name='title' id='status' v-model='fields.status'>
+              <span class='icon is-small is-right hidden'>
+                <i class='fas fa-exclamation-triangle'></i>
+              </span>
+            </div>
+            <a class='button is-link' v-on:click='triggerSubmitF("title")'><i class='far fa-check-circle'></i></a>
+            <p class='help is-danger hidden'>{%raw%}{{error}}{%endraw%}</p>
           </div>
-          <a class='button is-link' form='title'><i class="far fa-check-circle" form='title'></i></a>
-          <p class='help is-danger hidden'></p>
-        </div>
-      </form>
-      <form id='game-form'>
-        <div class='field game'>
-          <label class='label'>Game</label>
-          <div class='control has-icons-right'>
-            <input class='input' type='text' name='game' id='game'>
-            <span class='icon is-small is-right hidden'>
-              <i class='fas fa-exclamation-triangle'></i>
-            </span>
+        </form>
+        <form id='game-form' endpoint='/api/game' v-on:submit='submitField'>
+          <div class='field game'>
+            <label class='label'>Game</label>
+            <div class='control has-icons-right'>
+              <input class='input' type='text' name='game' id='game' v-model='fields.game'>
+              <span class='icon is-small is-right hidden'>
+                <i class='fas fa-exclamation-triangle'></i>
+              </span>
+            </div>
+            <a class='button is-link' v-on:click='triggerSubmitF("game")'><i class='far fa-check-circle'></i></a>
+            <p class='help is-danger hidden'>{%raw%}{{error}}{%endraw%}</p>
           </div>
-          <a class='button is-link' form='game'><i class="far fa-check-circle" form='game'></i></a>
-          <p class='help is-danger hidden'></p>
-        </div>
-      </form>
+        </form>
+      </div>
+      <div class='section' id='account'>
+        <div class='title is-4'>Account</div>
+        <form id='password-form' endpoint='/api/password' v-on:submit='submitField'>
+          <div class='field password'>
+            <label class='label'>Password</label>
+            <div class='control has-icons-right'>
+              <input class='input' type='password' name='password' v-model='fields.password'>
+              <span class='icon is-small is-right hidden'>
+                <i class='fas fa-exclamation-triangle'></i>
+              </span>
+            </div>
+            <a class='button is-link' v-on:click='triggerSubmitF("password")'><i class='far fa-check-circle'></i></a>
+            <p class='help is-danger hidden'>{%raw%}{{error}}{%endraw%}</p>
+          </div>
+        </form>
+      </div>
     </div>
-    <div class='section' id='account'>
-      <div class="title is-4">Account</div>
-      <form id='password-form'>
-        <div class='field password'>
-          <label class='label'>Password</label>
-          <div class='control has-icons-right'>
-            <input class='input' type='password' name='password'>
-            <span class='icon is-small is-right hidden'>
-              <i class='fas fa-exclamation-triangle'></i>
-            </span>
-          </div>
-          <a class='button is-link' form='password'><i class="far fa-check-circle" form='password'></i></a>
-          <p class='help is-danger hidden'></p>
-        </div>
-      </form>
+    <div class='pane' id='commands'>
+      <div class='title is-4'>Commands</div>
+      <table class='table is-striped'>
+        <tbody>
+          <tr class='new'>
+            <td class='command'><input class='input' placeholder='!newcommand' v-model='newCmd.name'></td>
+            <td class='content'><input class='input' placeholder='command message' v-model='newCmd.message'></td>
+            <td class='actions'>
+              <div class='icons'>
+                <span class='icon save' v-on:click='submitNewCmd'><i class='fas fa-save'></i></span>
+                <span class='icon success'><i class='fas fa-check-circle hidden animated'></i></span>
+              </div>
+            </td>
+          </tr>
+          <tr v-for='(message, name) in commands'>
+            <td class='command'><div class='text'>{%raw%}{{name}}{%endraw%}</div></td>
+            <td class='content'><input class='input' v-model='commands[name]'></td>
+            <td class='actions'>
+              <div class='icons'>
+                <span class='icon save' v-on:click='saveCommand(name, $event)'><i class='fas fa-save'></i></span>
+                <span class='icon trash' v-on:click='trashCommand(name)'><i class='fas fa-trash'></i></span>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
     </div>
-  </div>
-  <div class='pane' id='commands'>
-  </div>
-  <div class='pane' id='notices'>
+    <div class='pane' id='notices'>
+    </div>
   </div>
 </div>
 
 <script type='text/javascript'>
   u.ready = function (fn) { document.readyState !== 'loading'? fn(): u(document).on('DOMContentLoaded', fn) }
 
-  u('form .is-link').on('click', function(e){
-    u('#' + e.target.attributes.form.value + '-form').trigger('submit')
-  })
+  const app = new Vue({
+    el: '#app',
+    data: {
+      fields: {},
+      commands: {},
+      newCmd: { name: '', message: '' },
+      error: ''
+    },
+    created: function(){
+      var vm = this;
+      const fetch_data = async () => {
+        const data = await fetch('/api/data', {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'NoForward': '' }
+        }).then(res => res.json());
 
-  u('#navbar .pane').on('click', function(e){
-    u('#navbar .pane').removeClass('active')
-    u('#panes .pane').removeClass('active')
-    u(e.target).addClass('active')
-    u('#' + e.target.attributes.pane.value).addClass('active')
-  })
-
-  const form_handler = function(id, endpoint){
-    u(id).handle('submit', async e => {
-      const body = u(e.target).serialize();
-      const data = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'NoForward': '' },
-        body: body
-      }).then(res => res.json());
-
-      u('form .field span.icon').addClass('hidden');
-      u('form .field .help.is-danger').addClass('hidden');
-      u('form .field input').removeClass('is-danger');
-
-      if (data['field']) {
-        var field = id + ' .field.'.concat(data.field);
-        var icon = field.concat(' span.icon');
-        var help = field.concat(' .help.is-danger');
-        var input = field.concat(' input');
-        var message = field.concat(' .help');
+        vm.fields = data.fields;
+        vm.commands = _.sortKeysBy(data.commands);
       }
 
-      if (data.success) {
-        u(id + ' .field .is-link').addClass('success');
-        setTimeout(function(){
-          u(id + ' .field .is-link').removeClass('success');
-        }, 4000);
-        if (endpoint == '/api/password') { u(id + ' .field input').nodes[0].value = '' }
-        if (data['success_value']) {
-          u(input).nodes[0].value = data.success_value;
+      fetch_data();
+    },
+    methods: {
+      pane: function(id, e){
+        u('#navbar .pane').removeClass('active')
+        u('#panes .pane').removeClass('active')
+        u(e.target).addClass('active')
+        u('#' + id).addClass('active')
+      },
+      triggerSubmitF: function(id){
+        u('#' + id + '-form').trigger('submit')
+      },
+      submitField: function(e){
+        var vm = this;
+        const submitForm = async () => {
+          const body = u(e.target).serialize();
+          const data = await fetch(e.target.attributes.endpoint.value, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'NoForward': '' },
+            body: body
+          }).then(res => res.json());
+
+          const id = '#' + e.target.attributes.id.value
+          u('form .field span.icon').addClass('hidden');
+          u('form .field .help.is-danger').addClass('hidden');
+          u('form .field input').removeClass('is-danger');
+          vm.error = '';
+
+          if (data['field']) {
+            var field = id + ' .field.'.concat(data.field);
+            var icon = field.concat(' span.icon');
+            var help = field.concat(' .help.is-danger');
+            var input = field.concat(' input');
+            var message = field.concat(' .help');
+          }
+
+          if (data.success) {
+            u(id + ' .field .is-link').addClass('success');
+            setTimeout(function(){
+              u(id + ' .field .is-link').removeClass('success');
+            }, 4000);
+            if (data['success_value']) {
+              vm.fields[data.field] = data.success_value;
+            }
+            if (e.target.attributes.endpoint.value == '/api/password') {
+              vm.fields.password = '';
+            }
+          } else {
+            u(icon).removeClass('hidden');
+            u(help).removeClass('hidden');
+            u(input).addClass('is-danger');
+            vm.error = data.error_message;
+          }
         }
-      } else {
-        u(icon).removeClass('hidden');
-        u(help).removeClass('hidden');
-        u(input).addClass('is-danger');
-        u(message).text(data.error_message);
+
+        submitForm();
+      },
+      submitNewCmd: function(e){
+        var vm = this;
+        const submitForm = async () => {
+          const data = await fetch('/api/new_command', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'NoForward': '' },
+            body: "command=" + encodeURIComponent(vm.newCmd.name) + "&message=" + encodeURIComponent(vm.newCmd.message)
+          }).then(res => res.json());
+
+          if (data.success) {
+            vm.newCmd.name = '';
+            vm.newCmd.message = '';
+
+            u('#commands tr.new .icons .success i').addClass('fadeIn');
+            u('#commands tr.new .icons .success i').removeClass('hidden');
+            setTimeout(function(){
+              u('#commands tr.new .icons .success i').removeClass('fadeIn');
+              u('#commands tr.new .icons .success i').addClass('fadeOut');
+            }, 4000);
+
+            const fetch_data = async () => {
+              const data = await fetch('/api/data', {
+                method: 'GET',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'NoForward': '' }
+              }).then(res => res.json());
+
+              vm.commands = _.sortKeysBy(data.commands);
+            }
+            fetch_data();
+          }
+        }
+
+        submitForm();
+      },
+      saveCommand: function(name, e){
+        var vm = this;
+        const submitForm = async () => {
+          const data = await fetch('/api/save_command', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'NoForward': '' },
+            body: "command=" + encodeURIComponent(name) + "&message=" + encodeURIComponent(vm.commands[name])
+          }).then(res => res.json());
+
+          if (data.success) {
+            var target = u(e.target);
+            while (!target.hasClass('actions')) { target = target.parent() }
+            target.siblings('.content').children('input').addClass('is-success');
+            setTimeout(function(){
+              target.siblings('.content').children('input').removeClass('is-success');
+            }, 4000);
+
+            const fetch_data = async () => {
+              const data = await fetch('/api/data', {
+                method: 'GET',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'NoForward': '' }
+              }).then(res => res.json());
+
+              vm.commands = _.sortKeysBy(data.commands);
+            }
+            fetch_data();
+          }
+        }
+
+        submitForm();
+      },
+      trashCommand: function(name){
+        var vm = this;
+        const submitForm = async () => {
+          const data = await fetch('/api/trash_command', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'NoForward': '' },
+            body: "command=" + encodeURIComponent(name)
+          }).then(res => res.json());
+
+          if (data.success) {
+            const fetch_data = async () => {
+              const data = await fetch('/api/data', {
+                method: 'GET',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'NoForward': '' }
+              }).then(res => res.json());
+
+              vm.commands = _.sortKeysBy(data.commands);
+            }
+            fetch_data();
+          }
+        }
+
+        submitForm();
       }
-    })
-  }
+    }
+  })
 
-  form_handler('#password-form', '/api/password');
-  form_handler('#title-form', '/api/title');
-  form_handler('#game-form', '/api/game');
+  _.mixin({
+    'sortKeysBy': function (obj, comparator) {
+        var keys = _.sortBy(_.keys(obj), function (key) {
+            return comparator ? comparator(obj[key], key) : key;
+        });
 
-  const fetch_data = async () => {
-    const data = await fetch('/api/data', {
-      method: 'GET',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'NoForward': '' }
-    }).then(res => res.json());
-
-    _.each(data.fields, function(value, field){
-      u('#' + field).nodes[0].value = value;
-    })
-  }
-
-  fetch_data();
+        return _.object(keys, _.map(keys, function (key) {
+            return obj[key];
+        }));
+    }
+  });
 </script>
 {%- endblock body %}

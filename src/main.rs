@@ -48,7 +48,7 @@ fn main() {
         thread::spawn(move || {
             rocket::ignite()
               .mount("/assets", StaticFiles::from("assets"))
-              .mount("/", routes![web::index, web::dashboard, web::data, web::login, web::signup, web::password, web::title, web::game])
+              .mount("/", routes![web::index, web::dashboard, web::data, web::login, web::signup, web::password, web::title, web::game, web::new_command, web::save_command, web::trash_command])
               .register(catchers![web::internal_error, web::not_found])
               .attach(Template::fairing())
               .attach(RedisConnection::fairing())
