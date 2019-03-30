@@ -88,7 +88,7 @@
         <tbody>
           <tr class='new'>
             <td class='name'><input class='input' placeholder='interval' v-model='newNotice.interval'></td>
-            <td class='content'><input class='input' placeholder='new notice' v-model='newNotice.command'></td>
+            <td class='content'><input class='input' placeholder='command' v-model='newNotice.command'></td>
             <td class='actions'>
               <div class='icons'>
                 <span class='icon save' v-on:click='submitNewNotice'><i class='fas fa-save'></i></span>
