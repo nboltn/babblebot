@@ -39,7 +39,7 @@ fn main() {
     let redis_host = settings.get_str("redis_host").unwrap_or("redis://127.0.0.1".to_owned());
 
     let manager = RedisConnectionManager::new(&redis_host[..]).unwrap();
-    let pool = r2d2::Pool::builder().build(manager).unwrap();
+    let pool = r2d2::Pool::builder().max_size(100).build(manager).unwrap();
     let pool_c1 = pool.clone();
 
     if let Some(matches) = matches.subcommand_matches("add_channel") { add_channel(pool.clone(), &settings, matches) }
@@ -309,7 +309,7 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
             }
 
             let live: String = con.get(format!("channel:{}:live", channel)).unwrap();
-            if live == "false" {
+            if live == "true" {
                 let keys: Vec<String> = con.keys(format!("channel:{}:notices:*:commands", channel)).unwrap();
                 let ints: Vec<&str> = keys.iter().map(|str| {
                     let int: Vec<&str> = str.split(":").collect();
@@ -337,8 +337,6 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                     if let Ok(message) = res {
                         // parse cmd_vars
                         client.send_privmsg(format!("#{}", channel), message).unwrap();
-                    } else {
-                        println!("fail");
                     }
                 }
             }
