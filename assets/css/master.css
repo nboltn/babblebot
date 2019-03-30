@@ -138,32 +138,32 @@ html.funky {
 #panes .pane .section form .field .is-link:hover {
   opacity: 1;
 }
-#panes .pane#commands .table .command {
+#panes .pane .table .name {
   width: 175px;
 }
-#panes .pane#commands .table .command .text {
+#panes .pane .table .name .text {
   margin-top: 6px;
 }
-#panes .pane#commands .table .content {
+#panes .pane .table .content {
   width: 600px;
 }
-#panes .pane#commands .table .actions {
+#panes .pane .table .actions {
   padding-left: 0;
 }
-#panes .pane#commands .table .actions .icons {
+#panes .pane .table .actions .icons {
   margin-top: 5px;
 }
-#panes .pane#commands .table .actions .icons .icon {
+#panes .pane .table .actions .icons .icon {
   vertical-align: top;
 }
-#panes .pane#commands .table .actions .icons .icon.save:hover {
+#panes .pane .table .actions .icons .icon.save:hover {
   cursor: pointer;
   color: #22c65b;
 }
-#panes .pane#commands .table .actions .icons .icon.trash:hover {
+#panes .pane .table .actions .icons .icon.trash:hover {
   cursor: pointer;
   color: #ff3860;
 }
-#panes .pane#commands .table .actions .icons .icon.success {
+#panes .pane .table .actions .icons .icon.success {
   color: #22c65b;
 }

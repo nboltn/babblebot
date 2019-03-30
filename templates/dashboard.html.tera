@@ -60,7 +60,7 @@
       <table class='table is-striped'>
         <tbody>
           <tr class='new'>
-            <td class='command'><input class='input' placeholder='!newcommand' v-model='newCmd.name'></td>
+            <td class='name'><input class='input' placeholder='!newcommand' v-model='newCmd.name'></td>
             <td class='content'><input class='input' placeholder='command message' v-model='newCmd.message'></td>
             <td class='actions'>
               <div class='icons'>
@@ -70,7 +70,7 @@
             </td>
           </tr>
           <tr v-for='(message, name) in commands'>
-            <td class='command'><div class='text'>{%raw%}{{name}}{%endraw%}</div></td>
+            <td class='name'><div class='text'>{%raw%}{{name}}{%endraw%}</div></td>
             <td class='content'><input class='input' v-model='commands[name]'></td>
             <td class='actions'>
               <div class='icons'>
@@ -83,6 +83,32 @@
       </table>
     </div>
     <div class='pane' id='notices'>
+      <div class='title is-4'>Notices</div>
+      <table class='table is-striped'>
+        <tbody>
+          <tr class='new'>
+            <td class='name'><input class='input' placeholder='interval' v-model='newNotice.interval'></td>
+            <td class='content'><input class='input' placeholder='new notice' v-model='newNotice.command'></td>
+            <td class='actions'>
+              <div class='icons'>
+                <span class='icon save' v-on:click='submitNewNotice'><i class='fas fa-save'></i></span>
+                <span class='icon success'><i class='fas fa-check-circle hidden animated'></i></span>
+              </div>
+            </td>
+          </tr>
+          <template v-for='(commands, interval) in notices'>
+            <tr v-for='command in commands'>
+              <td class='name'><div class='text'>{%raw%}{{interval}}{%endraw%}</div></td>
+              <td class='content'><input class='input' readonly v-bind:value='command'></td>
+              <td class='actions'>
+                <div class='icons'>
+                  <span class='icon trash' v-on:click='trashNotice(interval, command)'><i class='fas fa-trash'></i></span>
+                </div>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
     </div>
   </div>
 </div>
@@ -95,7 +121,9 @@
     data: {
       fields: {},
       commands: {},
+      notices: {},
       newCmd: { name: '', message: '' },
+      newNotice: { interval: '', command: ''},
       error: ''
     },
     created: function(){
@@ -108,6 +136,7 @@
 
         vm.fields = data.fields;
         vm.commands = _.sortKeysBy(data.commands);
+        vm.notices = _.sortKeysBy(data.notices);
       }
 
       fetch_data();
@@ -249,6 +278,64 @@
               }).then(res => res.json());
 
               vm.commands = _.sortKeysBy(data.commands);
+            }
+            fetch_data();
+          }
+        }
+
+        submitForm();
+      },
+      submitNewNotice: function(interval, command){
+        var vm = this;
+        const submitForm = async () => {
+          const data = await fetch('/api/new_notice', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'NoForward': '' },
+            body: "interval=" + encodeURIComponent(vm.newNotice.interval) + "&command=" + encodeURIComponent(vm.newNotice.command)
+          }).then(res => res.json());
+
+          if (data.success) {
+            vm.newNotice.interval = '';
+            vm.newNotice.command = '';
+
+            u('#notices tr.new .icons .success i').addClass('fadeIn');
+            u('#notices tr.new .icons .success i').removeClass('hidden');
+            setTimeout(function(){
+              u('#notices tr.new .icons .success i').removeClass('fadeIn');
+              u('#notices tr.new .icons .success i').addClass('fadeOut');
+            }, 4000);
+
+            const fetch_data = async () => {
+              const data = await fetch('/api/data', {
+                method: 'GET',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'NoForward': '' }
+              }).then(res => res.json());
+
+              vm.notices = _.sortKeysBy(data.notices);
+            }
+            fetch_data();
+          }
+        }
+
+        submitForm();
+      },
+      trashNotice: function(interval, command){
+        var vm = this;
+        const submitForm = async () => {
+          const data = await fetch('/api/trash_notice', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'NoForward': '' },
+            body: "interval=" + encodeURIComponent(interval) + "&command=" + encodeURIComponent(command)
+          }).then(res => res.json());
+
+          if (data.success) {
+            const fetch_data = async () => {
+              const data = await fetch('/api/data', {
+                method: 'GET',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'NoForward': '' }
+              }).then(res => res.json());
+
+              vm.notices = _.sortKeysBy(data.notices);
             }
             fetch_data();
           }

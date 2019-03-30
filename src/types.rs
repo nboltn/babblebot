@@ -65,7 +65,8 @@ pub struct KrakenStreams {
 #[derive(Debug, Serialize)]
 pub struct ApiData {
     pub fields: HashMap<String,String>,
-    pub commands: HashMap<String,String>
+    pub commands: HashMap<String,String>,
+    pub notices: HashMap<String, Vec<String>>
 }
 
 #[derive(Serialize)]
@@ -115,5 +116,11 @@ pub struct ApiSaveCommandReq {
 
 #[derive(FromForm)]
 pub struct ApiTrashCommandReq {
+    pub command: String
+}
+
+#[derive(FromForm)]
+pub struct ApiNoticeReq {
+    pub interval: String,
     pub command: String
 }

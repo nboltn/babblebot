@@ -99,7 +99,8 @@ pub fn data(con: RedisConnection, auth: Auth) -> Json<ApiData> {
             println!("{}", err);
             let fields: HashMap<String, String> = HashMap::new();
             let commands: HashMap<String, String> = HashMap::new();
-            let json = ApiData { fields: fields, commands: commands };
+            let notices: HashMap<String, Vec<String>> = HashMap::new();
+            let json = ApiData { fields: fields, commands: commands, notices: notices };
             return Json(json);
         }
         Ok(mut rsp) => {
@@ -109,12 +110,14 @@ pub fn data(con: RedisConnection, auth: Auth) -> Json<ApiData> {
                     println!("{}", err);
                     let fields: HashMap<String, String> = HashMap::new();
                     let commands: HashMap<String, String> = HashMap::new();
-                    let json = ApiData { fields: fields, commands: commands };
+                    let notices: HashMap<String, Vec<String>> = HashMap::new();
+                    let json = ApiData { fields: fields, commands: commands, notices: notices };
                     return Json(json);
                 }
                 Ok(json) => {
                     let mut fields: HashMap<String, String> = HashMap::new();
                     let mut commands: HashMap<String, String> = HashMap::new();
+                    let mut notices: HashMap<String, Vec<String>> = HashMap::new();
 
                     fields.insert("status".to_owned(), json.status.to_owned());
                     fields.insert("game".to_owned(), json.game.to_owned());
@@ -128,7 +131,16 @@ pub fn data(con: RedisConnection, auth: Auth) -> Json<ApiData> {
                         }
                     }
 
-                    let json = ApiData { fields: fields, commands: commands };
+                    let keys: Vec<String> = con.keys(format!("channel:{}:notices:*:commands", &auth.channel)).unwrap();
+                    for key in keys.iter() {
+                        let int: Vec<&str> = key.split(":").collect();
+                        let res: Result<Vec<String>,_> = con.lrange(format!("channel:{}:notices:{}:commands", &auth.channel, int[3]), 0, -1);
+                        if let Ok(commands) = res {
+                            notices.insert(int[3].to_owned(), commands);
+                        }
+                    }
+
+                    let json = ApiData { fields: fields, commands: commands, notices: notices };
                     return Json(json);
                 }
             }
@@ -375,6 +387,51 @@ pub fn save_command(con: RedisConnection, data: Form<ApiSaveCommandReq>, auth: A
 pub fn trash_command(con: RedisConnection, data: Form<ApiTrashCommandReq>, auth: Auth) -> Json<ApiRsp> {
     if !data.command.is_empty() {
         let _: () = con.del(format!("channel:{}:commands:{}", &auth.channel, &data.command)).unwrap();
+        let json = ApiRsp { success: true, success_value: None, field: None, error_message: None };
+        return Json(json);
+    } else {
+        let json = ApiRsp { success: false, success_value: None, field: None, error_message: None };
+        return Json(json);
+    }
+}
+
+#[post("/api/new_notice", data="<data>")]
+pub fn new_notice(con: RedisConnection, data: Form<ApiNoticeReq>, auth: Auth) -> Json<ApiRsp> {
+    if !data.interval.is_empty() && !data.command.is_empty() {
+        let n: Result<i16,_> = data.interval.parse();
+        match n {
+            Ok(num) => {
+                if num % 30 == 0 {
+                    let exists: bool = con.exists(format!("channel:{}:commands:{}", &auth.channel, &data.command)).unwrap();
+                    if exists {
+                        let _: () = con.rpush(format!("channel:{}:notices:{}:commands", &auth.channel, &data.interval), &data.command).unwrap();
+                        let _: () = con.set(format!("channel:{}:notices:{}:countdown", &auth.channel, &data.interval), &data.interval).unwrap();
+                        let json = ApiRsp { success: true, success_value: None, field: None, error_message: None };
+                        return Json(json);
+                    } else {
+                        let json = ApiRsp { success: false, success_value: None, field: None, error_message: None };
+                        return Json(json);
+                    }
+                } else {
+                    let json = ApiRsp { success: false, success_value: None, field: None, error_message: None };
+                    return Json(json);
+                }
+            }
+            Err(_) => {
+                let json = ApiRsp { success: false, success_value: None, field: None, error_message: None };
+                return Json(json);
+            }
+        }
+    } else {
+        let json = ApiRsp { success: false, success_value: None, field: None, error_message: None };
+        return Json(json);
+    }
+}
+
+#[post("/api/trash_notice", data="<data>")]
+pub fn trash_notice(con: RedisConnection, data: Form<ApiNoticeReq>, auth: Auth) -> Json<ApiRsp> {
+    if !data.interval.is_empty() && !data.command.is_empty() {
+        let _: () = con.lrem(format!("channel:{}:notices:{}:commands", &auth.channel, &data.interval), 0, &data.command).unwrap();
         let json = ApiRsp { success: true, success_value: None, field: None, error_message: None };
         return Json(json);
     } else {

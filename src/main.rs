@@ -48,7 +48,7 @@ fn main() {
         thread::spawn(move || {
             rocket::ignite()
               .mount("/assets", StaticFiles::from("assets"))
-              .mount("/", routes![web::index, web::dashboard, web::data, web::login, web::signup, web::password, web::title, web::game, web::new_command, web::save_command, web::trash_command])
+              .mount("/", routes![web::index, web::dashboard, web::data, web::login, web::signup, web::password, web::title, web::game, web::new_command, web::save_command, web::trash_command, web::new_notice, web::trash_notice])
               .register(catchers![web::internal_error, web::not_found])
               .attach(Template::fairing())
               .attach(RedisConnection::fairing())
@@ -309,8 +309,8 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
             }
 
             let live: String = con.get(format!("channel:{}:live", channel)).unwrap();
-            if live == "true" {
-                let keys: Vec<String> = con.keys(format!("channel:{}:notices:*:messages", channel)).unwrap();
+            if live == "false" {
+                let keys: Vec<String> = con.keys(format!("channel:{}:notices:*:commands", channel)).unwrap();
                 let ints: Vec<&str> = keys.iter().map(|str| {
                     let int: Vec<&str> = str.split(":").collect();
                     return int[3]
@@ -331,9 +331,15 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
 
                 if int != 0 {
                     let _: () = con.set(format!("channel:{}:notices:{}:countdown", channel, int), int.clone()).unwrap();
-                    let notice: String = con.lpop(format!("channel:{}:notices:{}:messages", channel, int)).unwrap();
-                    client.send_privmsg(format!("#{}", channel), notice.clone()).unwrap();
-                    let _: () = con.rpush(format!("channel:{}:notices:{}:messages", channel, int), notice).unwrap();
+                    let cmd: String = con.lpop(format!("channel:{}:notices:{}:commands", channel, int)).unwrap();
+                    let _: () = con.rpush(format!("channel:{}:notices:{}:commands", channel, int), cmd.clone()).unwrap();
+                    let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", channel, cmd), "message");
+                    if let Ok(message) = res {
+                        // parse cmd_vars
+                        client.send_privmsg(format!("#{}", channel), message).unwrap();
+                    } else {
+                        println!("fail");
+                    }
                 }
             }
         }
