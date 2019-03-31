@@ -182,6 +182,13 @@ pub fn login(con: RedisConnection, data: Form<ApiLoginReq>, mut cookies: Cookies
     }
 }
 
+#[get("/api/logout")]
+pub fn logout(con: RedisConnection, mut cookies: Cookies) -> Json<ApiRsp> {
+    cookies.remove_private(Cookie::named("auth"));
+    let json = ApiRsp { success: true, success_value: None, field: None, error_message: None };
+    return Json(json);
+}
+
 #[post("/api/signup", data="<data>")]
 pub fn signup(con: RedisConnection, mut cookies: Cookies, data: Form<ApiSignupReq>) -> Json<ApiRsp> {
     let mut settings = config::Config::default();

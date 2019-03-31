@@ -8,6 +8,7 @@
     <div class='pane' v-on:click='pane("commands", $event)'>Commands</div>
     <div class='pane' v-on:click='pane("notices", $event)'>Notices</div>
     <div class='pane' v-on:click='pane("settings", $event)'>Settings</div>
+    <div class='pane' v-on:click='logout'>Logout</div>
   </div><div id='panes'>
     <div class='pane active' id='dashboard'>
       <div class='section' id='info'>
@@ -173,6 +174,13 @@
       fetch_data();
     },
     methods: {
+      logout: function(){
+        const submitForm = async () => {
+          await fetch('/api/logout');
+          location.reload(true);
+        }
+        submitForm();
+      },
       pane: function(id, e){
         u('#navbar .pane').removeClass('active')
         u('#panes .pane').removeClass('active')
