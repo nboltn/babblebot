@@ -11,20 +11,6 @@ use std::sync::Arc;
 use r2d2_redis::r2d2;
 use r2d2_redis::redis::Commands;
 
-pub fn fetch_setting(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, key: &str) -> Setting {
-    let res: Result<String,_> = con.hget(format!("channel:{}:settings", channel), key);
-    if let Ok(setting) = res {
-        Setting::String(setting)
-    } else {
-        let res: Result<bool,_> = con.hget(format!("channel:{}:settings", channel), key);
-        if let Ok(setting) = res {
-            Setting::Bool(setting)
-        } else {
-            Setting::Bool(false)
-        }
-    }
-}
-
 pub fn twitch_request_get(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, url: &str) -> reqwest::Result<reqwest::Response> {
     let mut settings = config::Config::default();
     settings.merge(config::File::with_name("Settings")).unwrap();

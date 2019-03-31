@@ -17,11 +17,6 @@ pub enum ThreadAction {
     Kill
 }
 
-pub enum Setting {
-    String(String),
-    Bool(bool)
-}
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Auth {
     pub channel: String,
@@ -66,7 +61,8 @@ pub struct KrakenStreams {
 pub struct ApiData {
     pub fields: HashMap<String,String>,
     pub commands: HashMap<String,String>,
-    pub notices: HashMap<String, Vec<String>>
+    pub notices: HashMap<String, Vec<String>>,
+    pub settings: HashMap<String,String>,
 }
 
 #[derive(Serialize)]
@@ -123,4 +119,15 @@ pub struct ApiTrashCommandReq {
 pub struct ApiNoticeReq {
     pub interval: String,
     pub command: String
+}
+
+#[derive(FromForm)]
+pub struct ApiSaveSettingReq {
+    pub name: String,
+    pub value: String
+}
+
+#[derive(FromForm)]
+pub struct ApiTrashSettingReq {
+    pub name: String
 }

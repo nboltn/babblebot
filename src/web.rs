@@ -100,7 +100,8 @@ pub fn data(con: RedisConnection, auth: Auth) -> Json<ApiData> {
             let fields: HashMap<String, String> = HashMap::new();
             let commands: HashMap<String, String> = HashMap::new();
             let notices: HashMap<String, Vec<String>> = HashMap::new();
-            let json = ApiData { fields: fields, commands: commands, notices: notices };
+            let settings: HashMap<String, String> = HashMap::new();
+            let json = ApiData { fields: fields, commands: commands, notices: notices, settings: settings };
             return Json(json);
         }
         Ok(mut rsp) => {
@@ -111,13 +112,15 @@ pub fn data(con: RedisConnection, auth: Auth) -> Json<ApiData> {
                     let fields: HashMap<String, String> = HashMap::new();
                     let commands: HashMap<String, String> = HashMap::new();
                     let notices: HashMap<String, Vec<String>> = HashMap::new();
-                    let json = ApiData { fields: fields, commands: commands, notices: notices };
+                    let settings: HashMap<String, String> = HashMap::new();
+                    let json = ApiData { fields: fields, commands: commands, notices: notices, settings: settings };
                     return Json(json);
                 }
                 Ok(json) => {
                     let mut fields: HashMap<String, String> = HashMap::new();
                     let mut commands: HashMap<String, String> = HashMap::new();
                     let mut notices: HashMap<String, Vec<String>> = HashMap::new();
+                    let mut settings: HashMap<String, String> = HashMap::new();
 
                     fields.insert("status".to_owned(), json.status.to_owned());
                     fields.insert("game".to_owned(), json.game.to_owned());
@@ -140,7 +143,9 @@ pub fn data(con: RedisConnection, auth: Auth) -> Json<ApiData> {
                         }
                     }
 
-                    let json = ApiData { fields: fields, commands: commands, notices: notices };
+                    let settings: HashMap<String,String> = con.hgetall(format!("channel:{}:settings", &auth.channel)).unwrap();
+
+                    let json = ApiData { fields: fields, commands: commands, notices: notices, settings: settings };
                     return Json(json);
                 }
             }
@@ -432,6 +437,30 @@ pub fn new_notice(con: RedisConnection, data: Form<ApiNoticeReq>, auth: Auth) ->
 pub fn trash_notice(con: RedisConnection, data: Form<ApiNoticeReq>, auth: Auth) -> Json<ApiRsp> {
     if !data.interval.is_empty() && !data.command.is_empty() {
         let _: () = con.lrem(format!("channel:{}:notices:{}:commands", &auth.channel, &data.interval), 0, &data.command).unwrap();
+        let json = ApiRsp { success: true, success_value: None, field: None, error_message: None };
+        return Json(json);
+    } else {
+        let json = ApiRsp { success: false, success_value: None, field: None, error_message: None };
+        return Json(json);
+    }
+}
+
+#[post("/api/save_setting", data="<data>")]
+pub fn save_setting(con: RedisConnection, data: Form<ApiSaveSettingReq>, auth: Auth) -> Json<ApiRsp> {
+    if !data.name.is_empty() && !data.value.is_empty() {
+        let _: () = con.hset(format!("channel:{}:settings", &auth.channel), &data.name, &data.value).unwrap();
+        let json = ApiRsp { success: true, success_value: None, field: None, error_message: None };
+        return Json(json);
+    } else {
+        let json = ApiRsp { success: false, success_value: None, field: None, error_message: None };
+        return Json(json);
+    }
+}
+
+#[post("/api/trash_setting", data="<data>")]
+pub fn trash_setting(con: RedisConnection, data: Form<ApiTrashSettingReq>, auth: Auth) -> Json<ApiRsp> {
+    if !data.name.is_empty() {
+        let _: () = con.hdel(format!("channel:{}:settings", &auth.channel), &data.name).unwrap();
         let json = ApiRsp { success: true, success_value: None, field: None, error_message: None };
         return Json(json);
     } else {

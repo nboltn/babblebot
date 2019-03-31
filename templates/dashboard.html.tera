@@ -7,6 +7,7 @@
     <div class='pane active' v-on:click='pane("dashboard", $event)'>Dashboard</div>
     <div class='pane' v-on:click='pane("commands", $event)'>Commands</div>
     <div class='pane' v-on:click='pane("notices", $event)'>Notices</div>
+    <div class='pane' v-on:click='pane("settings", $event)'>Settings</div>
   </div><div id='panes'>
     <div class='pane active' id='dashboard'>
       <div class='section' id='info'>
@@ -110,6 +111,33 @@
         </tbody>
       </table>
     </div>
+    <div class='pane' id='settings'>
+      <div class='title is-4'>Settings</div>
+      <table class='table is-striped'>
+        <tbody>
+          <tr class='new'>
+            <td class='name'><input class='input' placeholder='new:setting' v-model='newSetting.name'></td>
+            <td class='content'><input class='input' placeholder='value' v-model='newSetting.value'></td>
+            <td class='actions'>
+              <div class='icons'>
+                <span class='icon save' v-on:click='submitNewSetting'><i class='fas fa-save'></i></span>
+                <span class='icon success'><i class='fas fa-check-circle hidden animated'></i></span>
+              </div>
+            </td>
+          </tr>
+          <tr v-for='(setting, name) in settings'>
+            <td class='name'><div class='text'>{%raw%}{{name}}{%endraw%}</div></td>
+            <td class='content'><input class='input' v-model='settings[name]'></td>
+            <td class='actions'>
+              <div class='icons'>
+                <span class='icon save' v-on:click='saveSetting(name, $event)'><i class='fas fa-save'></i></span>
+                <span class='icon trash' v-on:click='trashSetting(name)'><i class='fas fa-trash'></i></span>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
   </div>
 </div>
 
@@ -122,8 +150,10 @@
       fields: {},
       commands: {},
       notices: {},
+      settings: {},
       newCmd: { name: '', message: '' },
       newNotice: { interval: '', command: ''},
+      newSetting: { name: '', value: '' },
       error: ''
     },
     created: function(){
@@ -137,6 +167,7 @@
         vm.fields = data.fields;
         vm.commands = _.sortKeysBy(data.commands);
         vm.notices = _.sortKeysBy(data.notices);
+        vm.settings = _.sortKeysBy(data.settings);
       }
 
       fetch_data();
@@ -336,6 +367,95 @@
               }).then(res => res.json());
 
               vm.notices = _.sortKeysBy(data.notices);
+            }
+            fetch_data();
+          }
+        }
+
+        submitForm();
+      },
+      submitNewSetting: function(e){
+        var vm = this;
+        const submitForm = async () => {
+          const data = await fetch('/api/save_setting', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'NoForward': '' },
+            body: "name=" + encodeURIComponent(vm.newSetting.name) + "&value=" + encodeURIComponent(vm.newSetting.value)
+          }).then(res => res.json());
+
+          if (data.success) {
+            vm.newSetting.name = '';
+            vm.newSetting.value = '';
+
+            u('#settings tr.new .icons .success i').addClass('fadeIn');
+            u('#settings tr.new .icons .success i').removeClass('hidden');
+            setTimeout(function(){
+              u('#settings tr.new .icons .success i').removeClass('fadeIn');
+              u('#settings tr.new .icons .success i').addClass('fadeOut');
+            }, 4000);
+
+            const fetch_data = async () => {
+              const data = await fetch('/api/data', {
+                method: 'GET',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'NoForward': '' }
+              }).then(res => res.json());
+
+              vm.settings = _.sortKeysBy(data.settings);
+            }
+            fetch_data();
+          }
+        }
+
+        submitForm();
+      },
+      saveSetting: function(name, e){
+        var vm = this;
+        const submitForm = async () => {
+          const data = await fetch('/api/save_setting', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'NoForward': '' },
+            body: "name=" + encodeURIComponent(name) + "&value=" + encodeURIComponent(vm.settings[name])
+          }).then(res => res.json());
+
+          if (data.success) {
+            var target = u(e.target);
+            while (!target.hasClass('actions')) { target = target.parent() }
+            target.siblings('.content').children('input').addClass('is-success');
+            setTimeout(function(){
+              target.siblings('.content').children('input').removeClass('is-success');
+            }, 4000);
+
+            const fetch_data = async () => {
+              const data = await fetch('/api/data', {
+                method: 'GET',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'NoForward': '' }
+              }).then(res => res.json());
+
+              vm.settings = _.sortKeysBy(data.settings);
+            }
+            fetch_data();
+          }
+        }
+
+        submitForm();
+      },
+      trashSetting: function(name){
+        var vm = this;
+        const submitForm = async () => {
+          const data = await fetch('/api/trash_setting', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'NoForward': '' },
+            body: "name=" + encodeURIComponent(name)
+          }).then(res => res.json());
+
+          if (data.success) {
+            const fetch_data = async () => {
+              const data = await fetch('/api/data', {
+                method: 'GET',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'NoForward': '' }
+              }).then(res => res.json());
+
+              vm.settings = _.sortKeysBy(data.settings);
             }
             fetch_data();
           }
