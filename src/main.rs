@@ -216,7 +216,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                             if let Some(value) = &tag.1 {
                                 // println!("{}: {}", tag.0, value);
                                 if tag.0 == "badges" {
-                                    let bs: Vec<&str> = value.split_whitespace().collect();
+                                    let bs: Vec<&str> = value.split(",").collect();
                                     for bstr in bs.iter() {
                                         let badge: Vec<&str> = bstr.split("/").collect();
                                         badges.insert(badge[0].to_owned(), badge[1].to_owned());
