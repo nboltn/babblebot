@@ -433,10 +433,16 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
             let recents: Vec<String> = con.lrange(format!("channel:{}:commercials:recent", commercial_channel), 0, -1).unwrap();
             let num = recents.iter().fold(hourly, |acc, lastrun| {
                 let lastrun: Vec<&str> = lastrun.split_whitespace().collect();
-                let res: Result<u64,_> = lastrun[1].parse();
-                if let Ok(num) = res {
-                    if acc >= num {
-                        return acc - num;
+                let timestamp = DateTime::parse_from_rfc3339(&lastrun[0]).unwrap();
+                let diff = Utc::now().signed_duration_since(timestamp);
+                if diff.num_minutes() < 60 {
+                    let res: Result<u64,_> = lastrun[1].parse();
+                    if let Ok(num) = res {
+                        if acc >= num {
+                            return acc - num;
+                        } else {
+                            return acc;
+                        }
                     } else {
                         return acc;
                     }
