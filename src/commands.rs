@@ -7,6 +7,7 @@ use crate::util::*;
 
 use std::sync::Arc;
 use std::collections::HashSet;
+use std::{thread,time};
 use irc::client::prelude::*;
 use chrono::{Utc, DateTime};
 use itertools::Itertools;
@@ -296,7 +297,7 @@ fn commercials_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMa
                 }
             }
             "run" => {
-                let num: Result<i16,_> = args[1].parse();
+                let num: Result<u64,_> = args[1].parse();
                 match num {
                     Ok(num) => {
                         if num > 0 && num < 7 {
@@ -313,8 +314,25 @@ fn commercials_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMa
                                 client.send_privmsg(format!("#{}", channel), format!("Commercials can't be run within eight minutes of each other")).unwrap();
                             } else {
                                 let id: String = con.get(format!("channel:{}:id", channel)).unwrap();
+                                let submode: String = con.get(format!("channel:{}:commercials:submode", channel)).unwrap_or("false".to_owned());
+                                let nres: Result<String,_> = con.get(format!("channel:{}:commercials:notice", channel));
                                 let _ = twitch_request_post(con.clone(), channel, &format!("https://api.twitch.tv/kraken/channels/{}/commercial", id), format!("{{\"length\": {}}}", num * 30));
                                 let _: () = con.set(format!("channel:{}:commercials:lastrun", channel), Utc::now().to_rfc3339()).unwrap();
+                                if submode == "true" {
+                                    let client_clone = client.clone();
+                                    let channel_clone = String::from(channel);
+                                    client.send_privmsg(format!("#{}", channel), "/subscribers").unwrap();
+                                    thread::spawn(move || {
+                                        thread::sleep(time::Duration::from_secs(num * 30));
+                                        client_clone.send_privmsg(format!("#{}", channel_clone), "/subscribersoff").unwrap();
+                                    });
+                                }
+                                if let Ok(notice) = nres {
+                                    let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", channel, notice), "message");
+                                    if let Ok(message) = res {
+                                        client.send_privmsg(format!("#{}", channel), message).unwrap();
+                                    }
+                                }
                                 client.send_privmsg(format!("#{}", channel), format!("{} commercials have been run", args[1])).unwrap();
                             }
                         } else {

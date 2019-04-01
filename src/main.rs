@@ -295,7 +295,6 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                     }
                     let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", channel, word), "message");
                     if let Ok(message) = res {
-                        // parse cmd_vars
                         let mut message = message;
                         for var in commands::command_vars.iter() {
                             message = parse_var(var, &message, con.clone(), &client, channel, &irc_message, &args);
