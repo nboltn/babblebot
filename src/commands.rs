@@ -435,10 +435,11 @@ fn commercials_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMa
                     Ok(num) => {
                         if num > 0 && num < 7 {
                             let mut within8 = false;
-                            let res: Result<String,_> = con.get(format!("channel:{}:commercials:lastrun", channel));
-                            if let Ok(timestamp) = res {
-                                let lastrun = DateTime::parse_from_rfc3339(&timestamp).unwrap();
-                                let diff = Utc::now().signed_duration_since(lastrun);
+                            let res: Result<String,_> = con.lindex(format!("channel:{}:commercials:recent", channel), 0);
+                            if let Ok(lastrun) = res {
+                                let lastrun: Vec<&str> = lastrun.split_whitespace().collect();
+                                let timestamp = DateTime::parse_from_rfc3339(&lastrun[0]).unwrap();
+                                let diff = Utc::now().signed_duration_since(timestamp);
                                 if diff.num_minutes() < 9 {
                                     within8 = true;
                                 }
@@ -449,8 +450,17 @@ fn commercials_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMa
                                 let id: String = con.get(format!("channel:{}:id", channel)).unwrap();
                                 let submode: String = con.get(format!("channel:{}:commercials:submode", channel)).unwrap_or("false".to_owned());
                                 let nres: Result<String,_> = con.get(format!("channel:{}:commercials:notice", channel));
-                                let _ = twitch_request_post(con.clone(), channel, &format!("https://api.twitch.tv/kraken/channels/{}/commercial", id), format!("{{\"length\": {}}}", num * 30));
-                                let _: () = con.set(format!("channel:{}:commercials:lastrun", channel), Utc::now().to_rfc3339()).unwrap();
+                                let rsp = twitch_request_post(con.clone(), channel, &format!("https://api.twitch.tv/kraken/channels/{}/commercial", id), format!("{{\"length\": {}}}", num * 30));
+                                let length: i16 = con.llen(format!("channel:{}:commercials:recent", channel)).unwrap();
+                                let _: () = con.lpush(format!("channel:{}:commercials:recent", channel), format!("{} {}", Utc::now().to_rfc3339(), num)).unwrap();
+                                if length > 7 {
+                                    let _: () = con.rpop(format!("channel:{}:commercials:recent", channel)).unwrap();
+                                }
+                                if let Ok(mut rsp) = rsp {
+                                    if let Ok(text) = rsp.text() {
+                                        println!("{}",text);
+                                    }
+                                }
                                 if submode == "true" {
                                     let client_clone = client.clone();
                                     let channel_clone = String::from(channel);
