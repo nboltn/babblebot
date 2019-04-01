@@ -235,7 +235,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                     let links: Vec<String> = con.smembers(format!("channel:{}:moderation:links", channel)).unwrap_or(Vec::new());
                     let bkeys: Vec<String> = con.keys(format!("channel:{}:moderation:blacklist:*", channel)).unwrap();
                     if colors == "true" && msg.len() > 6 && &msg[1..7] == "ACTION" && msg.as_bytes()[0] == 1 {
-                        client.send_privmsg(chan, format!("/timeout {} 1", get_nick(&irc_message))).unwrap();
+                        let _ = client.send_privmsg(chan, format!("/timeout {} 1", get_nick(&irc_message)));
                     }
                     if links.len() > 0 && url_regex().is_match(&msg) {
                         for word in msg.split_whitespace() {
@@ -263,7 +263,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                                             }
                                         }
                                         if !whitelisted {
-                                            client.send_privmsg(chan, format!("/timeout {} 1", get_nick(&irc_message))).unwrap();
+                                            let _ = client.send_privmsg(chan, format!("/timeout {} 1", get_nick(&irc_message)));
                                         }
                                     }
                                 }
@@ -278,7 +278,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                             Err(_) => {}
                             Ok(rgx) => {
                                 if rgx.is_match(&msg) {
-                                    client.send_privmsg(chan, format!("/timeout {} {}", get_nick(&irc_message), length)).unwrap();
+                                    let _ = client.send_privmsg(chan, format!("/timeout {} {}", get_nick(&irc_message), length));
                                     break;
                                 }
                             }
@@ -312,7 +312,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                         for var in commands::command_vars.iter() {
                             message = parse_var(var, &message, con.clone(), &client, channel, &irc_message, &args);
                         }
-                        client.send_privmsg(chan, message).unwrap();
+                        let _ = client.send_privmsg(chan, message);
                     }
                 }
             }
@@ -417,7 +417,7 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                     let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", notice_channel, cmd), "message");
                     if let Ok(message) = res {
                         // parse cmd_vars
-                        notice_client.send_privmsg(format!("#{}", notice_channel), message).unwrap();
+                        let _ = notice_client.send_privmsg(format!("#{}", notice_channel), message);
                     }
                 }
             }
@@ -477,7 +477,7 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                     if submode == "true" {
                         let client_clone = commercial_client.clone();
                         let channel_clone = String::from(commercial_channel.clone());
-                        commercial_client.send_privmsg(format!("#{}", commercial_channel), "/subscribers").unwrap();
+                        let _ = commercial_client.send_privmsg(format!("#{}", commercial_channel), "/subscribers");
                         thread::spawn(move || {
                             thread::sleep(time::Duration::from_secs(num * 30));
                             client_clone.send_privmsg(format!("#{}", channel_clone), "/subscribersoff").unwrap();
@@ -486,10 +486,10 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                     if let Ok(notice) = nres {
                         let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", commercial_channel, notice), "message");
                         if let Ok(message) = res {
-                            commercial_client.send_privmsg(format!("#{}", commercial_channel), message).unwrap();
+                            let _ = commercial_client.send_privmsg(format!("#{}", commercial_channel), message);
                         }
                     }
-                    commercial_client.send_privmsg(format!("#{}", commercial_channel), format!("{} commercials have been run", num)).unwrap();
+                    let _ = commercial_client.send_privmsg(format!("#{}", commercial_channel), format!("{} commercials have been run", num));
                 }
             }
             thread::sleep(time::Duration::from_secs(3600));

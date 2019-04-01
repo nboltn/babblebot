@@ -40,7 +40,7 @@ fn cmd_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>,
                     message = parse_var(var, &message, con.clone(), &client, channel, &irc_message, &vargs[1..].to_vec());
                 }
             }
-            client.send_privmsg(format!("#{}", channel), message).unwrap();
+            let _ = client.send_privmsg(format!("#{}", channel), message);
         } else {
             for cmd in native_commands.iter() {
                 if format!("!{}", cmd.0) == vargs[0] {
@@ -147,18 +147,18 @@ fn countdown_var(_con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMan
 }
 
 fn echo_cmd(_con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<&str>) {
-    client.send_privmsg(format!("#{}", channel), args.join(" ")).unwrap();
+    let _ = client.send_privmsg(format!("#{}", channel), args.join(" "));
 }
 
 fn set_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<&str>) {
     match args.len() {
         1 => {
             let _: () = con.hset(format!("channel:{}:settings", channel), args[0], true).unwrap();
-            client.send_privmsg(format!("#{}", channel), format!("{} has been set to: true", args[0])).unwrap();
+            let _ = client.send_privmsg(format!("#{}", channel), format!("{} has been set to: true", args[0]));
         }
         2 => {
             let _: () = con.hset(format!("channel:{}:settings", channel), args[0], args[1]).unwrap();
-            client.send_privmsg(format!("#{}", channel), format!("{} has been set to: {}", args[0], args[1])).unwrap();
+            let _ = client.send_privmsg(format!("#{}", channel), format!("{} has been set to: {}", args[0], args[1]));
         }
         _ => {}
     }
@@ -167,7 +167,7 @@ fn set_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>,
 fn unset_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<&str>) {
     if args.len() == 1 {
         let _: () = con.hdel(format!("channel:{}:settings", channel), args[0]).unwrap();
-        client.send_privmsg(format!("#{}", channel), format!("{} has been unset", args[0])).unwrap();
+        let _ = client.send_privmsg(format!("#{}", channel), format!("{} has been unset", args[0]));
     }
 }
 
@@ -179,12 +179,12 @@ fn command_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManage
                     let _: () = con.hset(format!("channel:{}:commands:{}", channel, args[1]), "message", args[2..].join(" ")).unwrap();
                     let _: () = con.hset(format!("channel:{}:commands:{}", channel, args[1]), "cmd_protected", false).unwrap();
                     let _: () = con.hset(format!("channel:{}:commands:{}", channel, args[1]), "arg_protected", false).unwrap();
-                    client.send_privmsg(format!("#{}", channel), format!("{} has been added", args[1])).unwrap();
+                    let _ = client.send_privmsg(format!("#{}", channel), format!("{} has been added", args[1]));
                 }
             }
             "remove" => {
                 let _: () = con.del(format!("channel:{}:commands:{}", channel, args[1])).unwrap();
-                client.send_privmsg(format!("#{}", channel), format!("{} has been removed", args[1])).unwrap();
+                let _ = client.send_privmsg(format!("#{}", channel), format!("{} has been removed", args[1]));
             }
             _ => {}
         }
@@ -202,7 +202,7 @@ fn title_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>
                 let json: Result<KrakenChannel,_> = rsp.json();
                 match json {
                     Err(e) => { println!("{}", e) }
-                    Ok(json) => { client.send_privmsg(format!("#{}", channel), json.status).unwrap() }
+                    Ok(json) => { let _ = client.send_privmsg(format!("#{}", channel), json.status); }
                 }
             }
         }
@@ -215,7 +215,7 @@ fn title_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>
                 let json: Result<KrakenChannel,_> = rsp.json();
                 match json {
                     Err(e) => { println!("{}", e) }
-                    Ok(json) => { client.send_privmsg(format!("#{}", channel), format!("Title is now set to: {}", json.status)).unwrap() }
+                    Ok(json) => { let _ = client.send_privmsg(format!("#{}", channel), format!("Title is now set to: {}", json.status)); }
                 }
             }
         }
@@ -233,7 +233,7 @@ fn game_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>
                 let json: Result<KrakenChannel,_> = rsp.json();
                 match json {
                     Err(e) => { println!("{}", e) }
-                    Ok(json) => { client.send_privmsg(format!("#{}", channel), json.game).unwrap() }
+                    Ok(json) => { let _ = client.send_privmsg(format!("#{}", channel), json.game); }
                 }
             }
         }
@@ -248,7 +248,7 @@ fn game_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>
                     Err(e) => { println!("{}", e) }
                     Ok(json) => {
                         if json.data.len() == 0 {
-                            client.send_privmsg(format!("#{}", channel), format!("Unable to find a game matching: {}", args.join(" "))).unwrap()
+                            let _ = client.send_privmsg(format!("#{}", channel), format!("Unable to find a game matching: {}", args.join(" ")));
                         } else {
                             let name = &json.data[0].name;
                             let rsp = twitch_request_put(con.clone(), channel, &format!("https://api.twitch.tv/kraken/channels/{}", id), format!("channel[game]={}", name));
@@ -259,7 +259,7 @@ fn game_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>
                                     let json: Result<KrakenChannel,_> = rsp.json();
                                     match json {
                                         Err(e) => { println!("{}", e) }
-                                        Ok(json) => { client.send_privmsg(format!("#{}", channel), format!("Game is now set to: {}", name)).unwrap() }
+                                        Ok(json) => { let _ = client.send_privmsg(format!("#{}", channel), format!("Game is now set to: {}", name)); }
                                     }
                                 }
                             }
@@ -281,9 +281,9 @@ fn notices_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManage
                         if num % 30 == 0 {
                             let _: () = con.rpush(format!("channel:{}:notices:{}:commands", channel, args[1]), args[2]).unwrap();
                             let _: () = con.set(format!("channel:{}:notices:{}:countdown", channel, args[1]), args[1]).unwrap();
-                            client.send_privmsg(format!("#{}", channel), "notice has been added").unwrap();
+                            let _ = client.send_privmsg(format!("#{}", channel), "notice has been added");
                         } else {
-                            client.send_privmsg(format!("#{}", channel), "notice interval must be a multiple of 30").unwrap();
+                            let _ = client.send_privmsg(format!("#{}", channel), "notice interval must be a multiple of 30");
                         }
                     }
                     Err(_) => {}
@@ -302,11 +302,11 @@ fn moderation_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMan
                     match args[1] {
                         "add" => {
                             let _: () = con.sadd(format!("channel:{}:moderation:links", channel), args[2]).unwrap();
-                            client.send_privmsg(format!("#{}", channel), format!("{} has been whitelisted", args[2])).unwrap();
+                            let _ = client.send_privmsg(format!("#{}", channel), format!("{} has been whitelisted", args[2]));
                         }
                         "remove" => {
                             let _: () = con.srem(format!("channel:{}:moderation:links", channel), args[2]).unwrap();
-                            client.send_privmsg(format!("#{}", channel), format!("{} has been removed from the whitelist", args[2])).unwrap();
+                            let _ = client.send_privmsg(format!("#{}", channel), format!("{} has been removed from the whitelist", args[2]));
                         }
                         _ => {}
                     }
@@ -316,11 +316,11 @@ fn moderation_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMan
                 match args[1] {
                     "on" => {
                         let _: () = con.set(format!("channel:{}:moderation:colors", channel), true).unwrap();
-                        client.send_privmsg(format!("#{}", channel), "Color filter has been turned on").unwrap();
+                        let _ = client.send_privmsg(format!("#{}", channel), "Color filter has been turned on");
                     }
                     "off" => {
                         let _: () = con.set(format!("channel:{}:moderation:colors", channel), false).unwrap();
-                        client.send_privmsg(format!("#{}", channel), "Color filter has been turned off").unwrap();
+                        let _ = client.send_privmsg(format!("#{}", channel), "Color filter has been turned off");
                     }
                     _ => {}
                 }
@@ -339,16 +339,16 @@ fn runads_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager
 fn multi_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<&str>) {
     if args.len() == 0 {
         let streams: HashSet<String> = con.smembers(format!("channel:{}:multi", channel)).unwrap();
-        if streams.len() > 0 { client.send_privmsg(format!("#{}", channel), format!("http://multistre.am/{}/{}", channel, streams.iter().join("/"))).unwrap() }
+        if streams.len() > 0 { let _ = client.send_privmsg(format!("#{}", channel), format!("http://multistre.am/{}/{}", channel, streams.iter().join("/"))); }
     } else if args.len() == 1 && args[0] == "clear" {
         let _: () = con.del(format!("channel:{}:multi", channel)).unwrap();
-        client.send_privmsg(format!("#{}", channel), "!multi has been cleared").unwrap();
+        let _ = client.send_privmsg(format!("#{}", channel), "!multi has been cleared");
     } else if args.len() > 1 && args[0] == "set" {
         let _: () = con.del(format!("channel:{}:multi", channel)).unwrap();
         for arg in args[1..].iter() {
             let _: () = con.sadd(format!("channel:{}:multi", channel), arg.to_owned()).unwrap();
         }
-        client.send_privmsg(format!("#{}", channel), "!multi has been set").unwrap();
+        let _ = client.send_privmsg(format!("#{}", channel), "!multi has been set");
     }
 }
 
@@ -358,7 +358,7 @@ fn counters_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManag
             "set" => {
                 if args.len() > 2 {
                     let _: () = con.hset(format!("channel:{}:counters", channel), args[1], args[2]).unwrap();
-                    client.send_privmsg(format!("#{}", channel), format!("{} has been set to: {}", args[1], args[2])).unwrap();
+                    let _ = client.send_privmsg(format!("#{}", channel), format!("{} has been set to: {}", args[1], args[2]));
                 }
             }
             "inc" => {
@@ -373,7 +373,7 @@ fn counters_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManag
                 } else {
                     let _: () = con.hset(format!("channel:{}:counters", channel), args[1], 1).unwrap();
                 }
-                client.send_privmsg(format!("#{}", channel), format!("{} has been increased", args[0])).unwrap();
+                let _ = client.send_privmsg(format!("#{}", channel), format!("{} has been increased", args[0]));
             }
             _ => {}
         }
@@ -385,7 +385,7 @@ fn phrases_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManage
         match args[0] {
             "set" => {
                 let _: () = con.hset(format!("channel:{}:phrases", channel), args[1], args[2..].join(" ")).unwrap();
-                client.send_privmsg(format!("#{}", channel), format!("{} has been set to: {}", args[1], args[2..].join(" "))).unwrap();
+                let _ = client.send_privmsg(format!("#{}", channel), format!("{} has been set to: {}", args[1], args[2..].join(" ")));
             }
             _ => {}
         }
@@ -399,11 +399,11 @@ fn commercials_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMa
                 match args[1] {
                     "on" => {
                         let _: () = con.set(format!("channel:{}:commercials:submode", channel), true).unwrap();
-                        client.send_privmsg(format!("#{}", channel), "Submode during commercials has been turned on").unwrap();
+                        let _ = client.send_privmsg(format!("#{}", channel), "Submode during commercials has been turned on");
                     }
                     "off" => {
                         let _: () = con.set(format!("channel:{}:commercials:submode", channel), false).unwrap();
-                        client.send_privmsg(format!("#{}", channel), "Submode during commercials has been turned off").unwrap();
+                        let _ = client.send_privmsg(format!("#{}", channel), "Submode during commercials has been turned off");
                     }
                     _ => {}
                 }
@@ -412,9 +412,9 @@ fn commercials_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMa
                 let exists: bool = con.exists(format!("channel:{}:commands:{}", channel, args[1])).unwrap();
                 if exists {
                     let _: () = con.set(format!("channel:{}:commercials:notice", channel), args[1]).unwrap();
-                    client.send_privmsg(format!("#{}", channel), format!("{} will be run at the start of commercials", args[1])).unwrap();
+                    let _ = client.send_privmsg(format!("#{}", channel), format!("{} will be run at the start of commercials", args[1]));
                 } else {
-                    client.send_privmsg(format!("#{}", channel), format!("{} is not an existing command", args[1])).unwrap();
+                    let _ = client.send_privmsg(format!("#{}", channel), format!("{} is not an existing command", args[1]));
                 }
             }
             "hourly" => {
@@ -422,10 +422,10 @@ fn commercials_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMa
                 match num {
                     Ok(num) => {
                         let _: () = con.set(format!("channel:{}:commercials:hourly", channel), args[1]).unwrap();
-                        client.send_privmsg(format!("#{}", channel), format!("{} commercials will be run each hour", args[1])).unwrap();
+                        let _ = client.send_privmsg(format!("#{}", channel), format!("{} commercials will be run each hour", args[1]));
                     }
                     Err(e) => {
-                        client.send_privmsg(format!("#{}", channel), format!("{} could not be parsed as a number", args[1])).unwrap();
+                        let _ = client.send_privmsg(format!("#{}", channel), format!("{} could not be parsed as a number", args[1]));
                     }
                 }
             }
@@ -445,7 +445,7 @@ fn commercials_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMa
                                 }
                             }
                             if within8 {
-                                client.send_privmsg(format!("#{}", channel), format!("Commercials can't be run within eight minutes of each other")).unwrap();
+                                let _ = client.send_privmsg(format!("#{}", channel), format!("Commercials can't be run within eight minutes of each other"));
                             } else {
                                 let id: String = con.get(format!("channel:{}:id", channel)).unwrap();
                                 let submode: String = con.get(format!("channel:{}:commercials:submode", channel)).unwrap_or("false".to_owned());
@@ -464,7 +464,7 @@ fn commercials_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMa
                                 if submode == "true" {
                                     let client_clone = client.clone();
                                     let channel_clone = String::from(channel);
-                                    client.send_privmsg(format!("#{}", channel), "/subscribers").unwrap();
+                                    let _ = client.send_privmsg(format!("#{}", channel), "/subscribers");
                                     thread::spawn(move || {
                                         thread::sleep(time::Duration::from_secs(num * 30));
                                         client_clone.send_privmsg(format!("#{}", channel_clone), "/subscribersoff").unwrap();
@@ -473,17 +473,17 @@ fn commercials_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMa
                                 if let Ok(notice) = nres {
                                     let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", channel, notice), "message");
                                     if let Ok(message) = res {
-                                        client.send_privmsg(format!("#{}", channel), message).unwrap();
+                                        let _ = client.send_privmsg(format!("#{}", channel), message);
                                     }
                                 }
-                                client.send_privmsg(format!("#{}", channel), format!("{} commercials have been run", args[1])).unwrap();
+                                let _ = client.send_privmsg(format!("#{}", channel), format!("{} commercials have been run", args[1]));
                             }
                         } else {
-                            client.send_privmsg(format!("#{}", channel), format!("{} must be a number between one and six", args[1])).unwrap();
+                            let _ = client.send_privmsg(format!("#{}", channel), format!("{} must be a number between one and six", args[1]));
                         }
                     }
                     Err(e) => {
-                        client.send_privmsg(format!("#{}", channel), format!("{} could not be parsed as a number", args[1])).unwrap();
+                        let _ = client.send_privmsg(format!("#{}", channel), format!("{} could not be parsed as a number", args[1]));
                     }
                 }
             }
