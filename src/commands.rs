@@ -1,4 +1,4 @@
-// [("bits", commandBits, Mod, Mod), ("phrases", commandPhrases, Mod, Mod), ("greetings", commandGreetings, Mod, Mod), ("giveaway", commandGiveaway, Mod, Mod), ("poll", commandPoll, Mod, Mod), ("permit", commandPermit, Mod, Mod), ("watchtime", commandWatchtime, Mod, Mod), ("clip", commandClip, All, All), , ("genwebauth", commandWebAuth, Mod, Mod), ("listads", commandListCommercials, Mod, Mod), ("listsettings", commandListSettings, Mod, Mod), ("unmod", commandUnmod, Mod, Mod)]
+// [("bits", commandBits, Mod, Mod), ("greetings", commandGreetings, Mod, Mod), ("giveaway", commandGiveaway, Mod, Mod), ("poll", commandPoll, Mod, Mod), ("permit", commandPermit, Mod, Mod), ("watchtime", commandWatchtime, Mod, Mod), ("clip", commandClip, All, All), , ("genwebauth", commandWebAuth, Mod, Mod), ("listads", commandListCommercials, Mod, Mod), ("listsettings", commandListSettings, Mod, Mod), ("unmod", commandUnmod, Mod, Mod)]
 
 // [("watchtime", watchtimeVar), ("watchrank", watchrankVar), ("watchranks", watchranksVar), ("counterinc", counterincVar), ("phrase", phraseVar), ("hotkey", hotkeyVar), ("obs:scene-change", obsSceneChangeVar), ("youtube:latest-url", youtubeLatestUrlVar), ("youtube:latest-title", youtubeLatestTitleVar), ("fortnite:wins", fortWinsVar), ("fortnite:kills", fortKillsVar), ("fortnite:lifewins", fortLifeWinsVar), ("fortnite:lifekills", fortLifeKillsVar), ("fortnite:solowins", fortSoloWinsVar), ("fortnite:solokills", fortSoloKillsVar), ("fortnite:duowins", fortDuoWinsVar), ("fortnite:duokills", fortDuoKillsVar), ("fortnite:squadwins", fortSquadWinsVar), ("fortnite:squadkills", fortSquadKillsVar), ("fortnite:season-solowins", fortSeasonSoloWinsVar), ("fortnite:season-solokills", fortSeasonSoloKillsVar), ("fortnite:season-duowins", fortSeasonDuoWinsVar), ("fortnite:season-duokills", fortSeasonDuoKillsVar), ("fortnite:season-squadwins", fortSeasonSquadWinsVar), ("fortnite:season-squadkills", fortSeasonSquadKillsVar), ("pubg:damage", pubgDmgVar), ("pubg:headshots", pubgHeadshotsVar), ("pubg:kills", pubgKillsVar), ("pubg:roadkills", pubgRoadKillsVar), ("pubg:teamkills", pubgTeamKillsVar), ("pubg:vehiclesDestroyed", pubgVehiclesDestroyedVar), ("pubg:wins", pubgWinsVar)]
 
@@ -9,14 +9,14 @@ use std::sync::Arc;
 use std::collections::HashSet;
 use std::{thread,time};
 use irc::client::prelude::*;
-use chrono::{Utc, DateTime};
+use chrono::{Utc, DateTime, FixedOffset, Duration};
 use itertools::Itertools;
 use r2d2_redis::r2d2;
 use r2d2_redis::redis::Commands;
 
-pub const native_commands: [(&str, fn(Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, &IrcClient, &str, &Vec<&str>), bool, bool); 12] = [("echo", echo_cmd, true, true), ("set", set_cmd, true, true), ("unset", unset_cmd, true, true), ("command", command_cmd, true, true), ("title", title_cmd, false, true), ("game", game_cmd, false, true), ("notices", notices_cmd, true, true), ("moderation", moderation_cmd, true, true), ("runads", runads_cmd, true, true), ("multi", multi_cmd, false, true), ("counters", counters_cmd, true, true), ("commercials", commercials_cmd, true, true)];
+pub const native_commands: [(&str, fn(Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, &IrcClient, &str, &Vec<&str>), bool, bool); 12] = [("echo", echo_cmd, true, true), ("set", set_cmd, true, true), ("unset", unset_cmd, true, true), ("command", command_cmd, true, true), ("title", title_cmd, false, true), ("game", game_cmd, false, true), ("notices", notices_cmd, true, true), ("moderation", moderation_cmd, true, true), ("multi", multi_cmd, false, true), ("counters", counters_cmd, true, true), ("phrases", phrases_cmd, true, true), ("commercials", commercials_cmd, true, true)];
 
-pub const command_vars: [(&str, fn(Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, &IrcClient, &str, &Message, Vec<&str>, &Vec<&str>) -> String); 10] = [("args", args_var), ("cmd", cmd_var), ("uptime", uptime_var), ("user", user_var), ("channel", channel_var), ("followage", followage_var), ("subcount", subcount_var), ("followcount", followcount_var), ("counter", counter_var), ("countdown", countdown_var)];
+pub const command_vars: [(&str, fn(Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, &IrcClient, &str, &Message, Vec<&str>, &Vec<&str>) -> String); 13] = [("args", args_var), ("cmd", cmd_var), ("uptime", uptime_var), ("user", user_var), ("channel", channel_var), ("followage", followage_var), ("subcount", subcount_var), ("followcount", followcount_var), ("counter", counter_var), ("phrase", phrase_var), ("countdown", countdown_var), ("date", date_var), ("dateinc", dateinc_var)];
 
 fn args_var(_con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: &Message, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
     if vargs.len() > 0 {
@@ -77,7 +77,68 @@ fn followcount_var(_con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionM
     "".to_string()
 }
 
-fn counter_var(_con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: &Message, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
+fn counter_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: &Message, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
+    if vargs.len() > 0 {
+        let res: Result<String,_> = con.hget(format!("channel:{}:counters", channel), vargs[0]);
+        if let Ok(counter) = res {
+            let num: Result<i16,_> = counter.parse();
+            match num {
+                Ok(num) => num.to_string(),
+                Err(_) => "".to_owned()
+            }
+        } else {
+            "0".to_owned()
+        }
+    } else {
+        "".to_owned()
+    }
+}
+
+fn phrase_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: &Message, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
+    if vargs.len() > 0 {
+        let res: Result<String,_> = con.hget(format!("channel:{}:phrases", channel), vargs[0]);
+        if let Ok(phrase) = res {
+            phrase
+        } else {
+            "".to_owned()
+        }
+    } else {
+        "".to_owned()
+    }
+}
+
+fn date_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: &Message, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
+    if vargs.len() > 0 {
+        let res: Result<String,_> = con.hget(format!("channel:{}:phrases", channel), vargs[0]);
+        if let Ok(phrase) = res {
+            let res: Result<DateTime<FixedOffset>,_> = DateTime::parse_from_rfc3339(&phrase);
+            if let Ok(dt) = res {
+                dt.format("%b %e %Y").to_string()
+            } else {
+                "".to_string()
+            }
+        } else {
+            "".to_string()
+        }
+    } else {
+        "".to_string()
+    }
+}
+
+fn dateinc_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: &Message, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
+    if vargs.len() > 1 {
+        let res: Result<String,_> = con.hget(format!("channel:{}:phrases", channel), vargs[1]);
+        if let Ok(phrase) = res {
+            let res: Result<DateTime<FixedOffset>,_> = DateTime::parse_from_rfc3339(&phrase);
+            if let Ok(dt) = res {
+                let res: Result<i64,_> = vargs[0].parse();
+                if let Ok(num) = res {
+                    let ndt = dt + Duration::seconds(num);
+                    let _: () = con.hset(format!("channel:{}:phrases", channel), vargs[1], ndt.to_rfc3339()).unwrap();
+                }
+            }
+        }
+    }
     "".to_string()
 }
 
@@ -292,8 +353,42 @@ fn multi_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>
 }
 
 fn counters_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<&str>) {
-    if args.len() == 1 {
+    if args.len() > 1 {
+        match args[0] {
+            "set" => {
+                if args.len() > 2 {
+                    let _: () = con.hset(format!("channel:{}:counters", channel), args[1], args[2]).unwrap();
+                    client.send_privmsg(format!("#{}", channel), format!("{} has been set to: {}", args[1], args[2])).unwrap();
+                }
+            }
+            "inc" => {
+                let res: Result<String,_> = con.hget(format!("channel:{}:counters", channel), args[1]);
+                if let Ok(counter) = res {
+                    let res: Result<i16,_> = args[1].parse();
+                    if let Ok(num) = res {
+                        let _: () = con.hset(format!("channel:{}:counters", channel), args[1], num + 1).unwrap();
+                    } else {
+                        let _: () = con.hset(format!("channel:{}:counters", channel), args[1], 1).unwrap();
+                    }
+                } else {
+                    let _: () = con.hset(format!("channel:{}:counters", channel), args[1], 1).unwrap();
+                }
+                client.send_privmsg(format!("#{}", channel), format!("{} has been increased", args[0])).unwrap();
+            }
+            _ => {}
+        }
+    }
+}
 
+fn phrases_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<&str>) {
+    if args.len() > 2 {
+        match args[0] {
+            "set" => {
+                let _: () = con.hset(format!("channel:{}:phrases", channel), args[1], args[2..].join(" ")).unwrap();
+                client.send_privmsg(format!("#{}", channel), format!("{} has been set to: {}", args[1], args[2..].join(" "))).unwrap();
+            }
+            _ => {}
+        }
     }
 }
 
