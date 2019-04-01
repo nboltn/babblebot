@@ -12,7 +12,7 @@ use itertools::Itertools;
 use r2d2_redis::r2d2;
 use r2d2_redis::redis::Commands;
 
-pub const native_commands: [(&str, fn(Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, &IrcClient, &str, &Vec<&str>), bool, bool); 11] = [("echo", echo_cmd, true, true), ("set", set_cmd, true, true), ("unset", unset_cmd, true, true), ("command", command_cmd, true, true), ("title", title_cmd, false, true), ("game", game_cmd, false, true), ("notices", notices_cmd, true, true), ("moderation", moderation_cmd, true, true), ("runads", runads_cmd, true, true), ("multi", multi_cmd, false, true), ("counters", counters_cmd, true, true)];
+pub const native_commands: [(&str, fn(Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, &IrcClient, &str, &Vec<&str>), bool, bool); 12] = [("echo", echo_cmd, true, true), ("set", set_cmd, true, true), ("unset", unset_cmd, true, true), ("command", command_cmd, true, true), ("title", title_cmd, false, true), ("game", game_cmd, false, true), ("notices", notices_cmd, true, true), ("moderation", moderation_cmd, true, true), ("runads", runads_cmd, true, true), ("multi", multi_cmd, false, true), ("counters", counters_cmd, true, true), ("commercials", commercials_cmd, true, true)];
 
 pub const command_vars: [(&str, fn(Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, &IrcClient, &str, &Message, Vec<&str>, &Vec<&str>) -> String); 7] = [("cmd", cmd_var), ("uptime", uptime_var), ("user", user_var), ("channel", channel_var), ("followage", followage_var), ("subcount", subcount_var), ("followcount", followcount_var)];
 
@@ -174,8 +174,8 @@ fn notices_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManage
     if args.len() > 1 {
         match args[0] {
             "add" => {
-                let n: Result<i16,_> = args[1].parse();
-                match n {
+                let num: Result<i16,_> = args[1].parse();
+                match num {
                     Ok(num) => {
                         if num % 30 == 0 {
                             let _: () = con.rpush(format!("channel:{}:notices:{}:commands", channel, args[1]), args[2]).unwrap();
@@ -254,5 +254,66 @@ fn multi_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>
 fn counters_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<&str>) {
     if args.len() == 1 {
 
+    }
+}
+
+fn commercials_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<&str>) {
+    if args.len() > 1 {
+        match args[0] {
+            "submode" => {
+                match args[1] {
+                    "on" => {
+                        let _: () = con.set(format!("channel:{}:commercials:submode", channel), true).unwrap();
+                        client.send_privmsg(format!("#{}", channel), "Submode during commercials has been turned on").unwrap();
+                    }
+                    "off" => {
+                        let _: () = con.set(format!("channel:{}:commercials:submode", channel), false).unwrap();
+                        client.send_privmsg(format!("#{}", channel), "Submode during commercials has been turned off").unwrap();
+                    }
+                    _ => {}
+                }
+            }
+            "notice" => {
+                let exists: bool = con.exists(format!("channel:{}:commands:{}", channel, args[1])).unwrap();
+                if exists {
+                    let _: () = con.set(format!("channel:{}:commercials:notice", channel), args[1]).unwrap();
+                    client.send_privmsg(format!("#{}", channel), format!("{} will be run at the start of commercials", args[1])).unwrap();
+                } else {
+                    client.send_privmsg(format!("#{}", channel), format!("{} is not an existing command", args[1])).unwrap();
+                }
+            }
+            "hourly" => {
+                let num: Result<i16,_> = args[1].parse();
+                match num {
+                    Ok(num) => {
+                        let _: () = con.set(format!("channel:{}:commercials:hourly", channel), args[1]).unwrap();
+                        client.send_privmsg(format!("#{}", channel), format!("{} commercials will be run each hour", args[1])).unwrap();
+                    }
+                    Err(e) => {
+                        client.send_privmsg(format!("#{}", channel), format!("{} could not be parsed as a number", args[1])).unwrap();
+                    }
+                }
+            }
+            "run" => {
+                let num: Result<i16,_> = args[1].parse();
+                match num {
+                    Ok(num) => {
+                        if num > 0 && num < 7 {
+                            let id: String = con.get(format!("channel:{}:id", channel)).unwrap();
+                            let _ = twitch_request_post(con.clone(), channel, &format!("https://api.twitch.tv/kraken/channels/{}/commercial", id), format!("{{\"length\": {}}}", num * 30));
+                            client.send_privmsg(format!("#{}", channel), format!("{} commercials have been run", args[1])).unwrap();
+                        } else {
+                            client.send_privmsg(format!("#{}", channel), format!("{} must be a number between one and six", args[1])).unwrap();
+                        }
+                        // ("https://api.twitch.tv/kraken/channels/" ++ cid ++ "/commercial") $ object [("length", Number $ scientific (num * 30) 0)]
+                        client.send_privmsg(format!("#{}", channel), format!("{} commercials have been run", args[1])).unwrap();
+                    }
+                    Err(e) => {
+                        client.send_privmsg(format!("#{}", channel), format!("{} could not be parsed as a number", args[1])).unwrap();
+                    }
+                }
+            }
+            _ => {}
+        }
     }
 }
