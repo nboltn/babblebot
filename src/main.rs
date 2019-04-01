@@ -22,6 +22,8 @@ use clap::{App, ArgMatches};
 use bcrypt::{DEFAULT_COST, hash};
 use irc::error;
 use irc::client::prelude::*;
+use url::Url;
+use regex::Regex;
 use reqwest::{self, header};
 use rocket::routes;
 use rocket_contrib::templates::Template;
@@ -48,7 +50,7 @@ fn main() {
         thread::spawn(move || {
             rocket::ignite()
               .mount("/assets", StaticFiles::from("assets"))
-              .mount("/", routes![web::index, web::dashboard, web::data, web::login, web::logout, web::signup, web::password, web::title, web::game, web::new_command, web::save_command, web::trash_command, web::new_notice, web::trash_notice, web::save_setting, web::trash_setting])
+              .mount("/", routes![web::index, web::dashboard, web::data, web::login, web::logout, web::signup, web::password, web::title, web::game, web::new_command, web::save_command, web::trash_command, web::new_notice, web::trash_notice, web::save_setting, web::trash_setting, web::new_blacklist, web::save_blacklist, web::trash_blacklist])
               .register(catchers![web::internal_error, web::not_found])
               .attach(Template::fairing())
               .attach(RedisConnection::fairing())
@@ -86,7 +88,7 @@ fn run_reactor(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, bots: HashM
     let mut reactor = IrcReactor::new().unwrap();
     let mut senders: HashMap<String, Sender<ThreadAction>> = HashMap::new();
     loop {
-        bots.iter().for_each(|(bot, channels)| {
+        bots.iter().for_each(|(_bot, channels)| {
             let client = Arc::new(reactor.prepare_client_and_connect(&channels.1).unwrap());
             client.identify().unwrap();
             let _ = client.send("CAP REQ :twitch.tv/tags");
@@ -104,7 +106,7 @@ fn run_reactor(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, bots: HashM
             Ok(_) => break,
             Err(e) => {
                 eprintln!("{}", e);
-                bots.iter().for_each(|(bot, channels)| {
+                bots.iter().for_each(|(_bot, channels)| {
                     for channel in channels.0.iter() {
                         if let Some(sender) = senders.get(channel) {
                             let _ = sender.send(ThreadAction::Kill);
@@ -212,6 +214,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                     if let Some(tags) = &irc_message.tags {
                         tags.iter().for_each(|tag| {
                             if let Some(value) = &tag.1 {
+                                // println!("{}: {}", tag.0, value);
                                 if tag.0 == "badges" {
                                     let bs: Vec<&str> = value.split_whitespace().collect();
                                     for bstr in bs.iter() {
@@ -222,6 +225,61 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                             }
                         });
                     }
+                    // filters: caps, symbols, length
+                    let colors: String = con.get(format!("channel:{}:moderation:colors", channel)).unwrap_or("false".to_owned());
+                    let links: Vec<String> = con.smembers(format!("channel:{}:moderation:links", channel)).unwrap_or(Vec::new());
+                    let bkeys: Vec<String> = con.keys(format!("channel:{}:moderation:blacklist:*", channel)).unwrap();
+                    if colors == "true" && msg.len() > 6 && &msg[1..7] == "ACTION" && msg.as_bytes()[0] == 1 {
+                        client.send_privmsg(chan, format!("/timeout {} 1", get_nick(&irc_message))).unwrap();
+                    }
+                    if links.len() > 0 && url_regex().is_match(&msg) {
+                        for word in msg.split_whitespace() {
+                            if url_regex().is_match(word) {
+                                let mut url: String = word.to_owned();
+                                if &url[0..8] != "http://" && &url[0..9] != "https://" { url = format!("http://{}", url) }
+                                match Url::parse(&url) {
+                                    Err(_) => {}
+                                    Ok(url) => {
+                                        let mut whitelisted = false;
+                                        for link in &links {
+                                            let link: Vec<&str> = link.split("/").collect();
+                                            let mut domain = url.domain().unwrap();
+                                            if &domain[0..4] == "www." { domain = &domain[4..] }
+                                            if domain == link[0] {
+                                                if link.len() > 1 {
+                                                    if url.path()[1..] == link[1..].join("/") {
+                                                        whitelisted = true;
+                                                        break;
+                                                    }
+                                                } else {
+                                                    whitelisted = true;
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                        if !whitelisted {
+                                            client.send_privmsg(chan, format!("/timeout {} 1", get_nick(&irc_message))).unwrap();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    for key in bkeys {
+                        let key: Vec<&str> = key.split(":").collect();
+                        let rgx: String = con.hget(format!("channel:{}:moderation:blacklist:{}", channel, key[4]), "regex").unwrap();
+                        let length: String = con.hget(format!("channel:{}:moderation:blacklist:{}", channel, key[4]), "length").unwrap();
+                        match Regex::new(&rgx) {
+                            Err(_) => {}
+                            Ok(rgx) => {
+                                if rgx.is_match(&msg) {
+                                    client.send_privmsg(chan, format!("/timeout {} {}", get_nick(&irc_message), length)).unwrap();
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
                     for cmd in commands::native_commands.iter() {
                         if format!("!{}", cmd.0) == word {
                             let mut auth = false;
@@ -236,9 +294,9 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                         }
                     }
                     let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", channel, word), "message");
-                    if let Ok(msg) = res {
+                    if let Ok(message) = res {
                         // parse cmd_vars
-                        let mut message = msg;
+                        let mut message = message;
                         for var in commands::command_vars.iter() {
                             message = parse_var(var, &message, con.clone(), &client, channel, &irc_message, &args);
                         }

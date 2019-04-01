@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
-use rocket::request::FromForm;
 use rocket_contrib::database;
 use rocket_contrib::databases::redis;
 
@@ -59,10 +58,11 @@ pub struct KrakenStreams {
 
 #[derive(Debug, Serialize)]
 pub struct ApiData {
-    pub fields: HashMap<String,String>,
-    pub commands: HashMap<String,String>,
+    pub fields: HashMap<String, String>,
+    pub commands: HashMap<String, String>,
     pub notices: HashMap<String, Vec<String>>,
-    pub settings: HashMap<String,String>,
+    pub settings: HashMap<String, String>,
+    pub blacklist: HashMap<String, HashMap<String,String>>
 }
 
 #[derive(Serialize)]
@@ -130,4 +130,22 @@ pub struct ApiSaveSettingReq {
 #[derive(FromForm)]
 pub struct ApiTrashSettingReq {
     pub name: String
+}
+
+#[derive(FromForm)]
+pub struct ApiNewBlacklistReq {
+    pub regex: String,
+    pub length: String
+}
+
+#[derive(FromForm)]
+pub struct ApiSaveBlacklistReq {
+    pub regex: String,
+    pub length: String,
+    pub key: String
+}
+
+#[derive(FromForm)]
+pub struct ApiTrashBlacklistReq {
+    pub key: String
 }

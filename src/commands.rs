@@ -195,7 +195,37 @@ fn notices_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManage
 
 fn moderation_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<&str>) {
     if args.len() > 1 {
-
+        match args[0] {
+            "links" => {
+                if args.len() > 2 {
+                    match args[1] {
+                        "add" => {
+                            let _: () = con.sadd(format!("channel:{}:moderation:links", channel), args[2]).unwrap();
+                            client.send_privmsg(format!("#{}", channel), format!("{} has been whitelisted", args[2])).unwrap();
+                        }
+                        "remove" => {
+                            let _: () = con.srem(format!("channel:{}:moderation:links", channel), args[2]).unwrap();
+                            client.send_privmsg(format!("#{}", channel), format!("{} has been removed from the whitelist", args[2])).unwrap();
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            "colors" => {
+                match args[1] {
+                    "on" => {
+                        let _: () = con.set(format!("channel:{}:moderation:colors", channel), true).unwrap();
+                        client.send_privmsg(format!("#{}", channel), "Color filter has been turned on").unwrap();
+                    }
+                    "off" => {
+                        let _: () = con.set(format!("channel:{}:moderation:colors", channel), false).unwrap();
+                        client.send_privmsg(format!("#{}", channel), "Color filter has been turned off").unwrap();
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
     }
 }
 

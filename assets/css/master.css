@@ -168,3 +168,9 @@ html.funky {
 #panes .pane .table .actions .icons .icon.success {
   color: #22c65b;
 }
+#panes .pane .table#blacklist .regex {
+  width: 600px;
+}
+#panes .pane .table#blacklist .length {
+  width: 160px;
+}

@@ -3,20 +3,19 @@ extern crate jsonwebtoken as jwt;
 use crate::types::*;
 use crate::util::*;
 use std::collections::HashMap;
-use std::time::{Duration, SystemTime};
+use std::time::{SystemTime};
 use bcrypt::{DEFAULT_COST, hash, verify};
 use config;
 use reqwest;
 use reqwest::header;
 use reqwest::header::HeaderValue;
-use rocket::{self, Outcome, routes,get,post,error};
+use rocket::{self, Outcome, get, post};
 use rocket::http::{Status,Cookie,Cookies};
 use rocket::request::{self, Request, FromRequest, Form};
 use rocket_contrib::json::Json;
 use rocket_contrib::templates::Template;
-use rocket_contrib::databases::redis;
 use r2d2_redis::redis::Commands;
-use jwt::{encode, decode, Header, Algorithm, Validation};
+use jwt::{encode, decode, Header, Validation};
 
 impl<'a, 'r> FromRequest<'a, 'r> for Auth {
     type Error = AuthError;
@@ -27,7 +26,7 @@ impl<'a, 'r> FromRequest<'a, 'r> for Auth {
         settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
 
         let mut forward = true;
-        if let Some(f) = request.headers().get_one("NoForward") { forward = false }
+        if let Some(_) = request.headers().get_one("NoForward") { forward = false }
 
         let auth_cookie = request.cookies().get_private("auth");
         match auth_cookie {
@@ -67,13 +66,13 @@ pub fn internal_error() -> &'static str { "500" }
 pub fn not_found() -> &'static str { "404" }
 
 #[get("/")]
-pub fn dashboard(con: RedisConnection, auth: Auth) -> Template {
+pub fn dashboard(_con: RedisConnection, _auth: Auth) -> Template {
     let context: HashMap<&str, String> = HashMap::new();
     return Template::render("dashboard", &context);
 }
 
 #[get("/", rank=2)]
-pub fn index(con: RedisConnection) -> Template {
+pub fn index(_con: RedisConnection) -> Template {
     let context: HashMap<&str, String> = HashMap::new();
     return Template::render("index", &context);
 }
@@ -101,7 +100,8 @@ pub fn data(con: RedisConnection, auth: Auth) -> Json<ApiData> {
             let commands: HashMap<String, String> = HashMap::new();
             let notices: HashMap<String, Vec<String>> = HashMap::new();
             let settings: HashMap<String, String> = HashMap::new();
-            let json = ApiData { fields: fields, commands: commands, notices: notices, settings: settings };
+            let blacklist: HashMap<String, HashMap<String,String>> = HashMap::new();
+            let json = ApiData { fields: fields, commands: commands, notices: notices, settings: settings, blacklist: blacklist };
             return Json(json);
         }
         Ok(mut rsp) => {
@@ -113,16 +113,20 @@ pub fn data(con: RedisConnection, auth: Auth) -> Json<ApiData> {
                     let commands: HashMap<String, String> = HashMap::new();
                     let notices: HashMap<String, Vec<String>> = HashMap::new();
                     let settings: HashMap<String, String> = HashMap::new();
-                    let json = ApiData { fields: fields, commands: commands, notices: notices, settings: settings };
+                    let blacklist: HashMap<String, HashMap<String,String>> = HashMap::new();
+                    let json = ApiData { fields: fields, commands: commands, notices: notices, settings: settings, blacklist: blacklist };
                     return Json(json);
                 }
                 Ok(json) => {
                     let mut fields: HashMap<String, String> = HashMap::new();
                     let mut commands: HashMap<String, String> = HashMap::new();
                     let mut notices: HashMap<String, Vec<String>> = HashMap::new();
+                    let mut blacklist: HashMap<String, HashMap<String,String>> = HashMap::new();
 
                     fields.insert("status".to_owned(), json.status.to_owned());
                     fields.insert("game".to_owned(), json.game.to_owned());
+
+                    let settings: HashMap<String,String> = con.hgetall(format!("channel:{}:settings", &auth.channel)).unwrap();
 
                     let keys: Vec<String> = con.keys(format!("channel:{}:commands:*", &auth.channel)).unwrap();
                     for key in keys.iter() {
@@ -142,9 +146,14 @@ pub fn data(con: RedisConnection, auth: Auth) -> Json<ApiData> {
                         }
                     }
 
-                    let settings: HashMap<String,String> = con.hgetall(format!("channel:{}:settings", &auth.channel)).unwrap();
+                    let keys: Vec<String> = con.keys(format!("channel:{}:moderation:blacklist:*", &auth.channel)).unwrap();
+                    for key in keys {
+                        let key: Vec<&str> = key.split(":").collect();
+                        let data: HashMap<String,String> = con.hgetall(format!("channel:{}:moderation:blacklist:{}", &auth.channel, key[4])).unwrap();
+                        blacklist.insert(key[4].to_owned(), data);
+                    }
 
-                    let json = ApiData { fields: fields, commands: commands, notices: notices, settings: settings };
+                    let json = ApiData { fields: fields, commands: commands, notices: notices, settings: settings, blacklist: blacklist };
                     return Json(json);
                 }
             }
@@ -182,7 +191,7 @@ pub fn login(con: RedisConnection, data: Form<ApiLoginReq>, mut cookies: Cookies
 }
 
 #[get("/api/logout")]
-pub fn logout(con: RedisConnection, mut cookies: Cookies) -> Json<ApiRsp> {
+pub fn logout(_con: RedisConnection, mut cookies: Cookies) -> Json<ApiRsp> {
     cookies.remove_private(Cookie::named("auth"));
     let json = ApiRsp { success: true, success_value: None, field: None, error_message: None };
     return Json(json);
@@ -198,14 +207,14 @@ pub fn signup(con: RedisConnection, mut cookies: Cookies, data: Form<ApiSignupRe
     let rsp = client.get("https://api.twitch.tv/helix/users").header(header::AUTHORIZATION, format!("Bearer {}", data.token)).send();
 
     match rsp {
-        Err(e) => {
+        Err(_) => {
             let json = ApiRsp { success: false, success_value: None, field: Some("token".to_owned()), error_message: Some("invalid access code".to_owned()) };
             return Json(json);
         }
         Ok(mut rsp) => {
             let json: Result<HelixUsers,_> = rsp.json();
             match json {
-                Err(e) => {
+                Err(_) => {
                     let json = ApiRsp { success: false, success_value: None, field: Some("token".to_owned()), error_message: Some("invalid access code".to_owned()) };
                     return Json(json);
                 }
@@ -258,9 +267,7 @@ pub fn password(con: RedisConnection, data: Form<ApiPasswordReq>, auth: Auth) ->
         let json = ApiRsp { success: false, success_value: None, field: Some("password".to_owned()), error_message: Some("empty password".to_owned()) };
         return Json(json);
     } else {
-        let hashed = hash(&data.password, DEFAULT_COST).unwrap();
         let _: () = con.set(format!("channel:{}:password", &auth.channel), hash(&data.password, DEFAULT_COST).unwrap()).unwrap();
-
         let json = ApiRsp { success: true, success_value: None, field: None, error_message: None };
         return Json(json);
     }
@@ -284,18 +291,18 @@ pub fn title(con: RedisConnection, data: Form<ApiTitleReq>, auth: Auth) -> Json<
     let rsp = req.put(&format!("https://api.twitch.tv/kraken/channels/{}", id)).body(format!("channel[status]={}", data.title)).send();
 
     match rsp {
-        Err(e) => {
+        Err(_) => {
             let json = ApiRsp { success: false, success_value: None, field: Some("title-field".to_owned()), error_message: Some("twitch api error".to_owned()) };
             return Json(json);
         }
         Ok(mut rsp) => {
             let json: Result<KrakenChannel,_> = rsp.json();
             match json {
-                Err(e) => {
+                Err(_) => {
                     let json = ApiRsp { success: false, success_value: None, field: Some("title-field".to_owned()), error_message: Some("twitch api error".to_owned()) };
                     return Json(json);
                 }
-                Ok(json) => {
+                Ok(_) => {
                     let json = ApiRsp { success: true, success_value: None, field: None, error_message: None };
                     return Json(json);
                 }
@@ -322,14 +329,14 @@ pub fn game(con: RedisConnection, data: Form<ApiGameReq>, auth: Auth) -> Json<Ap
     let rsp = req.get(&format!("https://api.twitch.tv/helix/games?name={}", data.game)).send();
 
     match rsp {
-        Err(e) => {
+        Err(_) => {
             let json = ApiRsp { success: false, success_value: None, field: Some("game".to_owned()), error_message: Some("game not found".to_owned()) };
             return Json(json);
         }
         Ok(mut rsp) => {
             let json: Result<HelixGames,_> = rsp.json();
             match json {
-                Err(e) => {
+                Err(_) => {
                     let json = ApiRsp { success: false, success_value: None, field: Some("game".to_owned()), error_message: Some("game not found".to_owned()) };
                     return Json(json);
                 }
@@ -343,18 +350,18 @@ pub fn game(con: RedisConnection, data: Form<ApiGameReq>, auth: Auth) -> Json<Ap
                         let rsp = req.put(&format!("https://api.twitch.tv/kraken/channels/{}", id)).body(format!("channel[game]={}", name)).send();
 
                         match rsp {
-                            Err(e) => {
+                            Err(_) => {
                                 let json = ApiRsp { success: false, success_value: None, field: Some("game".to_owned()), error_message: Some("twitch api error".to_owned()) };
                                 return Json(json);
                             }
                             Ok(mut rsp) => {
                                 let json: Result<KrakenChannel,_> = rsp.json();
                                 match json {
-                                    Err(e) => {
+                                    Err(_) => {
                                         let json = ApiRsp { success: false, success_value: None, field: Some("game".to_owned()), error_message: Some("twitch api error".to_owned()) };
                                         return Json(json);
                                     }
-                                    Ok(json) => {
+                                    Ok(_) => {
                                         let json = ApiRsp { success: true, success_value: Some(name.to_owned()), field: Some("game".to_owned()), error_message: None };
                                         return Json(json);
                                     }
@@ -467,6 +474,45 @@ pub fn save_setting(con: RedisConnection, data: Form<ApiSaveSettingReq>, auth: A
 pub fn trash_setting(con: RedisConnection, data: Form<ApiTrashSettingReq>, auth: Auth) -> Json<ApiRsp> {
     if !data.name.is_empty() {
         let _: () = con.hdel(format!("channel:{}:settings", &auth.channel), &data.name).unwrap();
+        let json = ApiRsp { success: true, success_value: None, field: None, error_message: None };
+        return Json(json);
+    } else {
+        let json = ApiRsp { success: false, success_value: None, field: None, error_message: None };
+        return Json(json);
+    }
+}
+
+#[post("/api/new_blacklist", data="<data>")]
+pub fn new_blacklist(con: RedisConnection, data: Form<ApiNewBlacklistReq>, auth: Auth) -> Json<ApiRsp> {
+    if !data.regex.is_empty() && !data.length.is_empty() {
+        let key = hash(&data.regex, 6).unwrap();
+        let _: () = con.hset(format!("channel:{}:moderation:blacklist:{}", &auth.channel, &key), "regex", &data.regex).unwrap();
+        let _: () = con.hset(format!("channel:{}:moderation:blacklist:{}", &auth.channel, &key), "length", &data.length).unwrap();
+        let json = ApiRsp { success: true, success_value: None, field: None, error_message: None };
+        return Json(json);
+    } else {
+        let json = ApiRsp { success: false, success_value: None, field: None, error_message: None };
+        return Json(json);
+    }
+}
+
+#[post("/api/save_blacklist", data="<data>")]
+pub fn save_blacklist(con: RedisConnection, data: Form<ApiSaveBlacklistReq>, auth: Auth) -> Json<ApiRsp> {
+    if !data.key.is_empty() && !data.regex.is_empty() && !data.length.is_empty() {
+        let _: () = con.hset(format!("channel:{}:moderation:blacklist:{}", &auth.channel, &data.key), "regex", &data.regex).unwrap();
+        let _: () = con.hset(format!("channel:{}:moderation:blacklist:{}", &auth.channel, &data.key), "length", &data.length).unwrap();
+        let json = ApiRsp { success: true, success_value: None, field: None, error_message: None };
+        return Json(json);
+    } else {
+        let json = ApiRsp { success: false, success_value: None, field: None, error_message: None };
+        return Json(json);
+    }
+}
+
+#[post("/api/trash_blacklist", data="<data>")]
+pub fn trash_blacklist(con: RedisConnection, data: Form<ApiTrashBlacklistReq>, auth: Auth) -> Json<ApiRsp> {
+    if !data.key.is_empty() {
+        let _: () = con.del(format!("channel:{}:moderation:blacklist:{}", &auth.channel, &data.key)).unwrap();
         let json = ApiRsp { success: true, success_value: None, field: None, error_message: None };
         return Json(json);
     } else {
