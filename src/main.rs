@@ -200,8 +200,8 @@ fn rename_channel_listener(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>,
 }
 
 fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>) {
-    let msg_handler = move |client: &IrcClient, message: Message| -> error::Result<()> {
-        match message.command {
+    let msg_handler = move |client: &IrcClient, irc_message: Message| -> error::Result<()> {
+        match &irc_message.command {
             Command::PING(_,_) => { let _ = client.send_pong(":tmi.twitch.tv"); }
             Command::PRIVMSG(chan, msg) => {
                 let channel = &chan[1..];
@@ -209,7 +209,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                 if let Some(word) = words.next() {
                     let args: Vec<&str> = words.collect();
                     let mut badges: HashMap<String, String> = HashMap::new();
-                    if let Some(tags) = message.tags {
+                    if let Some(tags) = &irc_message.tags {
                         tags.iter().for_each(|tag| {
                             if let Some(value) = &tag.1 {
                                 if tag.0 == "badges" {
@@ -236,8 +236,12 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                         }
                     }
                     let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", channel, word), "message");
-                    if let Ok(message) = res {
+                    if let Ok(msg) = res {
                         // parse cmd_vars
+                        let mut message = msg;
+                        for var in commands::command_vars.iter() {
+                            message = parse_var(var, &message, con.clone(), &client, channel, &irc_message, &args);
+                        }
                         client.send_privmsg(chan, message).unwrap();
                     }
                 }

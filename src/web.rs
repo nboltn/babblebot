@@ -120,7 +120,6 @@ pub fn data(con: RedisConnection, auth: Auth) -> Json<ApiData> {
                     let mut fields: HashMap<String, String> = HashMap::new();
                     let mut commands: HashMap<String, String> = HashMap::new();
                     let mut notices: HashMap<String, Vec<String>> = HashMap::new();
-                    let mut settings: HashMap<String, String> = HashMap::new();
 
                     fields.insert("status".to_owned(), json.status.to_owned());
                     fields.insert("game".to_owned(), json.game.to_owned());

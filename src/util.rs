@@ -3,11 +3,13 @@
 // cmdVarRegex = "\\(" ++ var ++ "((?: [\\w\\-:/!]+)*)\\)"
 
 use crate::types::*;
+use std::sync::Arc;
 use config;
 use reqwest;
+use irc::client::prelude::*;
 use reqwest::header;
 use reqwest::header::HeaderValue;
-use std::sync::Arc;
+use regex::{Regex,Captures};
 use r2d2_redis::r2d2;
 use r2d2_redis::redis::Commands;
 
@@ -42,4 +44,26 @@ pub fn twitch_request_put(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConne
     let req = reqwest::Client::builder().http1_title_case_headers().default_headers(headers).build().unwrap();
     let rsp = req.put(url).body(body).send();
     return rsp;
+}
+
+pub fn parse_var(var: &(&str, fn(Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, &IrcClient, &str, &Message, Vec<&str>, &Vec<&str>) -> String), message: &str, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, irc_message: &Message, cargs: &Vec<&str>) -> String {
+    let rgx = Regex::new(&format!("\\({}((?: [\\w\\-:/!]+)*)\\)", var.0)).unwrap();
+    let mut vargs: Vec<&str> = Vec::new();
+    if let Some(captures) = rgx.captures(message) {
+        if let Some(capture) = captures.get(1) {
+            vargs = capture.as_str().split_whitespace().collect();
+        }
+    }
+    let res = (var.1)(con, client, channel, irc_message, vargs, cargs);
+    let msg = rgx.replace(message, |_: &Captures| { &res }).to_string();
+    return msg.to_owned();
+}
+
+pub fn get_nick(msg: &Message) -> String {
+    let mut name = "";
+    if let Some(prefix) = &msg.prefix {
+        let split: Vec<&str> = prefix.split("!").collect();
+        name = split[0];
+    }
+    return name.to_owned();
 }
