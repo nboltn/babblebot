@@ -42,7 +42,7 @@ impl<'a, 'r> FromRequest<'a, 'r> for Auth {
                 let token = decode(&cookie.value(), secret.as_bytes(), &Validation::default());
                 match token {
                     Err(e) => {
-                        eprintln!("{}",e);
+                        eprintln!("[from_request] {}",e);
                         if forward {
                             return Outcome::Forward(());
                         } else {
@@ -95,7 +95,7 @@ pub fn data(con: RedisConnection, auth: Auth) -> Json<ApiData> {
 
     match rsp {
         Err(err) => {
-            println!("{}", err);
+            println!("[data] {}", err);
             let fields: HashMap<String, String> = HashMap::new();
             let commands: HashMap<String, String> = HashMap::new();
             let notices: HashMap<String, Vec<String>> = HashMap::new();
@@ -108,7 +108,7 @@ pub fn data(con: RedisConnection, auth: Auth) -> Json<ApiData> {
             let json: Result<KrakenChannel,_> = rsp.json();
             match json {
                 Err(err) => {
-                    println!("{}", err);
+                    println!("[data] {}", err);
                     let fields: HashMap<String, String> = HashMap::new();
                     let commands: HashMap<String, String> = HashMap::new();
                     let notices: HashMap<String, Vec<String>> = HashMap::new();

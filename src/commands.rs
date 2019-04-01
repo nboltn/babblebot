@@ -8,6 +8,7 @@ use crate::util::*;
 use std::sync::Arc;
 use std::collections::HashSet;
 use irc::client::prelude::*;
+use chrono::{Utc, DateTime};
 use itertools::Itertools;
 use r2d2_redis::r2d2;
 use r2d2_redis::redis::Commands;
@@ -299,14 +300,26 @@ fn commercials_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMa
                 match num {
                     Ok(num) => {
                         if num > 0 && num < 7 {
-                            let id: String = con.get(format!("channel:{}:id", channel)).unwrap();
-                            let _ = twitch_request_post(con.clone(), channel, &format!("https://api.twitch.tv/kraken/channels/{}/commercial", id), format!("{{\"length\": {}}}", num * 30));
-                            client.send_privmsg(format!("#{}", channel), format!("{} commercials have been run", args[1])).unwrap();
+                            let mut within8 = false;
+                            let res: Result<String,_> = con.get(format!("channel:{}:commercials:lastrun", channel));
+                            if let Ok(timestamp) = res {
+                                let lastrun = DateTime::parse_from_rfc3339(&timestamp).unwrap();
+                                let diff = Utc::now().signed_duration_since(lastrun);
+                                if diff.num_minutes() < 9 {
+                                    within8 = true;
+                                }
+                            }
+                            if within8 {
+                                client.send_privmsg(format!("#{}", channel), format!("Commercials can't be run within eight minutes of each other")).unwrap();
+                            } else {
+                                let id: String = con.get(format!("channel:{}:id", channel)).unwrap();
+                                let _ = twitch_request_post(con.clone(), channel, &format!("https://api.twitch.tv/kraken/channels/{}/commercial", id), format!("{{\"length\": {}}}", num * 30));
+                                let _: () = con.set(format!("channel:{}:commercials:lastrun", channel), Utc::now().to_rfc3339()).unwrap();
+                                client.send_privmsg(format!("#{}", channel), format!("{} commercials have been run", args[1])).unwrap();
+                            }
                         } else {
                             client.send_privmsg(format!("#{}", channel), format!("{} must be a number between one and six", args[1])).unwrap();
                         }
-                        // ("https://api.twitch.tv/kraken/channels/" ++ cid ++ "/commercial") $ object [("length", Number $ scientific (num * 30) 0)]
-                        client.send_privmsg(format!("#{}", channel), format!("{} commercials have been run", args[1])).unwrap();
                     }
                     Err(e) => {
                         client.send_privmsg(format!("#{}", channel), format!("{} could not be parsed as a number", args[1])).unwrap();

@@ -105,7 +105,7 @@ fn run_reactor(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, bots: HashM
         match res {
             Ok(_) => break,
             Err(e) => {
-                eprintln!("{}", e);
+                eprintln!("[run_reactor] {}", e);
                 bots.iter().for_each(|(_bot, channels)| {
                     for channel in channels.0.iter() {
                         if let Some(sender) = senders.get(channel) {
@@ -161,11 +161,11 @@ fn rename_channel_listener(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>,
         let req = reqwest::Client::new();
         let rsp = req.get("https://api.twitch.tv/helix/users").header(header::AUTHORIZATION, format!("Bearer {}", &token)).send();
         match rsp {
-            Err(e) => { eprintln!("{}", e) }
+            Err(e) => { eprintln!("[rename_channel_listener] {}", e) }
             Ok(mut rsp) => {
                 let json: Result<HelixUsers,_> = rsp.json();
                 match json {
-                    Err(e) => { eprintln!("{}", e) }
+                    Err(e) => { eprintln!("[rename_channel_listener] {}", e) }
                     Ok(json) => {
                         if let Some(sender) = senders.get(&channel) {
                             let _ = sender.send(ThreadAction::Kill);
@@ -319,11 +319,11 @@ fn live_update(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: St
         loop {
             let rsp = twitch_request_get(con.clone(), &channel, &format!("https://api.twitch.tv/kraken/streams?channel={}", id));
             match rsp {
-                Err(e) => { println!("{}", e) }
+                Err(e) => { println!("[live_update] {}", e) }
                 Ok(mut rsp) => {
                     let json: Result<KrakenStreams,_> = rsp.json();
                     match json {
-                        Err(e) => { println!("{}", e); }
+                        Err(e) => { println!("[live_update] {}", e); }
                         Ok(json) => {
                             let live: String = con.get(format!("channel:{}:live", channel)).unwrap();
                             if json.total == 0 {
@@ -435,11 +435,11 @@ fn add_channel(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, settings: &
     let rsp = client.get("https://api.twitch.tv/helix/users").header(header::AUTHORIZATION, format!("Bearer {}", channel_token)).send();
 
     match rsp {
-        Err(e) => { println!("{}", e) }
+        Err(e) => { println!("[add_channel] {}", e) }
         Ok(mut rsp) => {
             let json: Result<types::HelixUsers,_> = rsp.json();
             match json {
-                Err(e) => { println!("{}", e) }
+                Err(e) => { println!("[add_channel] {}", e) }
                 Ok(json) => {
                     let _: () = con.set(format!("channel:{}:id", channel_name), &json.data[0].id).unwrap();
                     let _: () = con.set(format!("channel:{}:display_name", channel_name), &json.data[0].display_name).unwrap();
