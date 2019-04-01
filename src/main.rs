@@ -11,8 +11,8 @@ use crate::types::*;
 use crate::util::*;
 
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc,mpsc};
-use std::sync::mpsc::{Sender, Receiver};
+use std::sync::Arc;
+use crossbeam_channel::{unbounded,Sender,Receiver,RecvTimeoutError};
 use std::ops::Deref;
 use std::{thread,time};
 
@@ -96,7 +96,7 @@ fn run_reactor(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, bots: HashM
             let _ = client.send("CAP REQ :twitch.tv/commands");
             register_handler((*client).clone(), &mut reactor, con.clone());
             for channel in channels.0.iter() {
-                let (sender, receiver) = mpsc::channel();
+                let (sender, receiver) = unbounded();
                 senders.insert(channel.to_owned(), sender);
                 spawn_timers(client.clone(), pool.clone(), channel.to_owned(), receiver);
                 rename_channel_listener(pool.clone(), client.clone(), channel.to_owned(), senders.clone());
@@ -383,8 +383,8 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                 }
                 Err(err) => {
                     match err {
-                        mpsc::RecvTimeoutError::Disconnected => break,
-                        mpsc::RecvTimeoutError::Timeout => {}
+                        RecvTimeoutError::Disconnected => break,
+                        RecvTimeoutError::Timeout => {}
                     }
                 }
             }
