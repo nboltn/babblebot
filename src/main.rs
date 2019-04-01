@@ -461,42 +461,40 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                     if diff.num_minutes() < 9 {
                         within8 = true;
                     }
-                    /*if within8 {
-                        thread::sleep(time::Duration::from_secs((9 - diff.num_minutes()) * 30));
-                    }*/
+                    if within8 {
+                        thread::sleep(time::Duration::from_secs((9 - (diff.num_minutes() as u64)) * 30));
+                    }
                 }
-                if !within8 {
-                    let id: String = con.get(format!("channel:{}:id", commercial_channel)).unwrap();
-                    let submode: String = con.get(format!("channel:{}:commercials:submode", commercial_channel)).unwrap_or("false".to_owned());
-                    let nres: Result<String,_> = con.get(format!("channel:{}:commercials:notice", commercial_channel));
-                    let rsp = twitch_request_post(con.clone(), &channel, &format!("https://api.twitch.tv/kraken/channels/{}/commercial", id), format!("{{\"length\": {}}}", num * 30));
-                    let length: i16 = con.llen(format!("channel:{}:commercials:recent", commercial_channel)).unwrap();
-                    let _: () = con.lpush(format!("channel:{}:commercials:recent", commercial_channel), format!("{} {}", Utc::now().to_rfc3339(), num)).unwrap();
-                    if length > 7 {
-                        let _: () = con.rpop(format!("channel:{}:commercials:recent", commercial_channel)).unwrap();
-                    }
-                    if let Ok(mut rsp) = rsp {
-                        if let Ok(text) = rsp.text() {
-                            println!("{}",text);
-                        }
-                    }
-                    if submode == "true" {
-                        let client_clone = commercial_client.clone();
-                        let channel_clone = String::from(commercial_channel.clone());
-                        let _ = commercial_client.send_privmsg(format!("#{}", commercial_channel), "/subscribers");
-                        thread::spawn(move || {
-                            thread::sleep(time::Duration::from_secs(num * 30));
-                            client_clone.send_privmsg(format!("#{}", channel_clone), "/subscribersoff").unwrap();
-                        });
-                    }
-                    if let Ok(notice) = nres {
-                        let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", commercial_channel, notice), "message");
-                        if let Ok(message) = res {
-                            let _ = commercial_client.send_privmsg(format!("#{}", commercial_channel), message);
-                        }
-                    }
-                    let _ = commercial_client.send_privmsg(format!("#{}", commercial_channel), format!("{} commercials have been run", num));
+                let id: String = con.get(format!("channel:{}:id", commercial_channel)).unwrap();
+                let submode: String = con.get(format!("channel:{}:commercials:submode", commercial_channel)).unwrap_or("false".to_owned());
+                let nres: Result<String,_> = con.get(format!("channel:{}:commercials:notice", commercial_channel));
+                let rsp = twitch_request_post(con.clone(), &channel, &format!("https://api.twitch.tv/kraken/channels/{}/commercial", id), format!("{{\"length\": {}}}", num * 30));
+                let length: i16 = con.llen(format!("channel:{}:commercials:recent", commercial_channel)).unwrap();
+                let _: () = con.lpush(format!("channel:{}:commercials:recent", commercial_channel), format!("{} {}", Utc::now().to_rfc3339(), num)).unwrap();
+                if length > 7 {
+                    let _: () = con.rpop(format!("channel:{}:commercials:recent", commercial_channel)).unwrap();
                 }
+                if let Ok(mut rsp) = rsp {
+                    if let Ok(text) = rsp.text() {
+                        println!("{}",text);
+                    }
+                }
+                if submode == "true" {
+                    let client_clone = commercial_client.clone();
+                    let channel_clone = String::from(commercial_channel.clone());
+                    let _ = commercial_client.send_privmsg(format!("#{}", commercial_channel), "/subscribers");
+                    thread::spawn(move || {
+                        thread::sleep(time::Duration::from_secs(num * 30));
+                        client_clone.send_privmsg(format!("#{}", channel_clone), "/subscribersoff").unwrap();
+                    });
+                }
+                if let Ok(notice) = nres {
+                    let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", commercial_channel, notice), "message");
+                    if let Ok(message) = res {
+                        let _ = commercial_client.send_privmsg(format!("#{}", commercial_channel), message);
+                    }
+                }
+                let _ = commercial_client.send_privmsg(format!("#{}", commercial_channel), format!("{} commercials have been run", num));
             }
             thread::sleep(time::Duration::from_secs(3600));
         }
