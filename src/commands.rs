@@ -85,7 +85,19 @@ fn user_var(_con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>
 }
 
 fn channel_var(_con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: &Message, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
-    return channel.to_owned();
+    let mut display = channel.to_owned();
+    if let Some(tags) = &message.tags {
+        tags.iter().for_each(|tag| {
+            if let Some(value) = &tag.1 {
+                if tag.0 == "display-name" {
+                    if let Some(name) = &tag.1 {
+                        display = name.to_owned();
+                    }
+                }
+            }
+        });
+    }
+    return display;
 }
 
 fn followage_var(_con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: &Message, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
