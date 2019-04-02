@@ -428,9 +428,9 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
     thread::spawn(move || {
         let con = Arc::new(commercial_con);
         loop {
-            let live: String = con.get(format!("channel:{}:live", notice_channel)).unwrap();
+            let live: String = con.get(format!("channel:{}:live", commercial_channel)).unwrap();
             if live == "true" {
-                let hourly: String = con.get(format!("channel:{}:commercials:hourly", channel)).unwrap_or("0".to_owned());
+                let hourly: String = con.get(format!("channel:{}:commercials:hourly", commercial_channel)).unwrap_or("0".to_owned());
                 let hourly: u64 = hourly.parse().unwrap();
                 let recents: Vec<String> = con.lrange(format!("channel:{}:commercials:recent", commercial_channel), 0, -1).unwrap();
                 let num = recents.iter().fold(hourly, |acc, lastrun| {
