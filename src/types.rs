@@ -53,7 +53,13 @@ pub struct KrakenChannel {
 #[derive(Debug, Deserialize)]
 pub struct KrakenStreams {
     #[serde(rename = "_total")]
-    pub total: i16
+    pub total: i16,
+    pub streams: Vec<KrakenStream>
+}
+
+#[derive(Debug, Deserialize)]
+pub struct KrakenStream {
+    pub created_at: String
 }
 
 #[derive(Debug, Serialize)]
