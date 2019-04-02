@@ -275,7 +275,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                         let rgx: String = con.hget(format!("channel:{}:moderation:blacklist:{}", channel, key[4]), "regex").unwrap();
                         let length: String = con.hget(format!("channel:{}:moderation:blacklist:{}", channel, key[4]), "length").unwrap();
                         match Regex::new(&rgx) {
-                            Err(_) => {}
+                            Err(e) => { eprintln!("{}", e) }
                             Ok(rgx) => {
                                 if rgx.is_match(&msg) {
                                     let _ = client.send_privmsg(chan, format!("/timeout {} {}", get_nick(&irc_message), length));

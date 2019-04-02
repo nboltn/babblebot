@@ -364,7 +364,7 @@ fn counters_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManag
             "inc" => {
                 let res: Result<String,_> = con.hget(format!("channel:{}:counters", channel), args[1]);
                 if let Ok(counter) = res {
-                    let res: Result<i16,_> = args[1].parse();
+                    let res: Result<i16,_> = counter.parse();
                     if let Ok(num) = res {
                         let _: () = con.hset(format!("channel:{}:counters", channel), args[1], num + 1).unwrap();
                     } else {
@@ -373,7 +373,7 @@ fn counters_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManag
                 } else {
                     let _: () = con.hset(format!("channel:{}:counters", channel), args[1], 1).unwrap();
                 }
-                let _ = client.send_privmsg(format!("#{}", channel), format!("{} has been increased", args[0]));
+                let _ = client.send_privmsg(format!("#{}", channel), format!("{} has been increased", args[1]));
             }
             _ => {}
         }
