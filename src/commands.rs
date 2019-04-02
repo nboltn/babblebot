@@ -217,6 +217,14 @@ fn command_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManage
                     let _ = client.send_privmsg(format!("#{}", channel), format!("{} has been added", args[1]));
                 }
             }
+            "modadd" => {
+                if args.len() > 2 {
+                    let _: () = con.hset(format!("channel:{}:commands:{}", channel, args[1]), "message", args[2..].join(" ")).unwrap();
+                    let _: () = con.hset(format!("channel:{}:commands:{}", channel, args[1]), "cmd_protected", true).unwrap();
+                    let _: () = con.hset(format!("channel:{}:commands:{}", channel, args[1]), "arg_protected", true).unwrap();
+                    let _ = client.send_privmsg(format!("#{}", channel), format!("{} has been added", args[1]));
+                }
+            }
             "remove" => {
                 let _: () = con.del(format!("channel:{}:commands:{}", channel, args[1])).unwrap();
                 let _ = client.send_privmsg(format!("#{}", channel), format!("{} has been removed", args[1]));
