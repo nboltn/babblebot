@@ -312,6 +312,13 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                         for var in commands::command_vars.iter() {
                             message = parse_var(var, &message, con.clone(), &client, channel, &irc_message, &args);
                         }
+                        if args.len() > 0 {
+                            if let Some(char) = args[args.len()-1].chars().next() {
+                                if char == '@' {
+                                    message = format!("{} -> {}", args[args.len()-1], message);
+                                }
+                            }
+                        }
                         let _ = client.send_privmsg(chan, message);
                     }
                 }
