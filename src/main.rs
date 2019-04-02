@@ -285,19 +285,20 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                         }
                     }
 
+                    let mut auth = false;
+                    if let Some(value) = badges.get("broadcaster") {
+                        if let Some(value) = value {
+                            if value == "1" { auth = true }
+                        }
+                    }
+                    if let Some(value) = badges.get("moderator") {
+                        if let Some(value) = value {
+                            if value == "1" { auth = true }
+                        }
+                    }
+
                     for cmd in commands::native_commands.iter() {
                         if format!("!{}", cmd.0) == word {
-                            let mut auth = false;
-                            if let Some(value) = badges.get("broadcaster") {
-                                if let Some(value) = value {
-                                    if value == "1" { auth = true }
-                                }
-                            }
-                            if let Some(value) = badges.get("moderator") {
-                                if let Some(value) = value {
-                                    if value == "1" { auth = true }
-                                }
-                            }
                             if args.len() == 0 {
                                 if !cmd.2 || auth { (cmd.1)(con.clone(), &client, channel, &args) }
                             } else {
@@ -319,7 +320,17 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                                 }
                             }
                         }
-                        let _ = client.send_privmsg(chan, message);
+                        if args.len() == 0 {
+                            let protected: String = con.hget(format!("channel:{}:commands:{}", channel, word), "cmd_protected").unwrap();
+                            if protected == "false" || auth {
+                                let _ = client.send_privmsg(chan, message);
+                            }
+                        } else {
+                            let protected: String = con.hget(format!("channel:{}:commands:{}", channel, word), "arg_protected").unwrap();
+                            if protected == "false" || auth {
+                                let _ = client.send_privmsg(chan, message);
+                            }
+                        }
                     }
                 }
             }
