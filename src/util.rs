@@ -72,7 +72,7 @@ pub fn parse_var(var: &(&str, fn(Arc<r2d2::PooledConnection<r2d2_redis::RedisCon
         }
     }
     let res = (var.1)(con, client, channel, irc_message, vargs, cargs);
-    let msg = rgx.replace(message, |_: &Captures| { &res }).to_string();
+    let msg = rgx.replace_all(message, |_: &Captures| { &res }).to_string();
     return msg.to_owned();
 }
 
