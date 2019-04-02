@@ -498,8 +498,8 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                     }
                     let _ = commercial_client.send_privmsg(format!("#{}", commercial_channel), format!("{} commercials have been run", num));
                 }
-                thread::sleep(time::Duration::from_secs(3600));
             }
+            thread::sleep(time::Duration::from_secs(3600));
         }
     });
 }
