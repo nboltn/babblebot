@@ -250,7 +250,7 @@ fn title_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>
             }
         }
     } else {
-        let rsp = twitch_request_put(con.clone(), channel, &format!("https://api.twitch.tv/kraken/channels/{}", id), format!("channel[status]={}", args[0]));
+        let rsp = twitch_request_put(con.clone(), channel, &format!("https://api.twitch.tv/kraken/channels/{}", id), format!("channel[status]={}", args.join(" ")));
 
         match rsp {
             Err(e) => { println!("{}", e) }
