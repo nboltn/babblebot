@@ -311,7 +311,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                     if let Ok(message) = res {
                         let mut message = message;
                         for var in commands::command_vars.iter() {
-                            message = parse_var(var, &message, con.clone(), &client, channel, &irc_message, &args);
+                            message = parse_var(var, &message, con.clone(), &client, channel, Some(&irc_message), &args);
                         }
                         if args.len() > 0 {
                             if let Some(char) = args[args.len()-1].chars().next() {
@@ -390,9 +390,9 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
 
     // notices
     thread::spawn(move || {
-        let con = notice_con;
+        let con = Arc::new(notice_con);
         loop {
-            let rsp = receiver.recv_timeout(time::Duration::from_secs(30));
+            let rsp = receiver.recv_timeout(time::Duration::from_secs(60));
             match rsp {
                 Ok(action) => {
                     match action {
@@ -417,12 +417,12 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
 
                 for int in ints.iter() {
                     let num: i16 = con.get(format!("channel:{}:notices:{}:countdown", notice_channel, int)).unwrap();
-                    if num > 0 { redis::cmd("DECRBY").arg(format!("channel:{}:notices:{}:countdown", notice_channel, int)).arg(30).execute(con.deref()) }
+                    if num > 0 { redis::cmd("DECRBY").arg(format!("channel:{}:notices:{}:countdown", notice_channel, int)).arg(60).execute((*con).deref()) }
                 };
 
                 let int = ints.iter().filter(|int| {
                     let num: i16 = con.get(format!("channel:{}:notices:{}:countdown", notice_channel, int)).unwrap();
-                    return num == 0
+                    return num <= 0
                 }).fold(0, |acc, int| {
                     let int = int.parse::<i16>().unwrap();
                     if acc > int { return acc } else { return int }
@@ -434,7 +434,10 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                     let _: () = con.rpush(format!("channel:{}:notices:{}:commands", notice_channel, int), cmd.clone()).unwrap();
                     let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", notice_channel, cmd), "message");
                     if let Ok(message) = res {
-                        // parse cmd_vars
+                        let mut message = message;
+                        for var in commands::command_vars.iter() {
+                            message = parse_var(var, &message, con.clone(), &client, &notice_channel, None, &Vec::new());
+                        }
                         let _ = notice_client.send_privmsg(format!("#{}", notice_channel), message);
                     }
                 }

@@ -13,6 +13,12 @@ use regex::{Regex,Captures};
 use r2d2_redis::r2d2;
 use r2d2_redis::redis::Commands;
 
+pub fn request_get(url: &str) -> reqwest::Result<reqwest::Response> {
+    let req = reqwest::Client::builder().http1_title_case_headers().build().unwrap();
+    let rsp = req.get(url).send();
+    return rsp;
+}
+
 pub fn twitch_request_get(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, url: &str) -> reqwest::Result<reqwest::Response> {
     let mut settings = config::Config::default();
     settings.merge(config::File::with_name("Settings")).unwrap();
@@ -63,7 +69,7 @@ pub fn twitch_request_post(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConn
     return rsp;
 }
 
-pub fn parse_var(var: &(&str, fn(Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, &IrcClient, &str, &Message, Vec<&str>, &Vec<&str>) -> String), message: &str, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, irc_message: &Message, cargs: &Vec<&str>) -> String {
+pub fn parse_var(var: &(&str, fn(Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, &IrcClient, &str, Option<&Message>, Vec<&str>, &Vec<&str>) -> String), message: &str, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, irc_message: Option<&Message>, cargs: &Vec<&str>) -> String {
     let rgx = Regex::new(&format!("\\({}((?: [\\w\\-:/!]+)*)\\)", var.0)).unwrap();
     let mut vargs: Vec<&str> = Vec::new();
     if let Some(captures) = rgx.captures(message) {
