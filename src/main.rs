@@ -241,7 +241,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                         for word in msg.split_whitespace() {
                             if url_regex().is_match(word) {
                                 let mut url: String = word.to_owned();
-                                if &url[0..8] != "http://" && &url[0..9] != "https://" { url = format!("http://{}", url) }
+                                if &url[0..7] != "http://" && &url[0..8] != "https://" { url = format!("http://{}", url) }
                                 match Url::parse(&url) {
                                     Err(_) => {}
                                     Ok(url) => {
