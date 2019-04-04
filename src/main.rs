@@ -234,14 +234,14 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                     let colors: String = con.get(format!("channel:{}:moderation:colors", channel)).unwrap_or("false".to_owned());
                     let links: Vec<String> = con.smembers(format!("channel:{}:moderation:links", channel)).unwrap_or(Vec::new());
                     let bkeys: Vec<String> = con.keys(format!("channel:{}:moderation:blacklist:*", channel)).unwrap();
-                    if colors == "true" && msg.len() > 6 && msg.as_bytes().len() > 0 && msg.as_bytes()[0] == 1 && &msg[1..7] == "ACTION" {
+                    if colors == "true" && msg.len() > 6 && msg.as_bytes()[0] == 1 && &msg[1..7] == "ACTION" {
                         let _ = client.send_privmsg(chan, format!("/timeout {} 1", get_nick(&irc_message)));
                     }
                     if links.len() > 0 && url_regex().is_match(&msg) {
                         for word in msg.split_whitespace() {
                             if url_regex().is_match(word) {
                                 let mut url: String = word.to_owned();
-                                if &url[0..7] != "http://" && &url[0..8] != "https://" { url = format!("http://{}", url) }
+                                if url.len() > 7 && &url[0..7] != "http://" && &url[0..8] != "https://" { url = format!("http://{}", url) }
                                 match Url::parse(&url) {
                                     Err(_) => {}
                                     Ok(url) => {
