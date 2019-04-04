@@ -87,21 +87,8 @@ fn user_var(_con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>
     }
 }
 
-fn channel_var(_con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
-    let mut display = channel.to_owned();
-    if let Some(message) = message {
-        if let Some(tags) = &message.tags {
-            tags.iter().for_each(|tag| {
-                if let Some(value) = &tag.1 {
-                    if tag.0 == "display-name" {
-                        if let Some(name) = &tag.1 {
-                            display = name.to_owned();
-                        }
-                    }
-                }
-            });
-        }
-    }
+fn channel_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
+    let display: String = con.get(format!("channel:{}:display_name", channel)).unwrap();
     return display;
 }
 
