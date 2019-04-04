@@ -241,7 +241,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                         for word in msg.split_whitespace() {
                             if url_regex().is_match(word) {
                                 let mut url: String = word.to_owned();
-                                if url.len() > 7 && &url[0..7] != "http://" && &url[0..8] != "https://" { url = format!("http://{}", url) }
+                                if url.len() > 7 && &url[..7] != "http://" && &url[..8] != "https://" { url = format!("http://{}", url) }
                                 match Url::parse(&url) {
                                     Err(_) => {}
                                     Ok(url) => {
@@ -249,10 +249,10 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                                         for link in &links {
                                             let link: Vec<&str> = link.split("/").collect();
                                             let mut domain = url.domain().unwrap();
-                                            if &domain[0..4] == "www." { domain = &domain[4..] }
+                                            if domain.len() > 0 && &domain[..4] == "www." { domain = &domain[4..] }
                                             if domain == link[0] {
                                                 if link.len() > 1 {
-                                                    if url.path()[1..] == link[1..].join("/") {
+                                                    if url.path().len() > 1 && url.path()[1..] == link[1..].join("/") {
                                                         whitelisted = true;
                                                         break;
                                                     }
