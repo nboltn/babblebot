@@ -422,7 +422,7 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                 let keys: Vec<String> = con.keys(format!("channel:{}:notices:*:commands", notice_channel)).unwrap();
                 let ints: Vec<&str> = keys.iter().map(|str| {
                     let int: Vec<&str> = str.split(":").collect();
-                    return int[3]
+                    return int[3];
                 }).collect();
 
                 for int in ints.iter() {
@@ -432,7 +432,7 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
 
                 let int = ints.iter().filter(|int| {
                     let num: i16 = con.get(format!("channel:{}:notices:{}:countdown", notice_channel, int)).unwrap();
-                    return num <= 0
+                    return num <= 0;
                 }).fold(0, |acc, int| {
                     let int = int.parse::<i16>().unwrap();
                     if acc > int { return acc } else { return int }

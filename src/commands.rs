@@ -371,12 +371,12 @@ fn notices_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManage
                 let num: Result<i16,_> = args[1].parse();
                 match num {
                     Ok(num) => {
-                        if num % 30 == 0 {
+                        if num % 60 == 0 {
                             let _: () = con.rpush(format!("channel:{}:notices:{}:commands", channel, args[1]), args[2]).unwrap();
                             let _: () = con.set(format!("channel:{}:notices:{}:countdown", channel, args[1]), args[1]).unwrap();
                             let _ = client.send_privmsg(format!("#{}", channel), "notice has been added");
                         } else {
-                            let _ = client.send_privmsg(format!("#{}", channel), "notice interval must be a multiple of 30");
+                            let _ = client.send_privmsg(format!("#{}", channel), "notice interval must be a multiple of 60");
                         }
                     }
                     Err(_) => {}
