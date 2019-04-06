@@ -236,7 +236,7 @@ pub fn signup(con: RedisConnection, mut cookies: Cookies, data: Form<ApiSignupRe
                             let _: () = con.sadd("channels", &json.data[0].login).unwrap();
                             let _: () = con.set(format!("bot:{}:token", &bot_name), bot_token).unwrap();
                             let _: () = con.sadd(format!("bot:{}:channels", &bot_name), &json.data[0].login).unwrap();
-                            let _: () = con.set(format!("channel:{}:bot", &json.data[0].login), "babblerbot").unwrap();
+                            let _: () = con.set(format!("channel:{}:bot", &json.data[0].login), &bot_name).unwrap();
                             let _: () = con.set(format!("channel:{}:token", &json.data[0].login), &data.token).unwrap();
                             let _: () = con.set(format!("channel:{}:password", &json.data[0].login), hash(&data.password, DEFAULT_COST).unwrap()).unwrap();
                             let _: () = con.set(format!("channel:{}:live", &json.data[0].login), false).unwrap();
