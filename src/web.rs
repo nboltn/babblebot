@@ -241,7 +241,7 @@ pub fn signup(con: RedisConnection, mut cookies: Cookies, data: Form<ApiSignupRe
                             let _: () = con.set(format!("channel:{}:password", &json.data[0].login), hash(&data.password, DEFAULT_COST).unwrap()).unwrap();
                             let _: () = con.set(format!("channel:{}:live", &json.data[0].login), false).unwrap();
                             let _: () = con.set(format!("channel:{}:id", &json.data[0].login), &json.data[0].id).unwrap();
-                            let _: () = con.set(format!("channel:{}:display_name", &json.data[0].login), &json.data[0].display_name).unwrap();
+                            let _: () = con.set(format!("channel:{}:display-name", &json.data[0].login), &json.data[0].display_name).unwrap();
                             let _: () = con.publish("new_channels", &json.data[0].login).unwrap();
 
                             if let Ok(exp) = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {

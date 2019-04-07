@@ -47,7 +47,8 @@ pub struct HelixGamesData {
 #[derive(Debug, Deserialize)]
 pub struct KrakenChannel {
     pub status: String,
-    pub game: String
+    pub game: String,
+    pub logo: String
 }
 
 #[derive(Debug, Deserialize)]
@@ -59,7 +60,8 @@ pub struct KrakenStreams {
 
 #[derive(Debug, Deserialize)]
 pub struct KrakenStream {
-    pub created_at: String
+    pub created_at: String,
+    pub channel: KrakenChannel
 }
 
 #[derive(Debug, Serialize)]

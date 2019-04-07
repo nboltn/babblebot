@@ -100,7 +100,7 @@ fn user_var(_con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>
 }
 
 fn channel_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
-    let display: String = con.get(format!("channel:{}:display_name", channel)).unwrap();
+    let display: String = con.get(format!("channel:{}:display-name", channel)).unwrap();
     return display;
 }
 

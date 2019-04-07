@@ -19,6 +19,18 @@ pub fn request_get(url: &str) -> reqwest::Result<reqwest::Response> {
     return rsp;
 }
 
+pub fn discord_request_post(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, url: &str, body: String) -> reqwest::Result<reqwest::Response> {
+    let token: String = con.hget(format!("channel:{}:settings", channel), "discord:token").unwrap_or("".to_owned());
+    let mut headers = header::HeaderMap::new();
+    headers.insert("Authorization", HeaderValue::from_str(&format!("Bot {}", token)).unwrap());
+    headers.insert("User-Agent", HeaderValue::from_str("Babblebot (https://gitlab.com/toovs/babblebot, 0.1").unwrap());
+    headers.insert("Content-Type", HeaderValue::from_str("application/json").unwrap());
+
+    let req = reqwest::Client::builder().http1_title_case_headers().default_headers(headers).build().unwrap();
+    let rsp = req.post(url).body(body).send();
+    return rsp;
+}
+
 pub fn twitch_request_get(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, url: &str) -> reqwest::Result<reqwest::Response> {
     let mut settings = config::Config::default();
     settings.merge(config::File::with_name("Settings")).unwrap();

@@ -379,6 +379,14 @@ fn live_update(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: St
                                         let int: Vec<&str> = key.split(":").collect();
                                         let _: () = con.set(format!("channel:{}:notices:{}:countdown", channel, int[3]), int[3].clone()).unwrap();
                                     }
+                                    // send discord announcements
+                                    let res: Result<String,_> = con.hget(format!("channel:{}:settings", channel), "discord:token");
+                                    if let Ok(token) = res {
+                                        let message: String = con.hget(format!("channel:{}:settings", channel), "discord:live-message").unwrap_or("".to_owned());
+                                        let display: String = con.get(format!("channel:{}:display-name", channel)).unwrap();
+                                        let body = format!("{{ \"content\": \"{}\", \"embed\": {{ \"author\": {{ \"name\": \"{}\" }}, \"title\": \"{}\", \"url\": \"http://twitch.tv/{}\", \"thumbnail\": {{ \"url\": \"{}\" }}, \"fields\": [{{ \"name\": \"Now Playing\", \"value\": \"{}\" }}] }} }}", &message, &display, &json.streams[0].channel.status, channel, &json.streams[0].channel.logo, &json.streams[0].channel.game);
+                                        let _ = discord_request_post(con.clone(), &channel, "https://discordapp.com/api/channels/{}/messages", body);
+                                    }
                                 }
                             }
                         }
@@ -573,7 +581,7 @@ fn add_channel(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, settings: &
                 Err(e) => { println!("[add_channel] {}", e) }
                 Ok(json) => {
                     let _: () = con.set(format!("channel:{}:id", channel_name), &json.data[0].id).unwrap();
-                    let _: () = con.set(format!("channel:{}:display_name", channel_name), &json.data[0].display_name).unwrap();
+                    let _: () = con.set(format!("channel:{}:display-name", channel_name), &json.data[0].display_name).unwrap();
                     let _: () = con.publish("new_channels", channel_name).unwrap();
                     println!("channel {} has been added", channel_name)
                 }
