@@ -380,12 +380,13 @@ fn live_update(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: St
                                         let _: () = con.set(format!("channel:{}:notices:{}:countdown", channel, int[3]), int[3].clone()).unwrap();
                                     }
                                     // send discord announcements
-                                    let res: Result<String,_> = con.hget(format!("channel:{}:settings", channel), "discord:token");
-                                    if let Ok(token) = res {
+                                    let tres: Result<String,_> = con.hget(format!("channel:{}:settings", channel), "discord:token");
+                                    let ires: Result<String,_> = con.hget(format!("channel:{}:settings", channel), "discord:channel-id");
+                                    if let (Ok(token), Ok(id)) = (tres, ires) {
                                         let message: String = con.hget(format!("channel:{}:settings", channel), "discord:live-message").unwrap_or("".to_owned());
                                         let display: String = con.get(format!("channel:{}:display-name", channel)).unwrap();
                                         let body = format!("{{ \"content\": \"{}\", \"embed\": {{ \"author\": {{ \"name\": \"{}\" }}, \"title\": \"{}\", \"url\": \"http://twitch.tv/{}\", \"thumbnail\": {{ \"url\": \"{}\" }}, \"fields\": [{{ \"name\": \"Now Playing\", \"value\": \"{}\" }}] }} }}", &message, &display, &json.streams[0].channel.status, channel, &json.streams[0].channel.logo, &json.streams[0].channel.game);
-                                        let _ = discord_request_post(con.clone(), &channel, "https://discordapp.com/api/channels/{}/messages", body);
+                                        let _ = discord_request_post(con.clone(), &channel, &format!("https://discordapp.com/api/channels/{}/messages", id), body);
                                     }
                                 }
                             }
