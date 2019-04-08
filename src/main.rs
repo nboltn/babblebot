@@ -507,13 +507,17 @@ fn update_pubg(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: St
                                                                                     if let Ok(old) = res {
                                                                                         let n: u64 = old.parse().unwrap();
                                                                                         if *stat == "winPlace" {
-                                                                                            let _: () = con.hset(format!("channel:{}:stats:pubg", channel), &statname, n + 1).unwrap();
+                                                                                            if num as u64 == 1 {
+                                                                                                let _: () = con.hset(format!("channel:{}:stats:pubg", channel), &statname, n + 1).unwrap();
+                                                                                            }
                                                                                         } else {
                                                                                             let _: () = con.hset(format!("channel:{}:stats:pubg", channel), &statname, n + (num as u64)).unwrap();
                                                                                         }
                                                                                     } else {
                                                                                         if *stat == "winPlace" {
-                                                                                            let _: () = con.hset(format!("channel:{}:stats:pubg", channel), &statname, 1).unwrap();
+                                                                                            if num as u64 == 1 {
+                                                                                                let _: () = con.hset(format!("channel:{}:stats:pubg", channel), &statname, 1).unwrap();
+                                                                                            }
                                                                                         } else {
                                                                                             let _: () = con.hset(format!("channel:{}:stats:pubg", channel), &statname, num as u64).unwrap();
                                                                                         }
