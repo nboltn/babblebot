@@ -224,7 +224,7 @@ pub fn signup(con: RedisConnection, mut cookies: Cookies, data: Form<ApiSignupRe
                         let json = ApiRsp { success: false, success_value: None, field: Some("token".to_owned()), error_message: Some("invalid access code".to_owned()) };
                         return Json(json);
                     } else {
-                        let removed: i16 = con.lrem("invites", 1, &data.invite).unwrap();
+                        let removed: u16 = con.lrem("invites", 1, &data.invite).unwrap();
                         if removed == 0 {
                             let json = ApiRsp { success: false, success_value: None, field: Some("invite".to_owned()), error_message: Some("invalid invite code".to_owned()) };
                             return Json(json);
@@ -416,7 +416,7 @@ pub fn trash_command(con: RedisConnection, data: Form<ApiTrashCommandReq>, auth:
 #[post("/api/new_notice", data="<data>")]
 pub fn new_notice(con: RedisConnection, data: Form<ApiNoticeReq>, auth: Auth) -> Json<ApiRsp> {
     if !data.interval.is_empty() && !data.command.is_empty() {
-        let n: Result<i16,_> = data.interval.parse();
+        let n: Result<u16,_> = data.interval.parse();
         match n {
             Ok(num) => {
                 if num % 30 == 0 {

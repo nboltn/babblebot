@@ -30,7 +30,7 @@ pub enum ThreadAction {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DiscordOpCode {
-    pub op: i16,
+    pub op: u16,
     pub d: Value
 }
 
@@ -77,7 +77,7 @@ pub struct KrakenChannel {
 #[derive(Debug, Deserialize)]
 pub struct KrakenStreams {
     #[serde(rename = "_total")]
-    pub total: i16,
+    pub total: u16,
     pub streams: Vec<KrakenStream>
 }
 
@@ -85,6 +85,30 @@ pub struct KrakenStreams {
 pub struct KrakenStream {
     pub created_at: String,
     pub channel: KrakenChannel
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PubgMatch {
+    pub data: PubgMatchData,
+    pub included: Vec<PubgMatchIncluded>
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PubgMatchData {
+    pub attributes: PubgMatchAttrs
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PubgMatchAttrs {
+    #[serde(rename = "createdAt")]
+    pub created_at: String
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PubgMatchIncluded {
+    #[serde(rename = "type")]
+    pub type_: String,
+    pub attributes: Value
 }
 
 #[derive(Debug, Deserialize)]

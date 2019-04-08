@@ -24,7 +24,8 @@ use irc::error;
 use irc::client::prelude::*;
 use url::Url;
 use regex::Regex;
-use chrono::{Utc, DateTime, FixedOffset, Duration};
+use serde_json::value::Value::Number;
+use chrono::{Utc, DateTime, FixedOffset, Duration, Timelike};
 use reqwest::{self, header};
 use serenity;
 use serenity::framework::standard::StandardFramework;
@@ -431,41 +432,97 @@ fn update_pubg(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: St
     thread::spawn(move || {
         let con = Arc::new(pool.get().unwrap());
         loop {
-            let res1: Result<String,_> = con.hget(format!("channel:{}:settings", channel), "pubg:token");
-            let res2: Result<String,_> = con.hget(format!("channel:{}:settings", channel), "pubg:name");
-            if let (Ok(token), Ok(name)) = (res1, res2) {
-                let region: String = con.hget(format!("channel:{}:settings", channel), "pubg:region").unwrap_or("pc-ca".to_owned());
-                let res: Result<String,_> = con.hget(format!("channel:{}:settings", channel), "pubg:id");
-                let mut id: String = "".to_owned();
-                if let Ok(v) = res {
-                    id = v;
-                } else {
-                    let rsp = pubg_request_get(con.clone(), &channel, &format!("https://api.pubg.com/shards/{}/players?filter%5BplayerNames%5D={}", region, name));
-                    match rsp {
-                        Err(e) => { println!("[update_pubg] {}", e) }
-                        Ok(mut rsp) => {
-                            let json: Result<PubgPlayers,_> = rsp.json();
-                            match json {
-                                Err(e) => { println!("[update_pubg] {}", e); }
-                                Ok(json) => {
-                                    if json.data.len() > 0 {
-                                        let _: () = con.hset(format!("channel:{}:settings", channel), "pubg:id", &json.data[0].id).unwrap();
-                                        id = json.data[0].id.to_owned();
+            let reset: String = con.hget(format!("channel:{}:stats:pubg", channel), "reset").unwrap_or("false".to_owned());
+            let res: Result<String,_> = con.hget(format!("channel:{}:settings", channel), "stats:reset");
+            if let Ok(hour) = res {
+                let num: Result<u32,_> = hour.parse();
+                if let Ok(hour) = num {
+                    if hour == Utc::now().time().hour() && reset == "true" {
+                        let _: () = con.del(format!("channel:{}:stats:pubg", channel)).unwrap();
+                    } else if hour != Utc::now().time().hour() && reset == "false" {
+                        let _: () = con.hset(format!("channel:{}:stats:pubg", channel), "reset", true).unwrap();
+                    }
+                }
+            }
+            let live: String = con.get(format!("channel:{}:live", channel)).unwrap();
+            if live == "true" {
+                let res1: Result<String,_> = con.hget(format!("channel:{}:settings", channel), "pubg:token");
+                let res2: Result<String,_> = con.hget(format!("channel:{}:settings", channel), "pubg:name");
+                if let (Ok(token), Ok(name)) = (res1, res2) {
+                    let region: String = con.hget(format!("channel:{}:settings", channel), "pubg:region").unwrap_or("pc-ca".to_owned());
+                    let res: Result<String,_> = con.hget(format!("channel:{}:settings", channel), "pubg:id");
+                    let mut id: String = "".to_owned();
+                    if let Ok(v) = res {
+                        id = v;
+                    } else {
+                        let rsp = pubg_request_get(con.clone(), &channel, &format!("https://api.pubg.com/shards/{}/players?filter%5BplayerNames%5D={}", region, name));
+                        match rsp {
+                            Err(e) => { println!("[update_pubg] {}", e) }
+                            Ok(mut rsp) => {
+                                let json: Result<PubgPlayers,_> = rsp.json();
+                                match json {
+                                    Err(e) => { println!("[update_pubg] {}", e); }
+                                    Ok(json) => {
+                                        if json.data.len() > 0 {
+                                            let _: () = con.hset(format!("channel:{}:settings", channel), "pubg:id", &json.data[0].id).unwrap();
+                                            id = json.data[0].id.to_owned();
+                                        }
                                     }
                                 }
                             }
                         }
                     }
-                }
-                if !id.is_empty() {
-                    let rsp = pubg_request_get(con.clone(), &channel, &format!("https://api.pubg.com/shards/{}/players/{}", region, id));
-                    match rsp {
-                        Err(e) => { println!("[update_pubg] {}", e) }
-                        Ok(mut rsp) => {
-                            let json: Result<PubgPlayer,_> = rsp.json();
-                            match json {
-                                Err(e) => { println!("[update_pubg] {}", e); }
-                                Ok(json) => {
+                    if !id.is_empty() {
+                        let mut cursor: String = con.hget(format!("channel:{}:stats:pubg", channel), "cursor").unwrap_or("".to_owned());
+                        let rsp = pubg_request_get(con.clone(), &channel, &format!("https://api.pubg.com/shards/{}/players/{}", region, id));
+                        match rsp {
+                            Err(e) => { println!("[update_pubg] {}", e) }
+                            Ok(mut rsp) => {
+                                let json: Result<PubgPlayer,_> = rsp.json();
+                                match json {
+                                    Err(e) => { println!("[update_pubg] {}", e); }
+                                    Ok(json) => {
+                                        if cursor == "" { cursor = json.data.relationships.matches.data[0].id.to_owned() }
+                                        let _: () = con.hset(format!("channel:{}:stats:pubg", channel), "cursor", &json.data.relationships.matches.data[0].id).unwrap();
+                                        for match_ in json.data.relationships.matches.data.iter() {
+                                            if match_.id == cursor { break }
+                                            else {
+                                                let rsp = pubg_request_get(con.clone(), &channel, &format!("https://api.pubg.com/shards/pc-na/matches/{}", &match_.id));
+                                                match rsp {
+                                                    Err(e) => { println!("[update_pubg] {}", e) }
+                                                    Ok(mut rsp) => {
+                                                        let json: Result<PubgMatch,_> = rsp.json();
+                                                        match json {
+                                                            Err(e) => { println!("[update_pubg] {}", e); }
+                                                            Ok(json) => {
+                                                                for p in json.included.iter().filter(|i| i.type_ == "participant") {
+                                                                    if p.attributes["stats"]["playerId"] == id {
+                                                                        for stat in ["winPlace", "kills", "headshotKills", "roadKills", "teamKills", "damageDealt", "vehiclesDestroyed"].iter() {
+                                                                            if let Number(num) = &p.attributes["stats"][stat] {
+                                                                                if let Some(num) = num.as_u64() {
+                                                                                    let res: Result<String,_> = con.hget(format!("channel:{}:stats:pubg", channel), *stat);
+                                                                                    if let Ok(old) = res {
+                                                                                        let n: u64 = old.parse().unwrap();
+                                                                                        if *stat == "winPlace" {
+                                                                                            let _: () = con.hset(format!("channel:{}:stats:pubg", channel), "wins", n + 1).unwrap();
+                                                                                        } else {
+                                                                                            let _: () = con.hset(format!("channel:{}:stats:pubg", channel), *stat, n + num).unwrap();
+                                                                                        }
+                                                                                    } else {
+                                                                                        let _: () = con.hset(format!("channel:{}:stats:pubg", channel), *stat, num).unwrap();
+                                                                                    }
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -513,15 +570,15 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                 }).collect();
 
                 for int in ints.iter() {
-                    let num: i16 = con.get(format!("channel:{}:notices:{}:countdown", notice_channel, int)).unwrap();
+                    let num: u16 = con.get(format!("channel:{}:notices:{}:countdown", notice_channel, int)).unwrap();
                     if num > 0 { redis::cmd("DECRBY").arg(format!("channel:{}:notices:{}:countdown", notice_channel, int)).arg(60).execute((*con).deref()) }
                 };
 
                 let int = ints.iter().filter(|int| {
-                    let num: i16 = con.get(format!("channel:{}:notices:{}:countdown", notice_channel, int)).unwrap();
+                    let num: u16 = con.get(format!("channel:{}:notices:{}:countdown", notice_channel, int)).unwrap();
                     return num <= 0;
                 }).fold(0, |acc, int| {
-                    let int = int.parse::<i16>().unwrap();
+                    let int = int.parse::<u16>().unwrap();
                     if acc > int { return acc } else { return int }
                 });
 
@@ -589,7 +646,7 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                     let submode: String = con.get(format!("channel:{}:commercials:submode", commercial_channel)).unwrap_or("false".to_owned());
                     let nres: Result<String,_> = con.get(format!("channel:{}:commercials:notice", commercial_channel));
                     let rsp = twitch_request_post(con.clone(), &channel, &format!("https://api.twitch.tv/kraken/channels/{}/commercial", id), format!("{{\"length\": {}}}", num * 30));
-                    let length: i16 = con.llen(format!("channel:{}:commercials:recent", commercial_channel)).unwrap();
+                    let length: u16 = con.llen(format!("channel:{}:commercials:recent", commercial_channel)).unwrap();
                     let _: () = con.lpush(format!("channel:{}:commercials:recent", commercial_channel), format!("{} {}", Utc::now().to_rfc3339(), num)).unwrap();
                     if length > 7 {
                         let _: () = con.rpop(format!("channel:{}:commercials:recent", commercial_channel)).unwrap();
