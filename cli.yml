@@ -32,3 +32,9 @@ subcommands:
               short: c
               takes_value: true
               required: true
+  - backpack_import:
+      args:
+          - token:
+              short: t
+              takes_value: true
+              required: true
