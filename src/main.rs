@@ -358,7 +358,7 @@ fn discord_handler(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel
     thread::spawn(move || {
         let con = Arc::new(pool.get().unwrap());
         loop {
-            let res: Result<String,_> = con.get(format!("channel:{}:discord:token", channel));
+            let res: Result<String,_> = con.hget(format!("channel:{}:settings", channel), "discord:token");
             if let Ok(token) = res {
                 let mut client = serenity::client::Client::new(&token, DiscordHandler).unwrap();
                 client.with_framework(StandardFramework::new());
