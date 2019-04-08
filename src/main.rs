@@ -509,7 +509,11 @@ fn update_pubg(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: St
                                                                                             let _: () = con.hset(format!("channel:{}:stats:pubg", channel), *stat, n + num).unwrap();
                                                                                         }
                                                                                     } else {
-                                                                                        let _: () = con.hset(format!("channel:{}:stats:pubg", channel), *stat, num).unwrap();
+                                                                                        if *stat == "winPlace" {
+                                                                                            let _: () = con.hset(format!("channel:{}:stats:pubg", channel), "wins", num).unwrap();
+                                                                                        } else {
+                                                                                            let _: () = con.hset(format!("channel:{}:stats:pubg", channel), *stat, num).unwrap();
+                                                                                        }
                                                                                     }
                                                                                 }
                                                                             }
