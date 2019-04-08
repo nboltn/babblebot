@@ -221,6 +221,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                 let channel = &chan[1..];
                 let mut words = msg.split_whitespace();
                 if let Some(word) = words.next() {
+                    let word = word.to_lowercase();
                     let args: Vec<&str> = words.collect();
                     let mut badges: HashMap<String, Option<String>> = HashMap::new();
                     if let Some(tags) = &irc_message.tags {
