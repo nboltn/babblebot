@@ -87,6 +87,43 @@ pub struct KrakenStream {
     pub channel: KrakenChannel
 }
 
+#[derive(Debug, Deserialize)]
+pub struct PubgPlayers {
+    pub data: Vec<Player>
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Player {
+    pub id: String
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PubgPlayer {
+    pub data: PlayerData
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PlayerData {
+    pub relationships: PlayerRelationships
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PlayerRelationships {
+    pub matches: PlayerMatches
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PlayerMatches {
+    pub data: Vec<PlayerMatch>
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PlayerMatch {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub mtype: String
+}
+
 #[derive(Debug, Serialize)]
 pub struct ApiData {
     pub fields: HashMap<String, String>,

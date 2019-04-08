@@ -19,6 +19,17 @@ pub fn request_get(url: &str) -> reqwest::Result<reqwest::Response> {
     return rsp;
 }
 
+pub fn pubg_request_get(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, url: &str) -> reqwest::Result<reqwest::Response> {
+    let token: String = con.hget(format!("channel:{}:settings", channel), "pubg:token").unwrap();
+    let mut headers = header::HeaderMap::new();
+    headers.insert("Accept", HeaderValue::from_str("application/vnd.api+json").unwrap());
+    headers.insert("Authorization", HeaderValue::from_str(&format!("Bearer {}", token)).unwrap());
+
+    let req = reqwest::Client::builder().http1_title_case_headers().default_headers(headers).build().unwrap();
+    let rsp = req.get(url).send();
+    return rsp;
+}
+
 pub fn discord_request_post(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, url: &str, body: String) -> reqwest::Result<reqwest::Response> {
     let token: String = con.hget(format!("channel:{}:settings", channel), "discord:token").unwrap_or("".to_owned());
     let mut headers = header::HeaderMap::new();
@@ -83,14 +94,16 @@ pub fn twitch_request_post(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConn
 
 pub fn parse_var(var: &(&str, fn(Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, &IrcClient, &str, Option<&Message>, Vec<&str>, &Vec<&str>) -> String), message: &str, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, irc_message: Option<&Message>, cargs: &Vec<&str>) -> String {
     let rgx = Regex::new(&format!("\\({}((?: [\\w\\-:/!]+)*)\\)", var.0)).unwrap();
+    let mut msg: String = message.to_owned();
     let mut vargs: Vec<&str> = Vec::new();
-    if let Some(captures) = rgx.captures(message) {
+    for captures in rgx.captures_iter(message) {
         if let Some(capture) = captures.get(1) {
             vargs = capture.as_str().split_whitespace().collect();
+            let res = (var.1)(con.clone(), client, channel, irc_message, vargs, cargs);
+            msg = rgx.replace(&msg, |_: &Captures| { &res }).to_string();
         }
     }
-    let res = (var.1)(con, client, channel, irc_message, vargs, cargs);
-    let msg = rgx.replace_all(message, |_: &Captures| { &res }).to_string();
+
     return msg.to_owned();
 }
 

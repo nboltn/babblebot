@@ -77,7 +77,11 @@ fn main() {
                     ..Default::default()
                 };
                 bots.insert(bot.to_owned(), (channel_hash.clone(), config));
-                for channel in channel_hash.iter() { live_update(pool.clone(), channel.to_owned()); discord_handler(pool.clone(), channel.to_owned()); }
+                for channel in channel_hash.iter() {
+                    live_update(pool.clone(), channel.to_owned());
+                    discord_handler(pool.clone(), channel.to_owned());
+                    update_pubg(pool.clone(), channel.to_owned());
+                }
             }
             run_reactor(pool.clone(), bots);
         });
@@ -146,7 +150,11 @@ fn new_channel_listener(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
             ..Default::default()
         };
         bots.insert(bot.to_owned(), (channel_hash.clone(), config));
-        for channel in channel_hash.iter() { live_update(pool.clone(), channel.to_owned()); discord_handler(pool.clone(), channel.to_owned()); }
+        for channel in channel_hash.iter() {
+            live_update(pool.clone(), channel.to_owned());
+            discord_handler(pool.clone(), channel.to_owned());
+            update_pubg(pool.clone(), channel.to_owned());
+        }
         run_reactor(pool.clone(), bots);
     }
 }
@@ -408,6 +416,56 @@ fn live_update(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: St
                                         let body = format!("{{ \"content\": \"{}\", \"embed\": {{ \"author\": {{ \"name\": \"{}\" }}, \"title\": \"{}\", \"url\": \"http://twitch.tv/{}\", \"thumbnail\": {{ \"url\": \"{}\" }}, \"fields\": [{{ \"name\": \"Now Playing\", \"value\": \"{}\" }}] }} }}", &message, &display, &json.streams[0].channel.status, channel, &json.streams[0].channel.logo, &json.streams[0].channel.game);
                                         let _ = discord_request_post(con.clone(), &channel, &format!("https://discordapp.com/api/channels/{}/messages", id), body);
                                     }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            thread::sleep(time::Duration::from_secs(60));
+        }
+    });
+}
+
+fn update_pubg(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: String) {
+    thread::spawn(move || {
+        let con = Arc::new(pool.get().unwrap());
+        loop {
+            let res1: Result<String,_> = con.hget(format!("channel:{}:settings", channel), "pubg:token");
+            let res2: Result<String,_> = con.hget(format!("channel:{}:settings", channel), "pubg:name");
+            if let (Ok(token), Ok(name)) = (res1, res2) {
+                let region: String = con.hget(format!("channel:{}:settings", channel), "pubg:region").unwrap_or("pc-ca".to_owned());
+                let res: Result<String,_> = con.hget(format!("channel:{}:settings", channel), "pubg:id");
+                let mut id: String = "".to_owned();
+                if let Ok(v) = res {
+                    id = v;
+                } else {
+                    let rsp = pubg_request_get(con.clone(), &channel, &format!("https://api.pubg.com/shards/{}/players?filter%5BplayerNames%5D={}", region, name));
+                    match rsp {
+                        Err(e) => { println!("[update_pubg] {}", e) }
+                        Ok(mut rsp) => {
+                            let json: Result<PubgPlayers,_> = rsp.json();
+                            match json {
+                                Err(e) => { println!("[update_pubg] {}", e); }
+                                Ok(json) => {
+                                    if json.data.len() > 0 {
+                                        let _: () = con.hset(format!("channel:{}:settings", channel), "pubg:id", &json.data[0].id).unwrap();
+                                        id = json.data[0].id.to_owned();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                if !id.is_empty() {
+                    let rsp = pubg_request_get(con.clone(), &channel, &format!("https://api.pubg.com/shards/{}/players/{}", region, id));
+                    match rsp {
+                        Err(e) => { println!("[update_pubg] {}", e) }
+                        Ok(mut rsp) => {
+                            let json: Result<PubgPlayer,_> = rsp.json();
+                            match json {
+                                Err(e) => { println!("[update_pubg] {}", e); }
+                                Ok(json) => {
                                 }
                             }
                         }

@@ -32,6 +32,7 @@ fn args_var(_con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>
 }
 
 fn cmd_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, irc_message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
+    println!("--");
     if vargs.len() > 0 {
         let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", channel, vargs[0]), "message");
         if let Ok(message) = res {
@@ -50,7 +51,7 @@ fn cmd_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>,
             }
         }
     }
-    "".to_owned()
+    vargs[0].to_owned()
 }
 
 fn uptime_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
