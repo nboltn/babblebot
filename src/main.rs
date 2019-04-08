@@ -500,19 +500,21 @@ fn update_pubg(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: St
                                                                         for stat in ["winPlace", "kills", "headshotKills", "roadKills", "teamKills", "damageDealt", "vehiclesDestroyed"].iter() {
                                                                             if let Number(num) = &p.attributes["stats"][stat] {
                                                                                 if let Some(num) = num.as_u64() {
-                                                                                    let res: Result<String,_> = con.hget(format!("channel:{}:stats:pubg", channel), *stat);
+                                                                                    let mut statname: String = (*stat).to_owned();
+                                                                                    if *stat == "winPlace" { statname = "wins".to_owned() }
+                                                                                    let res: Result<String,_> = con.hget(format!("channel:{}:stats:pubg", channel), &statname);
                                                                                     if let Ok(old) = res {
                                                                                         let n: u64 = old.parse().unwrap();
                                                                                         if *stat == "winPlace" {
-                                                                                            let _: () = con.hset(format!("channel:{}:stats:pubg", channel), "wins", n + 1).unwrap();
+                                                                                            let _: () = con.hset(format!("channel:{}:stats:pubg", channel), &statname, n + 1).unwrap();
                                                                                         } else {
-                                                                                            let _: () = con.hset(format!("channel:{}:stats:pubg", channel), *stat, n + num).unwrap();
+                                                                                            let _: () = con.hset(format!("channel:{}:stats:pubg", channel), &statname, n + num).unwrap();
                                                                                         }
                                                                                     } else {
                                                                                         if *stat == "winPlace" {
-                                                                                            let _: () = con.hset(format!("channel:{}:stats:pubg", channel), "wins", num).unwrap();
+                                                                                            let _: () = con.hset(format!("channel:{}:stats:pubg", channel), &statname, 1).unwrap();
                                                                                         } else {
-                                                                                            let _: () = con.hset(format!("channel:{}:stats:pubg", channel), *stat, num).unwrap();
+                                                                                            let _: () = con.hset(format!("channel:{}:stats:pubg", channel), &statname, num).unwrap();
                                                                                         }
                                                                                     }
                                                                                 }
