@@ -498,9 +498,7 @@ fn update_pubg(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: St
                                                                 for p in json.included.iter().filter(|i| i.type_ == "participant") {
                                                                     if p.attributes["stats"]["playerId"] == id {
                                                                         for stat in ["winPlace", "kills", "headshotKills", "roadKills", "teamKills", "damageDealt", "vehicleDestroys"].iter() {
-                                                                            println!("{}",stat);
                                                                             if let Number(num) = &p.attributes["stats"][stat] {
-                                                                                println!("{:?}",num);
                                                                                 if let Some(num) = num.as_f64() {
                                                                                     let mut statname: String = (*stat).to_owned();
                                                                                     if *stat == "winPlace" { statname = "wins".to_owned() }
