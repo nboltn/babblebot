@@ -1,7 +1,19 @@
 use std::collections::HashMap;
+use std::sync::Arc;
+use serenity::client::{Context, EventHandler};
+use serenity::model::channel::Message;
 use serde::{Serialize, Deserialize};
+use serde_json::Value;
 use rocket_contrib::database;
 use rocket_contrib::databases::redis;
+
+pub struct DiscordHandler;
+
+impl EventHandler for DiscordHandler {
+    fn message(&self, _: Context, msg: Message) {
+        // println!("{:?}",msg);
+    }
+}
 
 #[database("redis")]
 pub struct RedisConnection(redis::Connection);
@@ -14,6 +26,17 @@ pub enum AuthError {
 
 pub enum ThreadAction {
     Kill
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DiscordOpCode {
+    pub op: i16,
+    pub d: Value
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DiscordPayload {
+    pub heartbeat_inverval: i32
 }
 
 #[derive(Debug, Serialize, Deserialize)]

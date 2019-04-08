@@ -11,7 +11,7 @@ use crate::types::*;
 use crate::util::*;
 
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::{Arc,Mutex};
 use crossbeam_channel::{unbounded,Sender,Receiver,RecvTimeoutError};
 use std::ops::Deref;
 use std::{thread,time};
@@ -26,6 +26,8 @@ use url::Url;
 use regex::Regex;
 use chrono::{Utc, DateTime, FixedOffset, Duration};
 use reqwest::{self, header};
+use serenity;
+use serenity::framework::standard::StandardFramework;
 use rocket::routes;
 use rocket_contrib::templates::Template;
 use rocket_contrib::serve::StaticFiles;
@@ -75,7 +77,7 @@ fn main() {
                     ..Default::default()
                 };
                 bots.insert(bot.to_owned(), (channel_hash.clone(), config));
-                for channel in channel_hash.iter() { live_update(pool.clone(), channel.to_owned()) }
+                for channel in channel_hash.iter() { live_update(pool.clone(), channel.to_owned()); discord_handler(pool.clone(), channel.to_owned()); }
             }
             run_reactor(pool.clone(), bots);
         });
@@ -144,7 +146,7 @@ fn new_channel_listener(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
             ..Default::default()
         };
         bots.insert(bot.to_owned(), (channel_hash.clone(), config));
-        for channel in channel_hash.iter() { live_update(pool.clone(), channel.to_owned()) }
+        for channel in channel_hash.iter() { live_update(pool.clone(), channel.to_owned()); discord_handler(pool.clone(), channel.to_owned()); }
         run_reactor(pool.clone(), bots);
     }
 }
@@ -350,6 +352,24 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
     };
 
     reactor.register_client_with_handler(client, msg_handler);
+}
+
+fn discord_handler(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: String) {
+    thread::spawn(move || {
+        let con = Arc::new(pool.get().unwrap());
+        loop {
+            let res: Result<String,_> = con.get(format!("channel:{}:discord:token", channel));
+            if let Ok(token) = res {
+                let mut client = serenity::client::Client::new(&token, DiscordHandler).unwrap();
+                client.with_framework(StandardFramework::new());
+
+                if let Err(e) = client.start() {
+                    eprintln!("[discord_handler] {}", e);
+                }
+            }
+            thread::sleep(time::Duration::from_secs(10));
+        }
+    });
 }
 
 fn live_update(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: String) {
