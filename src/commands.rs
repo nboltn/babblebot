@@ -27,7 +27,7 @@ fn args_var(_con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>
             Err(_) => "".to_owned()
         }
     } else {
-        "".to_owned()
+        cargs.join(" ").to_owned()
     }
 }
 
