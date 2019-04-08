@@ -275,7 +275,7 @@ fn pubg_teamkills_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectio
 }
 
 fn pubg_vehicles_destroyed_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
-    let value: String = con.hget(format!("channel:{}:stats:pubg", channel), "vehiclesDestroyed").unwrap_or("0".to_owned());
+    let value: String = con.hget(format!("channel:{}:stats:pubg", channel), "vehicleDestroys").unwrap_or("0".to_owned());
     return value;
 }
 
