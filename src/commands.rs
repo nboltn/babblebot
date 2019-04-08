@@ -32,7 +32,6 @@ fn args_var(_con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>
 }
 
 fn cmd_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, irc_message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
-    println!("--");
     if vargs.len() > 0 {
         let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", channel, vargs[0]), "message");
         if let Ok(message) = res {
@@ -51,7 +50,7 @@ fn cmd_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>,
             }
         }
     }
-    vargs[0].to_owned()
+    "".to_owned()
 }
 
 fn uptime_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
@@ -567,11 +566,6 @@ fn commercials_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMa
                                 let _: () = con.lpush(format!("channel:{}:commercials:recent", channel), format!("{} {}", Utc::now().to_rfc3339(), num)).unwrap();
                                 if length > 7 {
                                     let _: () = con.rpop(format!("channel:{}:commercials:recent", channel)).unwrap();
-                                }
-                                if let Ok(mut rsp) = rsp {
-                                    if let Ok(text) = rsp.text() {
-                                        println!("{}",text);
-                                    }
                                 }
                                 if submode == "true" {
                                     let client_clone = client.clone();

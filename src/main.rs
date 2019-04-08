@@ -594,11 +594,6 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                     if length > 7 {
                         let _: () = con.rpop(format!("channel:{}:commercials:recent", commercial_channel)).unwrap();
                     }
-                    if let Ok(mut rsp) = rsp {
-                        if let Ok(text) = rsp.text() {
-                            println!("{}",text);
-                        }
-                    }
                     if submode == "true" {
                         let client_clone = commercial_client.clone();
                         let channel_clone = String::from(commercial_channel.clone());
