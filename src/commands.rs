@@ -242,8 +242,10 @@ fn watchrank_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMana
             let num: u64 = value.parse().unwrap();
             watchtimes.push((key.to_owned(), num));
         }
+        let list: String = con.hget(format!("channel:{}:settings", channel), "watchtime:blacklist").unwrap_or("".to_owned());
         let mut blacklist: Vec<&str> = twitch_bots.clone().to_vec();
         blacklist.push(channel);
+        for nick in list.split_whitespace() { blacklist.push(nick) }
         watchtimes.sort_by(|a,b| (b.1).partial_cmp(&a.1).unwrap());
         watchtimes = watchtimes.iter().filter(|wt| !blacklist.contains(&&(*wt.0))).map(|x| x.to_owned()).collect();
         if watchtimes.len() > 0 {
