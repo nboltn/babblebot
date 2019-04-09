@@ -692,7 +692,7 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
             let live: String = con.get(format!("channel:{}:live", &so_channel)).unwrap_or("false".to_owned());
             let hostm: String = con.hget(format!("channel:{}:settings", &so_channel), "channel:host-message").unwrap_or("".to_owned());
             let autom: String = con.hget(format!("channel:{}:settings", &so_channel), "channel:autohost-message").unwrap_or("".to_owned());
-            if live == "false" && (!hostm.is_empty() || !autom.is_empty()) {
+            if live == "true" && (!hostm.is_empty() || !autom.is_empty()) {
                 let id: String = con.get(format!("channel:{}:id", &so_channel)).unwrap();
                 let recent: Vec<String> = con.smembers(format!("channel:{}:hosts:recent", &so_channel)).unwrap_or(Vec::new());
                 let rsp = twitch_request_get(con.clone(), &so_channel, &format!("https://api.twitch.tv/kraken/channels/{}/hosts", &id));
