@@ -94,6 +94,7 @@ pub struct KrakenHost {
 pub struct KrakenChannel {
     pub status: String,
     pub game: String,
+    pub name: String,
     pub logo: String,
     pub url: String,
     pub display_name: String

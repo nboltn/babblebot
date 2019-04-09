@@ -703,8 +703,11 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                         match json {
                             Err(e) => { println!("[auto_shoutouts] {}", e); }
                             Ok(json) => {
+                                let list: String = con.hget(format!("channel:{}:settings", channel), "autohost:blacklist").unwrap_or("".to_owned());
+                                let mut blacklist: Vec<&str> = Vec::new();
+                                for nick in list.split_whitespace() { blacklist.push(nick) }
                                 for host in json.hosts {
-                                    if recent.contains(&host.host_id) {
+                                    if !recent.contains(&host.host_id) {
                                         let _: () = con.sadd(format!("channel:{}:hosts:recent", &so_channel), &host.host_id).unwrap();
                                         let rsp = twitch_request_get(con.clone(), &so_channel, &format!("https://api.twitch.tv/kraken/streams?channel={}", &host.host_id));
                                         match rsp {
@@ -714,30 +717,32 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                                                 match json {
                                                     Err(e) => { println!("[auto_shoutouts] {}", e); }
                                                     Ok(json) => {
-                                                        if json.total > 0 {
-                                                            if !hostm.is_empty() {
-                                                                let mut message: String = hostm.to_owned();
-                                                                message = replace_var("url", &json.streams[0].channel.url, &message);
-                                                                message = replace_var("name", &json.streams[0].channel.display_name, &message);
-                                                                message = replace_var("game", &json.streams[0].channel.game, &message);
-                                                                message = replace_var("viewers", &json.streams[0].viewers.to_string(), &message);
-                                                                let _ = client.send_privmsg(format!("#{}", &so_channel), &message);
-                                                            }
-                                                        } else {
-                                                            if !autom.is_empty() {
-                                                                let rsp = twitch_request_get(con.clone(), &so_channel, &format!("https://api.twitch.tv/kraken/channels/{}", &host.host_id));
-                                                                match rsp {
-                                                                    Err(e) => { println!("[live_update] {}", e) }
-                                                                    Ok(mut rsp) => {
-                                                                        let json: Result<KrakenChannel,_> = rsp.json();
-                                                                        match json {
-                                                                            Err(e) => { println!("[live_update] {}", e); }
-                                                                            Ok(json) => {
-                                                                                let mut message: String = autom.to_owned();
-                                                                                message = replace_var("url", &json.url, &message);
-                                                                                message = replace_var("name", &json.display_name, &message);
-                                                                                message = replace_var("game", &json.game, &message);
-                                                                                let _ = client.send_privmsg(format!("#{}", channel), &message);
+                                                        if !blacklist.contains(&json.streams[0].channel.name.as_str()) {
+                                                            if json.total > 0 {
+                                                                if !hostm.is_empty() {
+                                                                    let mut message: String = hostm.to_owned();
+                                                                    message = replace_var("url", &json.streams[0].channel.url, &message);
+                                                                    message = replace_var("name", &json.streams[0].channel.display_name, &message);
+                                                                    message = replace_var("game", &json.streams[0].channel.game, &message);
+                                                                    message = replace_var("viewers", &json.streams[0].viewers.to_string(), &message);
+                                                                    let _ = client.send_privmsg(format!("#{}", &so_channel), &message);
+                                                                }
+                                                            } else {
+                                                                if !autom.is_empty() {
+                                                                    let rsp = twitch_request_get(con.clone(), &so_channel, &format!("https://api.twitch.tv/kraken/channels/{}", &host.host_id));
+                                                                    match rsp {
+                                                                        Err(e) => { println!("[live_update] {}", e) }
+                                                                        Ok(mut rsp) => {
+                                                                            let json: Result<KrakenChannel,_> = rsp.json();
+                                                                            match json {
+                                                                                Err(e) => { println!("[live_update] {}", e); }
+                                                                                Ok(json) => {
+                                                                                    let mut message: String = autom.to_owned();
+                                                                                    message = replace_var("url", &json.url, &message);
+                                                                                    message = replace_var("name", &json.display_name, &message);
+                                                                                    message = replace_var("game", &json.game, &message);
+                                                                                    let _ = client.send_privmsg(format!("#{}", channel), &message);
+                                                                                }
                                                                             }
                                                                         }
                                                                     }
