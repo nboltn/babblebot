@@ -6,7 +6,7 @@ use crate::types::*;
 use crate::util::*;
 
 use std::sync::Arc;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::{thread,time};
 use irc::client::prelude::*;
 use chrono::{Utc, DateTime, FixedOffset, Duration};
@@ -18,6 +18,8 @@ use r2d2_redis::redis::Commands;
 pub const native_commands: [(&str, fn(Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, &IrcClient, &str, &Vec<&str>), bool, bool); 12] = [("echo", echo_cmd, true, true), ("set", set_cmd, true, true), ("unset", unset_cmd, true, true), ("command", command_cmd, true, true), ("title", title_cmd, false, true), ("game", game_cmd, false, true), ("notices", notices_cmd, true, true), ("moderation", moderation_cmd, true, true), ("multi", multi_cmd, false, true), ("counters", counters_cmd, true, true), ("phrases", phrases_cmd, true, true), ("commercials", commercials_cmd, true, true)];
 
 pub const command_vars: [(&str, fn(Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, &IrcClient, &str, Option<&Message>, Vec<&str>, &Vec<&str>) -> String); 25] = [("args", args_var), ("uptime", uptime_var), ("user", user_var), ("channel", channel_var), ("cmd", cmd_var), ("counterinc", counterinc_var), ("followage", followage_var), ("subcount", subcount_var), ("followcount", followcount_var), ("counter", counter_var), ("phrase", phrase_var), ("countdown", countdown_var), ("date", date_var), ("dateinc", dateinc_var), ("watchtime", watchtime_var), ("watchrank", watchrank_var), ("youtube:latest-url", youtube_latest_url_var), ("youtube:latest-title", youtube_latest_title_var), ("pubg:damage", pubg_damage_var), ("pubg:headshots", pubg_headshots_var), ("pubg:kills", pubg_kills_var), ("pubg:roadkills", pubg_roadkills_var), ("pubg:teamkills", pubg_teamkills_var), ("pubg:vehiclesDestroyed", pubg_vehicles_destroyed_var), ("pubg:wins", pubg_wins_var)];
+
+pub const twitch_bots: [&str; 20] = ["electricallongboard","lanfusion","cogwhistle","freddyybot","anotherttvviewer","apricotdrupefruit","skinnyseahorse","p0lizei_","xbit01","n3td3v","cachebear","icon_bot","virgoproz","v_and_k","slocool","host_giveaway","nightbot","commanderroot","p0sitivitybot","streamlabs"];
 
 fn args_var(_con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
     if vargs.len() > 0 {
@@ -232,8 +234,46 @@ fn watchtime_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMana
     }
 }
 
-fn watchrank_var(_con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
-    "".to_string()
+fn watchrank_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
+    if let Some(message) = message {
+        let hashtimes: HashMap<String,String> = con.hgetall(format!("channel:{}:watchtimes", channel)).unwrap_or(HashMap::new());
+        let mut watchtimes: Vec<(String,u64)> = Vec::new();
+        for (key, value) in hashtimes.iter() {
+            let num: u64 = value.parse().unwrap();
+            watchtimes.push((key.to_owned(), num));
+        }
+        let mut blacklist: Vec<&str> = twitch_bots.clone().to_vec();
+        blacklist.push(channel);
+        watchtimes.sort_by(|a,b| (b.1).partial_cmp(&a.1).unwrap());
+        watchtimes = watchtimes.iter().filter(|wt| !blacklist.contains(&&(*wt.0))).map(|x| x.to_owned()).collect();
+        if watchtimes.len() > 0 {
+            if vargs.len() > 0 {
+                let res: Result<usize,_> = vargs[0].parse();
+                if let Ok(num) = res {
+                    let top: Vec<(String,u64)>;
+                    if watchtimes.len() < num {
+                        top = watchtimes.drain(..).collect();
+                    } else {
+                        top = watchtimes.drain(..num).collect();
+                    }
+                    return top.iter().map(|(n,t)| n).join(", ").to_owned();
+                } else {
+                    "".to_owned()
+                }
+            } else {
+                let i = watchtimes.iter().position(|wt| wt.0 == get_nick(message));
+                if let Some(i) = i {
+                    return (i + 1).to_string();
+                } else {
+                    "".to_owned()
+                }
+            }
+        } else {
+            "".to_owned()
+        }
+    } else {
+        "".to_owned()
+    }
 }
 
 fn youtube_latest_url_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {

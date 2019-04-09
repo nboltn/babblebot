@@ -35,8 +35,6 @@ use rocket_contrib::serve::StaticFiles;
 use r2d2_redis::{r2d2, redis, RedisConnectionManager};
 use r2d2_redis::redis::Commands;
 
-pub const twitch_bots: [&str; 20] = ["electricallongboard","lanfusion","cogwhistle","freddyybot","anotherttvviewer","apricotdrupefruit","skinnyseahorse","p0lizei_","xbit01","n3td3v","cachebear","icon_bot","virgoproz","v_and_k","slocool","host_giveaway","nightbot","commanderroot","p0sitivitybot","streamlabs"];
-
 fn main() {
     let yaml = load_yaml!("../cli.yml");
     let matches = App::from_yaml(yaml).get_matches();
