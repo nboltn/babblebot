@@ -22,19 +22,3 @@ subcommands:
               short: p
               takes_value: true
               required: true
-  - rename_channel:
-      args:
-          - token:
-              short: t
-              takes_value: true
-              required: true
-          - channel:
-              short: c
-              takes_value: true
-              required: true
-  - backpack_import:
-      args:
-          - token:
-              short: t
-              takes_value: true
-              required: true
