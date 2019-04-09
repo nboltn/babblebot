@@ -414,7 +414,7 @@ fn update_watchtime(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channe
         let con = Arc::new(pool.get().unwrap());
         loop {
             let live: String = con.get(format!("channel:{}:live", channel)).unwrap_or("false".to_owned());
-            let enabled: String = con.hget(format!("channel:{}:settings", channel), "viewerstats:enable").unwrap_or("false".to_owned());
+            let enabled: String = con.hget(format!("channel:{}:settings", channel), "viewerstats:enabled").unwrap_or("false".to_owned());
             if live == "true" && enabled != "false" {
                 let rsp = request_get(&format!("http://tmi.twitch.tv/group/user/{}/chatters", channel));
                 match rsp {
