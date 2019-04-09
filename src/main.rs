@@ -717,7 +717,7 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                                                 match json {
                                                     Err(e) => { println!("[auto_shoutouts] {}", e); }
                                                     Ok(json) => {
-                                                        if !blacklist.contains(&json.streams[0].channel.name.as_str()) {
+                                                        if !blacklist.contains(&host.host_id.as_ref()) {
                                                             if json.total > 0 {
                                                                 if !hostm.is_empty() {
                                                                     let mut message: String = hostm.to_owned();
