@@ -79,6 +79,7 @@ fn main() {
                 };
                 bots.insert(bot.to_owned(), (channel_hash.clone(), config));
                 for channel in channel_hash.iter() {
+                    update_watchtime(pool.clone(), channel.to_owned());
                     live_update(pool.clone(), channel.to_owned());
                     discord_handler(pool.clone(), channel.to_owned());
                     update_pubg(pool.clone(), channel.to_owned());
@@ -152,6 +153,7 @@ fn new_channel_listener(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
         };
         bots.insert(bot.to_owned(), (channel_hash.clone(), config));
         for channel in channel_hash.iter() {
+            update_watchtime(pool.clone(), channel.to_owned());
             live_update(pool.clone(), channel.to_owned());
             discord_handler(pool.clone(), channel.to_owned());
             update_pubg(pool.clone(), channel.to_owned());
@@ -397,6 +399,47 @@ fn discord_handler(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel
                 }
             }
             thread::sleep(time::Duration::from_secs(10));
+        }
+    });
+}
+
+fn update_watchtime(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: String) {
+    thread::spawn(move || {
+        let con = Arc::new(pool.get().unwrap());
+        loop {
+            let live: String = con.get(format!("channel:{}:live", channel)).unwrap_or("false".to_owned());
+            let enabled: String = con.hget(format!("channel:{}:settings", channel), "viewerstats:enable").unwrap_or("false".to_owned());
+            if live == "true" && enabled != "false" {
+                let rsp = request_get(&format!("http://tmi.twitch.tv/group/user/{}/chatters", channel));
+                match rsp {
+                    Err(e) => { println!("[update_watchtime] {}", e) }
+                    Ok(mut rsp) => {
+                        let json: Result<TmiChatters,_> = rsp.json();
+                        match json {
+                            Err(e) => { println!("[update_watchtime] {}", e); }
+                            Ok(json) => {
+                                let mut nicks: Vec<String> = Vec::new();
+                                let mut moderators = json.chatters.moderators.clone();
+                                let mut viewers = json.chatters.viewers.clone();
+                                let mut vips = json.chatters.vips.clone();
+                                nicks.append(&mut moderators);
+                                nicks.append(&mut viewers);
+                                nicks.append(&mut vips);
+                                for nick in nicks.iter() {
+                                    let res: Result<String,_> = con.hget(format!("channel:{}:watchtimes", channel), nick);
+                                    if let Ok(wt) = res {
+                                        let num: i64 = wt.parse().unwrap();
+                                        let _: () = con.hset(format!("channel:{}:watchtimes", channel), nick, num + 1).unwrap();
+                                    } else {
+                                        let _: () = con.hset(format!("channel:{}:watchtimes", channel), nick, 1).unwrap();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            thread::sleep(time::Duration::from_secs(60));
         }
     });
 }

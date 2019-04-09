@@ -46,6 +46,18 @@ pub struct Auth {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct TmiChatters {
+    pub chatters: Chatters
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Chatters {
+    pub moderators: Vec<String>,
+    pub viewers: Vec<String>,
+    pub vips: Vec<String>
+}
+
+#[derive(Debug, Deserialize)]
 pub struct HelixUsers {
     pub data: Vec<HelixUsersData>
 }
