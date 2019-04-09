@@ -80,10 +80,23 @@ pub struct HelixGamesData {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct KrakenHosts {
+    pub hosts: Vec<KrakenHost>
+}
+
+#[derive(Debug, Deserialize)]
+pub struct KrakenHost {
+    pub host_id: String,
+    pub target_id: String
+}
+
+#[derive(Debug, Deserialize)]
 pub struct KrakenChannel {
     pub status: String,
     pub game: String,
-    pub logo: String
+    pub logo: String,
+    pub url: String,
+    pub display_name: String
 }
 
 #[derive(Debug, Deserialize)]
@@ -96,6 +109,7 @@ pub struct KrakenStreams {
 #[derive(Debug, Deserialize)]
 pub struct KrakenStream {
     pub created_at: String,
+    pub viewers: i32,
     pub channel: KrakenChannel
 }
 

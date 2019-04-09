@@ -95,7 +95,7 @@ fn main() {
 fn run_reactor(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, bots: HashMap<String, (HashSet<String>, Config)>) {
     let con = Arc::new(pool.get().unwrap());
     let mut reactor = IrcReactor::new().unwrap();
-    let mut senders: HashMap<String, Sender<ThreadAction>> = HashMap::new();
+    let mut senders: HashMap<String, Vec<Sender<ThreadAction>>> = HashMap::new();
     loop {
         bots.iter().for_each(|(_bot, channels)| {
             let client = Arc::new(reactor.prepare_client_and_connect(&channels.1).unwrap());
@@ -104,9 +104,11 @@ fn run_reactor(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, bots: HashM
             let _ = client.send("CAP REQ :twitch.tv/commands");
             register_handler((*client).clone(), &mut reactor, con.clone());
             for channel in channels.0.iter() {
-                let (sender, receiver) = unbounded();
-                senders.insert(channel.to_owned(), sender);
-                spawn_timers(client.clone(), pool.clone(), channel.to_owned(), receiver);
+                let (sender1, receiver1) = unbounded();
+                let (sender2, receiver2) = unbounded();
+                let (sender3, receiver3) = unbounded();
+                senders.insert(channel.to_owned(), [sender1,sender2,sender3].to_vec());
+                spawn_timers(client.clone(), pool.clone(), channel.to_owned(), [receiver1,receiver2,receiver3].to_vec());
                 rename_channel_listener(pool.clone(), client.clone(), channel.to_owned(), senders.clone());
             }
         });
@@ -117,8 +119,10 @@ fn run_reactor(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, bots: HashM
                 eprintln!("[run_reactor] {}", e);
                 bots.iter().for_each(|(_bot, channels)| {
                     for channel in channels.0.iter() {
-                        if let Some(sender) = senders.get(channel) {
-                            let _ = sender.send(ThreadAction::Kill);
+                        if let Some(senders) = senders.get(channel) {
+                            for sender in senders {
+                                let _ = sender.send(ThreadAction::Kill);
+                            }
                         }
                     }
                 });
@@ -162,7 +166,7 @@ fn new_channel_listener(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
     }
 }
 
-fn rename_channel_listener(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, client: Arc<IrcClient>, channel: String, senders: HashMap<String, Sender<ThreadAction>>) {
+fn rename_channel_listener(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, client: Arc<IrcClient>, channel: String, senders: HashMap<String, Vec<Sender<ThreadAction>>>) {
     thread::spawn(move || {
         let con = pool.get().unwrap();
         let mut conn = pool.get().unwrap();
@@ -181,8 +185,10 @@ fn rename_channel_listener(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>,
                 match json {
                     Err(e) => { eprintln!("[rename_channel_listener] {}", e) }
                     Ok(json) => {
-                        if let Some(sender) = senders.get(&channel) {
-                            let _ = sender.send(ThreadAction::Kill);
+                        if let Some(senders) = senders.get(&channel) {
+                            for sender in senders {
+                                let _ = sender.send(ThreadAction::Kill);
+                            }
                         }
                         client.send_quit("").unwrap();
 
@@ -465,6 +471,7 @@ fn live_update(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: St
                             } else {
                                 if live == "false" {
                                     let _: () = con.set(format!("channel:{}:live", channel), true).unwrap();
+                                    let _: () = con.del(format!("channel:{}:hosts:recent", channel)).unwrap();
                                     // reset notice timers
                                     let keys: Vec<String> = con.keys(format!("channel:{}:notices:*:messages", channel)).unwrap();
                                     for key in keys.iter() {
@@ -607,19 +614,25 @@ fn update_pubg(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: St
     });
 }
 
-fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: String, receiver: Receiver<ThreadAction>) {
+fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: String, receivers: Vec<Receiver<ThreadAction>>) {
     let notice_con = pool.get().unwrap();
-    let commercial_con = pool.get().unwrap();
+    let so_con = pool.get().unwrap();
+    let comm_con = pool.get().unwrap();
     let notice_client = client.clone();
-    let commercial_client = client.clone();
+    let so_client = client.clone();
+    let comm_client = client.clone();
     let notice_channel = channel.clone();
-    let commercial_channel = channel.clone();
+    let so_channel = channel.clone();
+    let comm_channel = channel.clone();
+    let notice_receiver = receivers[0].clone();
+    let so_receiver = receivers[1].clone();
+    let comm_receiver = receivers[2].clone();
 
     // notices
     thread::spawn(move || {
         let con = Arc::new(notice_con);
         loop {
-            let rsp = receiver.recv_timeout(time::Duration::from_secs(60));
+            let rsp = notice_receiver.recv_timeout(time::Duration::from_secs(60));
             match rsp {
                 Ok(action) => {
                     match action {
@@ -663,7 +676,7 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                     if let Ok(message) = res {
                         let mut message = message;
                         for var in commands::command_vars.iter() {
-                            message = parse_var(var, &message, con.clone(), &client, &notice_channel, None, &Vec::new());
+                            message = parse_var(var, &message, con.clone(), &notice_client, &notice_channel, None, &Vec::new());
                         }
                         let _ = notice_client.send_privmsg(format!("#{}", notice_channel), message);
                     }
@@ -672,15 +685,102 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
         }
     });
 
+    // shoutouts
+    thread::spawn(move || {
+        let con = Arc::new(so_con);
+        loop {
+            let live: String = con.get(format!("channel:{}:live", &so_channel)).unwrap_or("false".to_owned());
+            let hostm: String = con.hget(format!("channel:{}:settings", &so_channel), "channel:host-message").unwrap_or("".to_owned());
+            let autom: String = con.hget(format!("channel:{}:settings", &so_channel), "channel:autohost-message").unwrap_or("".to_owned());
+            if live == "false" && (!hostm.is_empty() || !autom.is_empty()) {
+                let id: String = con.get(format!("channel:{}:id", &so_channel)).unwrap();
+                let recent: Vec<String> = con.smembers(format!("channel:{}:hosts:recent", &so_channel)).unwrap_or(Vec::new());
+                let rsp = twitch_request_get(con.clone(), &so_channel, &format!("https://api.twitch.tv/kraken/channels/{}/hosts", &id));
+                match rsp {
+                    Err(e) => { println!("[auto_shoutouts] {}", e) }
+                    Ok(mut rsp) => {
+                        let json: Result<KrakenHosts,_> = rsp.json();
+                        match json {
+                            Err(e) => { println!("[auto_shoutouts] {}", e); }
+                            Ok(json) => {
+                                for host in json.hosts {
+                                    if recent.contains(&host.host_id) {
+                                        let _: () = con.sadd(format!("channel:{}:hosts:recent", &so_channel), &host.host_id).unwrap();
+                                        let rsp = twitch_request_get(con.clone(), &so_channel, &format!("https://api.twitch.tv/kraken/streams?channel={}", &host.host_id));
+                                        match rsp {
+                                            Err(e) => { println!("[auto_shoutouts] {}", e) }
+                                            Ok(mut rsp) => {
+                                                let json: Result<KrakenStreams,_> = rsp.json();
+                                                match json {
+                                                    Err(e) => { println!("[auto_shoutouts] {}", e); }
+                                                    Ok(json) => {
+                                                        if json.total > 0 {
+                                                            if !hostm.is_empty() {
+                                                                let mut message: String = hostm.to_owned();
+                                                                message = replace_var("url", &json.streams[0].channel.url, &message);
+                                                                message = replace_var("name", &json.streams[0].channel.display_name, &message);
+                                                                message = replace_var("game", &json.streams[0].channel.game, &message);
+                                                                message = replace_var("viewers", &json.streams[0].viewers.to_string(), &message);
+                                                                let _ = client.send_privmsg(format!("#{}", &so_channel), &message);
+                                                            }
+                                                        } else {
+                                                            if !autom.is_empty() {
+                                                                let rsp = twitch_request_get(con.clone(), &so_channel, &format!("https://api.twitch.tv/kraken/channels/{}", &host.host_id));
+                                                                match rsp {
+                                                                    Err(e) => { println!("[live_update] {}", e) }
+                                                                    Ok(mut rsp) => {
+                                                                        let json: Result<KrakenChannel,_> = rsp.json();
+                                                                        match json {
+                                                                            Err(e) => { println!("[live_update] {}", e); }
+                                                                            Ok(json) => {
+                                                                                let mut message: String = autom.to_owned();
+                                                                                message = replace_var("url", &json.url, &message);
+                                                                                message = replace_var("name", &json.display_name, &message);
+                                                                                message = replace_var("game", &json.game, &message);
+                                                                                let _ = client.send_privmsg(format!("#{}", channel), &message);
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            let rsp = so_receiver.recv_timeout(time::Duration::from_secs(60));
+            match rsp {
+                Ok(action) => {
+                    match action {
+                        ThreadAction::Kill => break
+                    }
+                }
+                Err(err) => {
+                    match err {
+                        RecvTimeoutError::Disconnected => break,
+                        RecvTimeoutError::Timeout => {}
+                    }
+                }
+            }
+        }
+    });
+
     // commercials
     thread::spawn(move || {
-        let con = Arc::new(commercial_con);
+        let con = Arc::new(comm_con);
         loop {
-            let live: String = con.get(format!("channel:{}:live", commercial_channel)).unwrap();
+            let live: String = con.get(format!("channel:{}:live", comm_channel)).unwrap();
             if live == "true" {
-                let hourly: String = con.get(format!("channel:{}:commercials:hourly", commercial_channel)).unwrap_or("0".to_owned());
+                let hourly: String = con.get(format!("channel:{}:commercials:hourly", comm_channel)).unwrap_or("0".to_owned());
                 let hourly: u64 = hourly.parse().unwrap();
-                let recents: Vec<String> = con.lrange(format!("channel:{}:commercials:recent", commercial_channel), 0, -1).unwrap();
+                let recents: Vec<String> = con.lrange(format!("channel:{}:commercials:recent", comm_channel), 0, -1).unwrap();
                 let num = recents.iter().fold(hourly, |acc, lastrun| {
                     let lastrun: Vec<&str> = lastrun.split_whitespace().collect();
                     let timestamp = DateTime::parse_from_rfc3339(&lastrun[0]).unwrap();
@@ -703,7 +803,7 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
 
                 if num > 0 {
                     let mut within8 = false;
-                    let res: Result<String,_> = con.lindex(format!("channel:{}:commercials:recent", commercial_channel), 0);
+                    let res: Result<String,_> = con.lindex(format!("channel:{}:commercials:recent", comm_channel), 0);
                     if let Ok(lastrun) = res {
                         let lastrun: Vec<&str> = lastrun.split_whitespace().collect();
                         let timestamp = DateTime::parse_from_rfc3339(&lastrun[0]).unwrap();
@@ -715,35 +815,62 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                             thread::sleep(time::Duration::from_secs((9 - (diff.num_minutes() as u64)) * 30));
                         }
                     }
-                    let id: String = con.get(format!("channel:{}:id", commercial_channel)).unwrap();
-                    let submode: String = con.get(format!("channel:{}:commercials:submode", commercial_channel)).unwrap_or("false".to_owned());
-                    let nres: Result<String,_> = con.get(format!("channel:{}:commercials:notice", commercial_channel));
-                    let rsp = twitch_request_post(con.clone(), &channel, &format!("https://api.twitch.tv/kraken/channels/{}/commercial", id), format!("{{\"length\": {}}}", num * 30));
-                    let length: u16 = con.llen(format!("channel:{}:commercials:recent", commercial_channel)).unwrap();
-                    let _: () = con.lpush(format!("channel:{}:commercials:recent", commercial_channel), format!("{} {}", Utc::now().to_rfc3339(), num)).unwrap();
+                    let id: String = con.get(format!("channel:{}:id", comm_channel)).unwrap();
+                    let submode: String = con.get(format!("channel:{}:commercials:submode", comm_channel)).unwrap_or("false".to_owned());
+                    let nres: Result<String,_> = con.get(format!("channel:{}:commercials:notice", comm_channel));
+                    let rsp = twitch_request_post(con.clone(), &comm_channel, &format!("https://api.twitch.tv/kraken/channels/{}/commercial", id), format!("{{\"length\": {}}}", num * 30));
+                    let length: u16 = con.llen(format!("channel:{}:commercials:recent", comm_channel)).unwrap();
+                    let _: () = con.lpush(format!("channel:{}:commercials:recent", comm_channel), format!("{} {}", Utc::now().to_rfc3339(), num)).unwrap();
                     if length > 7 {
-                        let _: () = con.rpop(format!("channel:{}:commercials:recent", commercial_channel)).unwrap();
+                        let _: () = con.rpop(format!("channel:{}:commercials:recent", comm_channel)).unwrap();
                     }
                     if submode == "true" {
-                        let client_clone = commercial_client.clone();
-                        let channel_clone = String::from(commercial_channel.clone());
-                        let _ = commercial_client.send_privmsg(format!("#{}", commercial_channel), "/subscribers");
+                        let client_clone = comm_client.clone();
+                        let channel_clone = String::from(comm_channel.clone());
+                        let _ = comm_client.send_privmsg(format!("#{}", comm_channel), "/subscribers");
                         thread::spawn(move || {
                             thread::sleep(time::Duration::from_secs(num * 30));
                             client_clone.send_privmsg(format!("#{}", channel_clone), "/subscribersoff").unwrap();
                         });
                     }
                     if let Ok(notice) = nres {
-                        let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", commercial_channel, notice), "message");
+                        let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", comm_channel, notice), "message");
                         if let Ok(message) = res {
-                            let _ = commercial_client.send_privmsg(format!("#{}", commercial_channel), message);
+                            let _ = comm_client.send_privmsg(format!("#{}", comm_channel), message);
                         }
                     }
-                    let _ = commercial_client.send_privmsg(format!("#{}", commercial_channel), format!("{} commercials have been run", num));
+                    let _ = comm_client.send_privmsg(format!("#{}", comm_channel), format!("{} commercials have been run", num));
                 }
-                thread::sleep(time::Duration::from_secs(3600));
+
+                let rsp = comm_receiver.recv_timeout(time::Duration::from_secs(3600));
+                match rsp {
+                    Ok(action) => {
+                        match action {
+                            ThreadAction::Kill => break
+                        }
+                    }
+                    Err(err) => {
+                        match err {
+                            RecvTimeoutError::Disconnected => break,
+                            RecvTimeoutError::Timeout => {}
+                        }
+                    }
+                }
             } else {
-                thread::sleep(time::Duration::from_secs(60));
+                let rsp = comm_receiver.recv_timeout(time::Duration::from_secs(60));
+                match rsp {
+                    Ok(action) => {
+                        match action {
+                            ThreadAction::Kill => break
+                        }
+                    }
+                    Err(err) => {
+                        match err {
+                            RecvTimeoutError::Disconnected => break,
+                            RecvTimeoutError::Timeout => {}
+                        }
+                    }
+                }
             }
         }
     });

@@ -107,6 +107,18 @@ pub fn parse_var(var: &(&str, fn(Arc<r2d2::PooledConnection<r2d2_redis::RedisCon
     return msg.to_owned();
 }
 
+pub fn replace_var(var: &str, val: &str, msg: &str) -> String {
+    let rgx = Regex::new(&format!("\\({}\\)", var)).unwrap();
+    let mut message: String = msg.to_owned();
+    for captures in rgx.captures_iter(&msg) {
+        if let Some(capture) = captures.get(0) {
+            message = rgx.replace(&message, |_: &Captures| { &val }).to_string();
+        }
+    }
+
+    return message.to_owned();
+}
+
 pub fn get_nick(msg: &Message) -> String {
     let mut name = "";
     if let Some(prefix) = &msg.prefix {
