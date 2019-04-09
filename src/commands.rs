@@ -155,7 +155,7 @@ fn followage_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMana
                                             if formatted.len() == 1 {
                                                 return format!("{}", formatted[0]);
                                             } else {
-                                                return format!("{}{}", formatted[0], formatted[1]);
+                                                return format!("{} and {}", formatted[0], formatted[1]);
                                             }
                                         }
                                     }
@@ -271,7 +271,27 @@ fn dateinc_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManage
 }
 
 fn countdown_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
-    "".to_string()
+    if vargs.len() > 0 {
+        let dt = DateTime::parse_from_str(&vargs[0], "%Y-%m-%dT%H:%M%z");
+        if let Ok(timestamp) = dt {
+            let diff = timestamp.signed_duration_since(Utc::now());
+            if let Ok(std) = diff.to_std() {
+                let formatted = format_duration(std).to_string();
+                let formatted: Vec<&str> = formatted.split_whitespace().collect();
+                if formatted.len() == 1 {
+                    return format!("{}", formatted[0]);
+                } else {
+                    return format!("{} and {}", formatted[0], formatted[1]);
+                }
+            } else {
+                "".to_owned()
+            }
+        } else {
+            "".to_owned()
+        }
+    } else {
+        "".to_owned()
+    }
 }
 
 fn watchtime_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
@@ -286,7 +306,7 @@ fn watchtime_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMana
                 if formatted.len() == 1 {
                     return format!("{}", formatted[0]);
                 } else {
-                    return format!("{}{}", formatted[0], formatted[1]);
+                    return format!("{} and {}", formatted[0], formatted[1]);
                 }
             } else {
                 "0m".to_owned()
