@@ -128,16 +128,81 @@ fn counterinc_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMan
     "".to_owned()
 }
 
-fn followage_var(_con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
-    "".to_string()
+fn followage_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
+    if let Some(message) = message {
+        let rsp = twitch_request_get(con.clone(), channel, &format!("https://api.twitch.tv/kraken/users?login={}", get_nick(message)));
+        match rsp {
+            Err(e) => { "".to_owned() }
+            Ok(mut rsp) => {
+                let json: Result<KrakenUsers,_> = rsp.json();
+                match json {
+                    Err(e) => { "".to_owned() }
+                    Ok(json) => {
+                        if json.total > 0 {
+                            let id: String = con.get(format!("channel:{}:id", channel)).unwrap();
+                            let rsp = twitch_request_get(con.clone(), channel, &format!("https://api.twitch.tv/kraken/users/{}/follows/channels/{}", &json.users[0].id, id));
+                            match rsp {
+                                Err(e) => { "".to_owned() }
+                                Ok(mut rsp) => {
+                                    let json: Result<KrakenFollow,_> = rsp.json();
+                                    match json {
+                                        Err(e) => { "0m".to_owned() }
+                                        Ok(json) => {
+                                            let timestamp = DateTime::parse_from_rfc3339(&json.created_at).unwrap();
+                                            let diff = Utc::now().signed_duration_since(timestamp);
+                                            let formatted = format_duration(diff.to_std().unwrap()).to_string();
+                                            let formatted: Vec<&str> = formatted.split_whitespace().collect();
+                                            if formatted.len() == 1 {
+                                                return format!("{}", formatted[0]);
+                                            } else {
+                                                return format!("{}{}", formatted[0], formatted[1]);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            "".to_owned()
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        "".to_owned()
+    }
 }
 
-fn subcount_var(_con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
-    "".to_string()
+fn subcount_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
+    let id: String = con.get(format!("channel:{}:id", channel)).unwrap();
+    let rsp = twitch_request_get(con.clone(), channel, &format!("https://api.twitch.tv/kraken/channels/{}/subscriptions", id));
+
+    match rsp {
+        Err(e) => { "0".to_owned() }
+        Ok(mut rsp) => {
+            let json: Result<KrakenSubs,_> = rsp.json();
+            match json {
+                Err(e) => { "0".to_owned() }
+                Ok(json) => { json.total.to_string() }
+            }
+        }
+    }
 }
 
-fn followcount_var(_con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
-    "".to_string()
+fn followcount_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
+    let id: String = con.get(format!("channel:{}:id", channel)).unwrap();
+    let rsp = twitch_request_get(con.clone(), channel, &format!("https://api.twitch.tv/kraken/channels/{}/follows", id));
+
+    match rsp {
+        Err(e) => { "0".to_owned() }
+        Ok(mut rsp) => {
+            let json: Result<KrakenFollows,_> = rsp.json();
+            match json {
+                Err(e) => { "0".to_owned() }
+                Ok(json) => { json.total.to_string() }
+            }
+        }
+    }
 }
 
 fn counter_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {

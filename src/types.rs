@@ -91,6 +91,36 @@ pub struct KrakenHost {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct KrakenFollow {
+    pub created_at: String
+}
+
+#[derive(Debug, Deserialize)]
+pub struct KrakenFollows {
+    #[serde(rename = "_total")]
+    pub total: i32
+}
+
+#[derive(Debug, Deserialize)]
+pub struct KrakenSubs {
+    #[serde(rename = "_total")]
+    pub total: i32
+}
+
+#[derive(Debug, Deserialize)]
+pub struct KrakenUsers {
+    #[serde(rename = "_total")]
+    pub total: i32,
+    pub users: Vec<KrakenUser>
+}
+
+#[derive(Debug, Deserialize)]
+pub struct KrakenUser {
+    #[serde(rename = "_id")]
+    pub id: String
+}
+
+#[derive(Debug, Deserialize)]
 pub struct KrakenChannel {
     pub status: String,
     pub game: String,
