@@ -93,14 +93,21 @@ html
       cursor: pointer
       background-color: teal
   &.cmds
-    padding-top: 20px
-    padding-right: 30px
+    padding-top: 15px
     color: white
     text-align: right
+
+#navbar
+  .command
+    &:hover
+      background-color: white
+      color: #222
+      cursor: pointer
 
 #navbar .command, #panes .command
   padding-bottom: 5px
   white-space: nowrap
+  padding: 4px 20px 4px 0
 
 #panes
   margin-left: 260px
@@ -108,7 +115,7 @@ html
   &.cmds
     color: #222
     .pane
-      margin-top: 20px
+      margin-top: 15px
   .pane
     display: none
     margin-top: 30px

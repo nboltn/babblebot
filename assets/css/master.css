@@ -107,15 +107,20 @@ html.funky {
   background-color: #45806f;
 }
 #navbar.cmds {
-  padding-top: 20px;
-  padding-right: 30px;
+  padding-top: 15px;
   color: #f0efeb;
   text-align: right;
+}
+#navbar .command:hover {
+  background-color: #f0efeb;
+  color: #222;
+  cursor: pointer;
 }
 #navbar .command,
 #panes .command {
   padding-bottom: 5px;
   white-space: nowrap;
+  padding: 4px 20px 4px 0;
 }
 #panes {
   margin-left: 260px;
@@ -125,7 +130,7 @@ html.funky {
   color: #222;
 }
 #panes.cmds .pane {
-  margin-top: 20px;
+  margin-top: 15px;
 }
 #panes .pane {
   display: none;
