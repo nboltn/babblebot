@@ -13,8 +13,3 @@ subcommands:
               takes_value: true
               required: true
               multiple: true
-  - import:
-      args:
-          - channel:
-              short: c
-              takes_value: tru
