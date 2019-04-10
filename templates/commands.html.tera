@@ -1,0 +1,52 @@
+{% extends 'common/base' %}
+{%- block htmlClass %}funky{%- endblock htmlClass %}
+
+{%- block body %}
+<div id='app'>
+  <div class='cmds' id='navbar'>
+    <div class='command' v-for='msg,cmd in commands'>{%raw%}{{cmd}}{%endraw%}</div>
+  </div><div class='cmds' id='panes'>
+    <div class='pane active' id='dashboard'>
+      <div class='command' v-for='msg,cmd in commands'>{%raw%}{{msg}}{%endraw%}</div>
+    </div>
+  </div>
+</div>
+
+<script type='text/javascript'>
+  u.ready = function (fn) { document.readyState !== 'loading'? fn(): u(document).on('DOMContentLoaded', fn) }
+
+  const app = new Vue({
+    el: '#app',
+    data: {
+      commands: {},
+    },
+    created: function(){
+      var vm = this;
+      const fetch_data = async () => {
+        const data = await fetch('/api/{{channel}}/public_data', {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'NoForward': '' }
+        }).then(res => res.json());
+
+        vm.commands = _.sortKeysBy(data.commands);
+      }
+
+      fetch_data();
+    },
+    methods: {
+    }
+  })
+
+  _.mixin({
+    'sortKeysBy': function (obj, comparator) {
+        var keys = _.sortBy(_.keys(obj), function (key) {
+            return comparator ? comparator(obj[key], key) : key;
+        });
+
+        return _.object(keys, _.map(keys, function (key) {
+            return obj[key];
+        }));
+    }
+  });
+</script>
+{%- endblock body %}

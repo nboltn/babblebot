@@ -106,9 +106,22 @@ html.funky {
   cursor: pointer;
   background-color: #45806f;
 }
+#navbar.cmds {
+  padding-top: 30px;
+  padding-right: 30px;
+  color: #f0efeb;
+  text-align: right;
+}
+#navbar .command,
+#panes .command {
+  padding-bottom: 5px;
+}
 #panes {
   margin-left: 260px;
   padding-left: 40px;
+}
+#panes.cmds {
+  color: #222;
 }
 #panes .pane {
   display: none;

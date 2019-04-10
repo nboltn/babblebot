@@ -92,10 +92,20 @@ html
     &.active, &:hover
       cursor: pointer
       background-color: teal
+  &.cmds
+    padding-top: 30px
+    padding-right: 30px
+    color: white
+    text-align: right
+
+#navbar .command, #panes .command
+  padding-bottom: 5px
 
 #panes
   margin-left: 260px
   padding-left: 40px
+  &.cmds
+    color: #222
   .pane
     display: none
     margin-top: 30px

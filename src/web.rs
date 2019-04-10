@@ -77,6 +77,14 @@ pub fn index(_con: RedisConnection) -> Template {
     return Template::render("index", &context);
 }
 
+#[get("/<channel>/commands")]
+pub fn commands(_con: RedisConnection, channel: String) -> Template {
+    let mut context: HashMap<&str, String> = HashMap::new();
+    let channel = channel;
+    context.insert("channel", channel);
+    return Template::render("commands", &context);
+}
+
 #[get("/api/data")]
 pub fn data(con: RedisConnection, auth: Auth) -> Json<ApiData> {
     let mut settings = config::Config::default();
@@ -158,6 +166,39 @@ pub fn data(con: RedisConnection, auth: Auth) -> Json<ApiData> {
                 }
             }
         }
+    }
+}
+
+#[get("/api/<channel>/public_data")]
+pub fn public_data(con: RedisConnection, channel: String) -> Json<ApiData> {
+    let id: Result<String,_> = con.get(format!("channel:{}:id", channel));
+    if let Ok(id) = id {
+        let token: String = con.get(format!("channel:{}:token", channel)).unwrap();
+        let mut commands: HashMap<String, String> = HashMap::new();
+        let fields: HashMap<String, String> = HashMap::new();
+        let settings: HashMap<String, String> = HashMap::new();
+        let notices: HashMap<String, Vec<String>> = HashMap::new();
+        let blacklist: HashMap<String, HashMap<String,String>> = HashMap::new();
+
+        let keys: Vec<String> = con.keys(format!("channel:{}:commands:*", channel)).unwrap();
+        for key in keys.iter() {
+            let cmd: Vec<&str> = key.split(":").collect();
+            let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", channel, cmd[3]), "message");
+            if let Ok(message) = res {
+                commands.insert(cmd[3].to_owned(), message);
+            }
+        }
+
+        let json = ApiData { fields: fields, commands: commands, notices: notices, settings: settings, blacklist: blacklist };
+        return Json(json);
+    } else {
+        let fields: HashMap<String, String> = HashMap::new();
+        let commands: HashMap<String, String> = HashMap::new();
+        let notices: HashMap<String, Vec<String>> = HashMap::new();
+        let settings: HashMap<String, String> = HashMap::new();
+        let blacklist: HashMap<String, HashMap<String,String>> = HashMap::new();
+        let json = ApiData { fields: fields, commands: commands, notices: notices, settings: settings, blacklist: blacklist };
+        return Json(json);
     }
 }
 

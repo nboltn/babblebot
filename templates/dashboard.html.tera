@@ -189,7 +189,6 @@
     },
     created: function(){
       var vm = this;
-      window.vm = this;
       const fetch_data = async () => {
         const data = await fetch('/api/data', {
           method: 'GET',
