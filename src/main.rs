@@ -49,7 +49,6 @@ fn main() {
     let pool_c1 = pool.clone();
 
     if let Some(matches) = matches.subcommand_matches("run_command") { run_command(pool.clone(), &settings, matches) }
-    if let Some(matches) = matches.subcommand_matches("import") { import(pool.clone(), &settings, matches) }
     else {
         thread::spawn(move || { new_channel_listener(pool_c1) });
         thread::spawn(move || {
