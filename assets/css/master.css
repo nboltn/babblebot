@@ -112,7 +112,7 @@ html.funky {
   text-align: right;
 }
 #navbar .command:hover {
-  background-color: #f0efeb;
+  background-image: url("/assets/images/funky-lines.png");
   color: #222;
   cursor: pointer;
 }
