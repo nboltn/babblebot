@@ -339,9 +339,6 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                         if !within5 {
                             let _: () = con.hset(format!("channel:{}:commands:{}", channel, word), "lastrun", Utc::now().to_rfc3339()).unwrap();
                             let mut message = message;
-                            for var in commands::command_vars.iter() {
-                                message = parse_var(var, &message, con.clone(), &client, channel, Some(&irc_message), &args);
-                            }
                             if args.len() > 0 {
                                 if let Some(char) = args[args.len()-1].chars().next() {
                                     if char == '@' {
@@ -352,11 +349,17 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                             if args.len() == 0 {
                                 let protected: String = con.hget(format!("channel:{}:commands:{}", channel, word), "cmd_protected").unwrap();
                                 if protected == "false" || auth {
+                                    for var in commands::command_vars.iter() {
+                                        message = parse_var(var, &message, con.clone(), &client, channel, Some(&irc_message), &args);
+                                    }
                                     let _ = client.send_privmsg(chan, message);
                                 }
                             } else {
                                 let protected: String = con.hget(format!("channel:{}:commands:{}", channel, word), "arg_protected").unwrap();
                                 if protected == "false" || auth {
+                                    for var in commands::command_vars.iter() {
+                                        message = parse_var(var, &message, con.clone(), &client, channel, Some(&irc_message), &args);
+                                    }
                                     let _ = client.send_privmsg(chan, message);
                                 }
                             }
