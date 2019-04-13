@@ -227,6 +227,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
             Command::PING(_,_) => { let _ = client.send_pong(":tmi.twitch.tv"); }
             Command::PRIVMSG(chan, msg) => {
                 let channel = &chan[1..];
+                let prefix: String = con.hget(format!("channel:{}:settings", channel), "command:prefix").unwrap_or("!".to_owned());
                 let mut words = msg.split_whitespace();
                 if let Some(word) = words.next() {
                     let word = word.to_lowercase();
@@ -318,7 +319,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                     }
 
                     for cmd in commands::native_commands.iter() {
-                        if format!("!{}", cmd.0) == word {
+                        if format!("{}{}", prefix, cmd.0) == word {
                             if args.len() == 0 {
                                 if !cmd.2 || auth { (cmd.1)(con.clone(), &client, channel, &args) }
                             } else {
@@ -341,27 +342,15 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                             let mut message = message;
                             if args.len() > 0 {
                                 if let Some(char) = args[args.len()-1].chars().next() {
-                                    if char == '@' {
-                                        message = format!("{} -> {}", args[args.len()-1], message);
-                                    }
+                                    if char == '@' { message = format!("{} -> {}", args[args.len()-1], message) }
                                 }
                             }
-                            if args.len() == 0 {
-                                let protected: String = con.hget(format!("channel:{}:commands:{}", channel, word), "cmd_protected").unwrap();
-                                if protected == "false" || auth {
-                                    for var in commands::command_vars.iter() {
-                                        message = parse_var(var, &message, con.clone(), &client, channel, Some(&irc_message), &args);
-                                    }
-                                    let _ = client.send_privmsg(chan, message);
-                                }
-                            } else {
-                                let protected: String = con.hget(format!("channel:{}:commands:{}", channel, word), "arg_protected").unwrap();
-                                if protected == "false" || auth {
-                                    for var in commands::command_vars.iter() {
-                                        message = parse_var(var, &message, con.clone(), &client, channel, Some(&irc_message), &args);
-                                    }
-                                    let _ = client.send_privmsg(chan, message);
-                                }
+                            let mut protected: &str = "cmd";
+                            if args.len() > 0 { protected = "arg" }
+                            let protected: String = con.hget(format!("channel:{}:commands:{}", channel, word), format!("{}_protected", protected)).unwrap();
+                            if protected == "false" || auth {
+                                for var in commands::command_vars.iter() { message = parse_var(var, &message, con.clone(), &client, channel, Some(&irc_message), &args) }
+                                let _ = client.send_privmsg(chan, message);
                             }
                         }
                     }
