@@ -45,7 +45,7 @@ fn main() {
     let redis_host = settings.get_str("redis_host").unwrap_or("redis://127.0.0.1".to_owned());
 
     let manager = RedisConnectionManager::new(&redis_host[..]).unwrap();
-    let pool = r2d2::Pool::builder().max_size(100).build(manager).unwrap();
+    let pool = r2d2::Pool::builder().max_size(200).build(manager).unwrap();
     let pool_c1 = pool.clone();
 
     if let Some(matches) = matches.subcommand_matches("run_command") { run_command(pool.clone(), &settings, matches) }
