@@ -227,6 +227,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
             Command::PING(_,_) => { let _ = client.send_pong(":tmi.twitch.tv"); }
             Command::PRIVMSG(chan, msg) => {
                 let channel = &chan[1..];
+                let nick = get_nick(&irc_message);
                 let prefix: String = con.hget(format!("channel:{}:settings", channel), "command:prefix").unwrap_or("!".to_owned());
                 let mut words = msg.split_whitespace();
                 if let Some(word) = words.next() {
@@ -256,35 +257,46 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                     let links: Vec<String> = con.smembers(format!("channel:{}:moderation:links", channel)).unwrap_or(Vec::new());
                     let bkeys: Vec<String> = con.keys(format!("channel:{}:moderation:blacklist:*", channel)).unwrap();
                     if colors == "true" && msg.len() > 6 && msg.as_bytes()[0] == 1 && &msg[1..7] == "ACTION" {
-                        let _ = client.send_privmsg(chan, format!("/timeout {} 1", get_nick(&irc_message)));
+                        let _ = client.send_privmsg(chan, format!("/timeout {} 1", nick));
                     }
                     if links.len() > 0 && url_regex().is_match(&msg) {
-                        for word in msg.split_whitespace() {
-                            if url_regex().is_match(word) {
-                                let mut url: String = word.to_owned();
-                                if url.len() > 7 && &url[..7] != "http://" && &url[..8] != "https://" { url = format!("http://{}", url) }
-                                match Url::parse(&url) {
-                                    Err(_) => {}
-                                    Ok(url) => {
-                                        let mut whitelisted = false;
-                                        for link in &links {
-                                            let link: Vec<&str> = link.split("/").collect();
-                                            let mut domain = url.domain().unwrap();
-                                            if domain.len() > 0 && &domain[..4] == "www." { domain = &domain[4..] }
-                                            if domain == link[0] {
-                                                if link.len() > 1 {
-                                                    if url.path().len() > 1 && url.path()[1..] == link[1..].join("/") {
+                        let sublinks: String = con.hget(format!("channel:{}:settings", channel), "moderation:sublinks").unwrap_or("false".to_owned());
+                        let permitted: Vec<String> = con.keys(format!("channel:{}:moderation:permitted:*", channel)).unwrap();
+                        let permitted: Vec<String> = permitted.iter().map(|key| { let key: Vec<&str> = key.split(":").collect(); key[4].to_owned() }).collect();
+                        let mut subscriber = false;
+                        if let Some(value) = badges.get("subscriber") {
+                            if let Some(value) = value {
+                                if value == "1" { subscriber = true }
+                            }
+                        }
+                        if !(permitted.contains(&nick) || (sublinks == "true" && subscriber)) {
+                            for word in msg.split_whitespace() {
+                                if url_regex().is_match(word) {
+                                    let mut url: String = word.to_owned();
+                                    if url.len() > 7 && &url[..7] != "http://" && &url[..8] != "https://" { url = format!("http://{}", url) }
+                                    match Url::parse(&url) {
+                                        Err(_) => {}
+                                        Ok(url) => {
+                                            let mut whitelisted = false;
+                                            for link in &links {
+                                                let link: Vec<&str> = link.split("/").collect();
+                                                let mut domain = url.domain().unwrap();
+                                                if domain.len() > 0 && &domain[..4] == "www." { domain = &domain[4..] }
+                                                if domain == link[0] {
+                                                    if link.len() > 1 {
+                                                        if url.path().len() > 1 && url.path()[1..] == link[1..].join("/") {
+                                                            whitelisted = true;
+                                                            break;
+                                                        }
+                                                    } else {
                                                         whitelisted = true;
                                                         break;
                                                     }
-                                                } else {
-                                                    whitelisted = true;
-                                                    break;
                                                 }
                                             }
-                                        }
-                                        if !whitelisted {
-                                            let _ = client.send_privmsg(chan, format!("/timeout {} 1", get_nick(&irc_message)));
+                                            if !whitelisted {
+                                                let _ = client.send_privmsg(chan, format!("/timeout {} 1", nick));
+                                            }
                                         }
                                     }
                                 }
@@ -299,7 +311,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                             Err(e) => { eprintln!("{}", e) }
                             Ok(rgx) => {
                                 if rgx.is_match(&msg) {
-                                    let _ = client.send_privmsg(chan, format!("/timeout {} {}", get_nick(&irc_message), length));
+                                    let _ = client.send_privmsg(chan, format!("/timeout {} {}", nick, length));
                                     break;
                                 }
                             }
@@ -358,7 +370,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                     let keys: Vec<String> = con.keys(format!("channel:{}:greetings:*", channel)).unwrap();
                     for key in keys.iter() {
                         let key: Vec<&str> = key.split(":").collect();
-                        if key[3] == get_nick(&irc_message) {
+                        if key[3] == nick {
                             let msg: String = con.hget(format!("channel:{}:greetings:{}", channel, key[3]), "message").unwrap();
                             let hours: i64 = con.hget(format!("channel:{}:greetings:{}", channel, key[3]), "hours").unwrap();
                             let res: Result<String,_> = con.hget(format!("channel:{}:lastseen", channel), key[3]);
@@ -372,7 +384,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                         }
                     }
 
-                    let _: () = con.hset(format!("channel:{}:lastseen", channel), get_nick(&irc_message), Utc::now().to_rfc3339()).unwrap();
+                    let _: () = con.hset(format!("channel:{}:lastseen", channel), nick, Utc::now().to_rfc3339()).unwrap();
                 }
             }
             _ => {}
