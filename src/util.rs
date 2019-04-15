@@ -3,6 +3,7 @@
 // cmdVarRegex = "\\(" ++ var ++ "((?: [\\w\\-:/!]+)*)\\)"
 
 use crate::types::*;
+use crate::commands::*;
 use std::sync::Arc;
 use config;
 use reqwest;
@@ -16,6 +17,12 @@ use r2d2_redis::redis::Commands;
 pub fn request_get(url: &str) -> reqwest::Result<reqwest::Response> {
     let req = reqwest::Client::builder().http1_title_case_headers().build().unwrap();
     let rsp = req.get(url).send();
+    return rsp;
+}
+
+pub fn request_post(url: &str, body: String) -> reqwest::Result<reqwest::Response> {
+    let req = reqwest::Client::builder().http1_title_case_headers().build().unwrap();
+    let rsp = req.post(url).body(body).send();
     return rsp;
 }
 
@@ -92,8 +99,47 @@ pub fn twitch_request_post(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConn
     return rsp;
 }
 
+pub fn parse_message(message: &str, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, irc_message: Option<&Message>, cargs: &Vec<&str>) -> String {
+    let mut msg: String = message.to_owned();
+    let mut vars: Vec<(&str,String)> = Vec::new();
+
+    let rgx = Regex::new("\\(var ?((?:[\\w\\-\\?\\._:/&!=]+)*)\\)").unwrap();
+    for captures in rgx.captures_iter(message) {
+        if let Some(capture) = captures.get(1) {
+            let capture: Vec<&str> = capture.as_str().split_whitespace().collect();
+            let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", channel, capture[0]), "message");
+            if let Ok(cmd) = res {
+                let mut cmd_message = cmd;
+                for var in command_vars.iter() {
+                    if var.0 != "cmd" && var.0 != "var" {
+                        cmd_message = parse_var(var, &cmd_message, con.clone(), &client, channel, irc_message, &capture[1..].to_vec());
+                    }
+                }
+                cmd_message = parse_code(&cmd_message, con.clone(), &client, channel, None, &Vec::new());
+                vars.push((capture[0], cmd_message));
+            }
+            msg = rgx.replace(&msg, |_: &Captures| { "" }).to_string();
+        }
+    }
+
+    for var in vars.iter() {
+        let rgx = Regex::new(&format!("\\({}\\)", var.0)).unwrap();
+        msg = rgx.replace_all(&msg, |_: &Captures| { (var.1).to_owned() }).to_string();
+    }
+
+    for var in command_vars.iter() {
+        if var.0 != "cmd" && var.0 != "var" {
+            msg = parse_var(var, &msg, con.clone(), &client, channel, irc_message, &cargs);
+        }
+    }
+
+    msg = parse_code(&msg, con.clone(), &client, channel, irc_message, &cargs);
+
+    return msg;
+}
+
 pub fn parse_var(var: &(&str, fn(Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, &IrcClient, &str, Option<&Message>, Vec<&str>, &Vec<&str>) -> String), message: &str, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, irc_message: Option<&Message>, cargs: &Vec<&str>) -> String {
-    let rgx = Regex::new(&format!("\\({}((?: [\\w\\-:/!]+)*)\\)", var.0)).unwrap();
+    let rgx = Regex::new(&format!("\\({} ?((?:[\\w\\-\\?\\._:/&!=]+)*)\\)", var.0)).unwrap();
     let mut msg: String = message.to_owned();
     let mut vargs: Vec<&str> = Vec::new();
     for captures in rgx.captures_iter(message) {
@@ -101,6 +147,22 @@ pub fn parse_var(var: &(&str, fn(Arc<r2d2::PooledConnection<r2d2_redis::RedisCon
             vargs = capture.as_str().split_whitespace().collect();
             let res = (var.1)(con.clone(), client, channel, irc_message, vargs, cargs);
             msg = rgx.replace(&msg, |_: &Captures| { &res }).to_string();
+        }
+    }
+
+    return msg.to_owned();
+}
+
+pub fn parse_code(message: &str, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, irc_message: Option<&Message>, cargs: &Vec<&str>) -> String {
+    let mut msg: String = message.to_owned();
+    let rgx = Regex::new("\\{-(.+?)\\-}").unwrap();
+    for captures in rgx.captures_iter(&msg.clone()) {
+        if let Some(capture) = captures.get(1) {
+            let rsp = request_post("http://localhost:9412/execute", format!("function() {{ {} }}", capture.as_str()));
+            match rsp {
+                Err(e) => println!("[parse_code] {}", e),
+                Ok(mut rsp) => { msg = rgx.replace(&msg, |_: &Captures| { strip_chars(&rsp.text().unwrap(), "\"") }).to_string(); }
+            }
         }
     }
 
@@ -126,6 +188,10 @@ pub fn get_nick(msg: &Message) -> String {
         name = split[0];
     }
     return name.to_owned();
+}
+
+fn strip_chars(original : &str, strip : &str) -> String {
+    original.chars().filter(|&c| !strip.contains(c)).collect()
 }
 
 pub fn url_regex() -> Regex {
