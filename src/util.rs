@@ -103,7 +103,7 @@ pub fn parse_message(message: &str, con: Arc<r2d2::PooledConnection<r2d2_redis::
     let mut msg: String = message.to_owned();
     let mut vars: Vec<(&str,String)> = Vec::new();
 
-    let rgx = Regex::new("\\(var ?((?:[\\w\\-\\?\\._:/&!=]+)*)\\)").unwrap();
+    let rgx = Regex::new("\\(var ?((?:[\\w\\-\\?\\._:/&!= ]+)*)\\)").unwrap();
     for captures in rgx.captures_iter(message) {
         if let Some(capture) = captures.get(1) {
             let capture: Vec<&str> = capture.as_str().split_whitespace().collect();
@@ -137,7 +137,7 @@ pub fn parse_message(message: &str, con: Arc<r2d2::PooledConnection<r2d2_redis::
 }
 
 pub fn parse_var(var: &(&str, fn(Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, &IrcClient, &str, Option<&Message>, Vec<&str>, &Vec<&str>) -> String), message: &str, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, irc_message: Option<&Message>, cargs: &Vec<&str>) -> String {
-    let rgx = Regex::new(&format!("\\({} ?((?:[\\w\\-\\?\\._:/&!=]+)*)\\)", var.0)).unwrap();
+    let rgx = Regex::new(&format!("\\({} ?((?:[\\w\\-\\?\\._:/&!= ]+)*)\\)", var.0)).unwrap();
     let mut msg: String = message.to_owned();
     let mut vargs: Vec<&str> = Vec::new();
     for captures in rgx.captures_iter(message) {
