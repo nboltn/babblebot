@@ -253,11 +253,13 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                         });
                     }
                     // filters: caps, symbols, length
+                    let display: String = con.get(format!("channel:{}:moderation:display", channel)).unwrap_or("false".to_owned());
                     let colors: String = con.get(format!("channel:{}:moderation:colors", channel)).unwrap_or("false".to_owned());
                     let links: Vec<String> = con.smembers(format!("channel:{}:moderation:links", channel)).unwrap_or(Vec::new());
                     let bkeys: Vec<String> = con.keys(format!("channel:{}:moderation:blacklist:*", channel)).unwrap();
                     if colors == "true" && msg.len() > 6 && msg.as_bytes()[0] == 1 && &msg[1..7] == "ACTION" {
                         let _ = client.send_privmsg(chan, format!("/timeout {} 1", nick));
+                        if display == "true" { let _ = client.send_privmsg(chan, format!("@{} you've been timed out for posting colors", nick)); }
                     }
                     if links.len() > 0 && url_regex().is_match(&msg) {
                         let sublinks: String = con.hget(format!("channel:{}:settings", channel), "moderation:sublinks").unwrap_or("false".to_owned());
@@ -296,6 +298,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                                             }
                                             if !whitelisted {
                                                 let _ = client.send_privmsg(chan, format!("/timeout {} 1", nick));
+                                                if display == "true" { let _ = client.send_privmsg(chan, format!("@{} you've been timed out for posting links", nick)); }
                                             }
                                         }
                                     }
@@ -312,6 +315,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                             Ok(rgx) => {
                                 if rgx.is_match(&msg) {
                                     let _ = client.send_privmsg(chan, format!("/timeout {} {}", nick, length));
+                                    if display == "true" { let _ = client.send_privmsg(chan, format!("@{} you've been timed out for posting a blacklisted phrase", nick)); }
                                     break;
                                 }
                             }

@@ -643,6 +643,19 @@ fn moderation_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMan
                     _ => {}
                 }
             }
+            "display" => {
+                match args[1] {
+                    "on" => {
+                        let _: () = con.set(format!("channel:{}:moderation:display", channel), true).unwrap();
+                        let _ = client.send_privmsg(format!("#{}", channel), "Displaying timeout reasons has been turned on");
+                    }
+                    "off" => {
+                        let _: () = con.set(format!("channel:{}:moderation:display", channel), false).unwrap();
+                        let _ = client.send_privmsg(format!("#{}", channel), "Displaying timeout reasons has been turned off");
+                    }
+                    _ => {}
+                }
+            }
             _ => {}
         }
     }
