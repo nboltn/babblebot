@@ -262,7 +262,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                         if display == "true" { let _ = client.send_privmsg(chan, format!("@{} you've been timed out for posting colors", nick)); }
                     }
                     if links.len() > 0 && url_regex().is_match(&msg) {
-                        let sublinks: String = con.hget(format!("channel:{}:settings", channel), "moderation:sublinks").unwrap_or("false".to_owned());
+                        let sublinks: String = con.get(format!("channel:{}:moderation:links:subs", channel)).unwrap_or("false".to_owned());
                         let permitted: Vec<String> = con.keys(format!("channel:{}:moderation:permitted:*", channel)).unwrap();
                         let permitted: Vec<String> = permitted.iter().map(|key| { let key: Vec<&str> = key.split(":").collect(); key[4].to_owned() }).collect();
                         let mut subscriber = false;

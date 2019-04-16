@@ -626,6 +626,14 @@ fn moderation_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMan
                             let _: () = con.srem(format!("channel:{}:moderation:links", channel), args[2]).unwrap();
                             let _ = client.send_privmsg(format!("#{}", channel), format!("{} has been removed from the whitelist", args[2]));
                         }
+                        "allowsubs" => {
+                            let _: () = con.set(format!("channel:{}:moderation:links:subs", channel), true).unwrap();
+                            let _ = client.send_privmsg(format!("#{}", channel), "Subs are now allowed to post links");
+                        }
+                        "blocksubs" => {
+                            let _: () = con.set(format!("channel:{}:moderation:links:subs", channel), false).unwrap();
+                            let _ = client.send_privmsg(format!("#{}", channel), "Subs are not allowed to post links");
+                        }
                         _ => {}
                     }
                 }
