@@ -11,15 +11,15 @@ use crate::types::*;
 use crate::util::*;
 
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc,Mutex};
-use crossbeam_channel::{unbounded,Sender,Receiver,RecvTimeoutError};
 use std::ops::Deref;
+use std::sync::{Arc,Mutex};
 use std::{thread,time};
 
 use clap::load_yaml;
 use config;
 use clap::{App, ArgMatches};
 use bcrypt::{DEFAULT_COST, hash};
+use crossbeam_channel::{unbounded,Sender,Receiver,RecvTimeoutError};
 use irc::error;
 use irc::client::prelude::*;
 use url::Url;
@@ -230,6 +230,8 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                 let nick = get_nick(&irc_message);
                 let prefix: String = con.hget(format!("channel:{}:settings", channel), "command:prefix").unwrap_or("!".to_owned());
                 let mut words = msg.split_whitespace();
+
+                // parse ircV3 badges
                 if let Some(word) = words.next() {
                     let mut word = word.to_lowercase();
                     let mut args: Vec<String> = words.map(|w| w.to_owned()).collect();
@@ -252,7 +254,9 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                             }
                         });
                     }
-                    // filters: caps, symbols, length
+
+                    // moderate incoming messages
+                    // TODO: caps, symbols, length
                     let display: String = con.get(format!("channel:{}:moderation:display", channel)).unwrap_or("false".to_owned());
                     let colors: String = con.get(format!("channel:{}:moderation:colors", channel)).unwrap_or("false".to_owned());
                     let links: Vec<String> = con.smembers(format!("channel:{}:moderation:links", channel)).unwrap_or(Vec::new());
@@ -322,6 +326,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                         }
                     }
 
+                    // parse authentication privilege
                     let mut auth = false;
                     if let Some(value) = badges.get("broadcaster") {
                         if let Some(value) = value {
@@ -334,6 +339,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                         }
                     }
 
+                    // expand aliases
                     let res: Result<String,_> = con.hget(format!("channel:{}:aliases", channel), &word);
                     if let Ok(alias) = res {
                         let mut awords = alias.split_whitespace();
@@ -347,6 +353,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                     }
                     let args: Vec<&str> = args.iter().map(|a| a.as_ref()).collect();
 
+                    // parse native commands
                     for cmd in commands::native_commands.iter() {
                         if format!("{}{}", prefix, cmd.0) == word {
                             if args.len() == 0 {
@@ -358,6 +365,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                         }
                     }
 
+                    // parse custom commands
                     let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", channel, word), "message");
                     if let Ok(message) = res {
                         let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", channel, word), "lastrun");
@@ -385,6 +393,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                         }
                     }
 
+                    // parse greetings
                     let keys: Vec<String> = con.keys(format!("channel:{}:greetings:*", channel)).unwrap();
                     for key in keys.iter() {
                         let key: Vec<&str> = key.split(":").collect();
