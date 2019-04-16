@@ -616,26 +616,28 @@ fn moderation_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMan
     if args.len() > 1 {
         match args[0] {
             "links" => {
-                if args.len() > 2 {
-                    match args[1] {
-                        "add" => {
+                match args[1] {
+                    "add" => {
+                        if args.len() > 2 {
                             let _: () = con.sadd(format!("channel:{}:moderation:links", channel), args[2]).unwrap();
                             let _ = client.send_privmsg(format!("#{}", channel), format!("{} has been whitelisted", args[2]));
                         }
-                        "remove" => {
+                    }
+                    "remove" => {
+                        if args.len() > 2 {
                             let _: () = con.srem(format!("channel:{}:moderation:links", channel), args[2]).unwrap();
                             let _ = client.send_privmsg(format!("#{}", channel), format!("{} has been removed from the whitelist", args[2]));
                         }
-                        "allowsubs" => {
-                            let _: () = con.set(format!("channel:{}:moderation:links:subs", channel), true).unwrap();
-                            let _ = client.send_privmsg(format!("#{}", channel), "Subs are now allowed to post links");
-                        }
-                        "blocksubs" => {
-                            let _: () = con.set(format!("channel:{}:moderation:links:subs", channel), false).unwrap();
-                            let _ = client.send_privmsg(format!("#{}", channel), "Subs are not allowed to post links");
-                        }
-                        _ => {}
                     }
+                    "allowsubs" => {
+                        let _: () = con.set(format!("channel:{}:moderation:links:subs", channel), true).unwrap();
+                        let _ = client.send_privmsg(format!("#{}", channel), "Subs are now allowed to post links");
+                    }
+                    "blocksubs" => {
+                        let _: () = con.set(format!("channel:{}:moderation:links:subs", channel), false).unwrap();
+                        let _ = client.send_privmsg(format!("#{}", channel), "Subs are not allowed to post links");
+                    }
+                    _ => {}
                 }
             }
             "colors" => {
