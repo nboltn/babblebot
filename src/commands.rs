@@ -504,6 +504,12 @@ fn command_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManage
                 let _: () = con.del(format!("channel:{}:commands:{}", channel, args[1])).unwrap();
                 let _ = client.send_privmsg(format!("#{}", channel), format!("{} has been removed", args[1]));
             }
+            "alias" => {
+                if args.len() > 2 {
+                    let _: () = con.hset(format!("channel:{}:aliases", channel), args[1], args[2..].join(" ")).unwrap();
+                    let _ = client.send_privmsg(format!("#{}", channel), format!("{} has been added as an alias to {}", args[1], args[2..].join(" ")));
+                }
+            }
             _ => {}
         }
     }

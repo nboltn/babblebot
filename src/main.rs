@@ -231,8 +231,8 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                 let prefix: String = con.hget(format!("channel:{}:settings", channel), "command:prefix").unwrap_or("!".to_owned());
                 let mut words = msg.split_whitespace();
                 if let Some(word) = words.next() {
-                    let word = word.to_lowercase();
-                    let args: Vec<&str> = words.collect();
+                    let mut word = word.to_lowercase();
+                    let mut args: Vec<String> = words.map(|w| w.to_owned()).collect();
                     let mut badges: HashMap<String, Option<String>> = HashMap::new();
                     if let Some(tags) = &irc_message.tags {
                         tags.iter().for_each(|tag| {
@@ -334,6 +334,19 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                         }
                     }
 
+                    let res: Result<String,_> = con.hget(format!("channel:{}:aliases", channel), &word);
+                    if let Ok(alias) = res {
+                        let mut awords = alias.split_whitespace();
+                        if let Some(aword) = awords.next() {
+                            let mut cargs = args.clone();
+                            let mut awords: Vec<String> = awords.map(|w| w.to_owned()).collect();
+                            awords.append(&mut cargs);
+                            word = aword.to_owned();
+                            args = awords.to_owned();
+                        }
+                    }
+                    let args: Vec<&str> = args.iter().map(|a| a.as_ref()).collect();
+
                     for cmd in commands::native_commands.iter() {
                         if format!("{}{}", prefix, cmd.0) == word {
                             if args.len() == 0 {
@@ -344,6 +357,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                             break;
                         }
                     }
+
                     let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", channel, word), "message");
                     if let Ok(message) = res {
                         let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", channel, word), "lastrun");
