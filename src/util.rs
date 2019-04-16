@@ -111,7 +111,7 @@ pub fn parse_message(message: &str, con: Arc<r2d2::PooledConnection<r2d2_redis::
             if let Ok(cmd) = res {
                 let mut cmd_message = cmd;
                 for var in command_vars.iter() {
-                    if var.0 != "cmd" && var.0 != "var" {
+                    if var.0 != "cmd" {
                         cmd_message = parse_var(var, &cmd_message, con.clone(), &client, channel, irc_message, &capture[1..].to_vec());
                     }
                 }
@@ -128,9 +128,7 @@ pub fn parse_message(message: &str, con: Arc<r2d2::PooledConnection<r2d2_redis::
     }
 
     for var in command_vars.iter() {
-        if var.0 != "cmd" && var.0 != "var" {
-            msg = parse_var(var, &msg, con.clone(), &client, channel, irc_message, &cargs);
-        }
+        msg = parse_var(var, &msg, con.clone(), &client, channel, irc_message, &cargs);
     }
 
     msg = parse_code(&msg, con.clone(), &client, channel, irc_message, &cargs);
