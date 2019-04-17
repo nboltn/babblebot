@@ -257,16 +257,8 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
 
                     // parse auth privilege
                     let mut auth = false;
-                    if let Some(value) = badges.get("broadcaster") {
-                        if let Some(value) = value {
-                            if value == "1" { auth = true }
-                        }
-                    }
-                    if let Some(value) = badges.get("moderator") {
-                        if let Some(value) = value {
-                            if value == "1" { auth = true }
-                        }
-                    }
+                    if let Some(value) = badges.get("broadcaster") { auth = true }
+                    if let Some(value) = badges.get("moderator") { auth = true }
 
                     // moderate incoming messages
                     // TODO: caps, symbols, length
@@ -284,9 +276,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                             let permitted: Vec<String> = con.keys(format!("channel:{}:moderation:permitted:*", channel)).unwrap();
                             let permitted: Vec<String> = permitted.iter().map(|key| { let key: Vec<&str> = key.split(":").collect(); key[4].to_owned() }).collect();
                             let mut subscriber = false;
-                            if let Some(value) = badges.get("subscriber") {
-                                if let Some(_) = value { subscriber = true }
-                            }
+                            if let Some(value) = badges.get("subscriber") { subscriber = true }
                             if !(permitted.contains(&nick) || (sublinks == "true" && subscriber)) {
                                 for word in msg.split_whitespace() {
                                     if url_regex().is_match(word) {
