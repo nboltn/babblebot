@@ -285,9 +285,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                             let permitted: Vec<String> = permitted.iter().map(|key| { let key: Vec<&str> = key.split(":").collect(); key[4].to_owned() }).collect();
                             let mut subscriber = false;
                             if let Some(value) = badges.get("subscriber") {
-                                if let Some(value) = value {
-                                    if value == "1" { subscriber = true }
-                                }
+                                if let Some(_) = value { subscriber = true }
                             }
                             if !(permitted.contains(&nick) || (sublinks == "true" && subscriber)) {
                                 for word in msg.split_whitespace() {
