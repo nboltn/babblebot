@@ -261,15 +261,33 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                     if let Some(value) = badges.get("moderator") { auth = true }
 
                     // moderate incoming messages
-                    // TODO: caps, symbols, length
+                    // TODO: symbols, length
                     if !auth {
                         let display: String = con.get(format!("channel:{}:moderation:display", channel)).unwrap_or("false".to_owned());
+                        let caps: String = con.get(format!("channel:{}:moderation:caps", channel)).unwrap_or("false".to_owned());
                         let colors: String = con.get(format!("channel:{}:moderation:colors", channel)).unwrap_or("false".to_owned());
                         let links: Vec<String> = con.smembers(format!("channel:{}:moderation:links", channel)).unwrap_or(Vec::new());
                         let bkeys: Vec<String> = con.keys(format!("channel:{}:moderation:blacklist:*", channel)).unwrap();
                         if colors == "true" && msg.len() > 6 && msg.as_bytes()[0] == 1 && &msg[1..7] == "ACTION" {
                             let _ = client.send_privmsg(chan, format!("/timeout {} 1", nick));
                             if display == "true" { let _ = client.send_privmsg(chan, format!("@{} you've been timed out for posting colors", nick)); }
+                        }
+                        if caps == "true" {
+                            let limit: String = con.get(format!("channel:{}:moderation:caps:limit", channel)).unwrap();
+                            let trigger: String = con.get(format!("channel:{}:moderation:caps:trigger", channel)).unwrap();
+                            let limit: Result<f32,_> = limit.parse();
+                            let trigger: Result<f32,_> = trigger.parse();
+                            if let (Ok(limit), Ok(trigger)) = (limit, trigger) {
+                                let len = msg.len() as f32;
+                                if len >= trigger {
+                                    let num = msg.chars().fold(0.0, |acc, c| if c.is_uppercase() { acc + 1.0 } else { acc });
+                                    let ratio = num / len;
+                                    if ratio > (limit / 100.0) {
+                                        let _ = client.send_privmsg(chan, format!("/timeout {} 1", nick));
+                                        if display == "true" { let _ = client.send_privmsg(chan, format!("@{} you've been timed out for posting colors", nick)); }
+                                    }
+                                }
+                            }
                         }
                         if links.len() > 0 && url_regex().is_match(&msg) {
                             let sublinks: String = con.get(format!("channel:{}:moderation:links:subs", channel)).unwrap_or("false".to_owned());

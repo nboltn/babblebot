@@ -663,6 +663,25 @@ fn moderation_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMan
                     _ => {}
                 }
             }
+            "caps" => {
+                match args[1] {
+                    "set" => {
+                        if args.len() > 3 {
+                            let _: () = con.set(format!("channel:{}:moderation:caps", channel), true).unwrap();
+                            let _: () = con.set(format!("channel:{}:moderation:caps:limit", channel), args[2]).unwrap();
+                            let _: () = con.set(format!("channel:{}:moderation:caps:trigger", channel), args[3]).unwrap();
+                            let _ = client.send_privmsg(format!("#{}", channel), "Caps filter has been turned on");
+                        }
+                    }
+                    "off" => {
+                        let _: () = con.del(format!("channel:{}:moderation:caps", channel)).unwrap();
+                        let _: () = con.del(format!("channel:{}:moderation:caps:limit", channel)).unwrap();
+                        let _: () = con.del(format!("channel:{}:moderation:caps:trigger", channel)).unwrap();
+                        let _ = client.send_privmsg(format!("#{}", channel), "Caps filter has been turned off");
+                    }
+                    _ => {}
+                }
+            }
             "display" => {
                 match args[1] {
                     "on" => {
