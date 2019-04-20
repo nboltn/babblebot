@@ -255,7 +255,9 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                         });
                     }
 
-                    // parse auth privilege
+                    let mut subscriber = false;
+                    if let Some(value) = badges.get("subscriber") { subscriber = true }
+
                     let mut auth = false;
                     if let Some(value) = badges.get("broadcaster") { auth = true }
                     if let Some(value) = badges.get("moderator") { auth = true }
@@ -275,6 +277,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                         if caps == "true" {
                             let limit: String = con.get(format!("channel:{}:moderation:caps:limit", channel)).unwrap();
                             let trigger: String = con.get(format!("channel:{}:moderation:caps:trigger", channel)).unwrap();
+                            let subs: String = con.get(format!("channel:{}:moderation:caps:subs", channel)).unwrap_or("false".to_owned());
                             let limit: Result<f32,_> = limit.parse();
                             let trigger: Result<f32,_> = trigger.parse();
                             if let (Ok(limit), Ok(trigger)) = (limit, trigger) {
@@ -283,8 +286,10 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                                     let num = msg.chars().fold(0.0, |acc, c| if c.is_uppercase() { acc + 1.0 } else { acc });
                                     let ratio = num / len;
                                     if ratio > (limit / 100.0) {
-                                        let _ = client.send_privmsg(chan, format!("/timeout {} 1", nick));
-                                        if display == "true" { let _ = client.send_privmsg(chan, format!("@{} you've been timed out for posting colors", nick)); }
+                                        if !subscriber || subscriber && subs == "true" {
+                                            let _ = client.send_privmsg(chan, format!("/timeout {} 1", nick));
+                                            if display == "true" { let _ = client.send_privmsg(chan, format!("@{} you've been timed out for posting colors", nick)); }
+                                        }
                                     }
                                 }
                             }
@@ -293,8 +298,6 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                             let sublinks: String = con.get(format!("channel:{}:moderation:links:subs", channel)).unwrap_or("false".to_owned());
                             let permitted: Vec<String> = con.keys(format!("channel:{}:moderation:permitted:*", channel)).unwrap();
                             let permitted: Vec<String> = permitted.iter().map(|key| { let key: Vec<&str> = key.split(":").collect(); key[4].to_owned() }).collect();
-                            let mut subscriber = false;
-                            if let Some(value) = badges.get("subscriber") { subscriber = true }
                             if !(permitted.contains(&nick) || (sublinks == "true" && subscriber)) {
                                 for word in msg.split_whitespace() {
                                     if url_regex().is_match(word) {
