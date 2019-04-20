@@ -462,15 +462,15 @@ fn echo_cmd(_con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>
 
 fn set_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<&str>) {
     match args.len() {
+        0 => {}
         1 => {
             let _: () = con.hset(format!("channel:{}:settings", channel), args[0], true).unwrap();
             let _ = client.send_privmsg(format!("#{}", channel), format!("{} has been set to: true", args[0]));
         }
-        2 => {
-            let _: () = con.hset(format!("channel:{}:settings", channel), args[0], args[1]).unwrap();
-            let _ = client.send_privmsg(format!("#{}", channel), format!("{} has been set to: {}", args[0], args[1]));
+        _ => {
+            let _: () = con.hset(format!("channel:{}:settings", channel), args[0], args[1..].join(" ")).unwrap();
+            let _ = client.send_privmsg(format!("#{}", channel), format!("{} has been set to: {}", args[0], args[1..].join(" ")));
         }
-        _ => {}
     }
 }
 
