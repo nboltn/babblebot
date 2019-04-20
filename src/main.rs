@@ -286,7 +286,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                                     let num = msg.chars().fold(0.0, |acc, c| if c.is_uppercase() { acc + 1.0 } else { acc });
                                     let ratio = num / len;
                                     if ratio >= (limit / 100.0) {
-                                        if !subscriber || subscriber && subs == "true" {
+                                        if !subscriber || subscriber && subs != "true" {
                                             let _ = client.send_privmsg(chan, format!("/timeout {} 1", nick));
                                             if display == "true" { let _ = client.send_privmsg(chan, format!("@{} you've been timed out for posting too many caps", nick)); }
                                         }
