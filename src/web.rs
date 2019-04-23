@@ -460,7 +460,7 @@ pub fn new_notice(con: RedisConnection, data: Form<ApiNoticeReq>, auth: Auth) ->
         let n: Result<u16,_> = data.interval.parse();
         match n {
             Ok(num) => {
-                if num % 30 == 0 {
+                if num % 60 == 0 {
                     let exists: bool = con.exists(format!("channel:{}:commands:{}", &auth.channel, &data.command)).unwrap();
                     if exists {
                         let _: () = con.rpush(format!("channel:{}:notices:{}:commands", &auth.channel, &data.interval), &data.command).unwrap();
