@@ -439,7 +439,7 @@ fn discord_handler(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel
         loop {
             let res: Result<String,_> = con.hget(format!("channel:{}:settings", channel), "discord:token");
             if let Ok(token) = res {
-                let mut client = serenity::client::Client::new(&token, DiscordHandler).unwrap();
+                let mut client = serenity::client::Client::new(&token, DiscordHandler { pool: pool.clone(), channel: channel.to_owned() }).unwrap();
                 client.with_framework(StandardFramework::new());
 
                 if let Err(e) = client.start() {

@@ -6,12 +6,28 @@ use serde::{Serialize, Deserialize};
 use serde_json::Value;
 use rocket_contrib::database;
 use rocket_contrib::databases::redis;
+use r2d2_redis::{r2d2, RedisConnectionManager};
+use r2d2_redis::redis::Commands;
 
-pub struct DiscordHandler;
+pub struct DiscordHandler {
+    pub pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>,
+    pub channel: String
+}
 
 impl EventHandler for DiscordHandler {
     fn message(&self, _: Context, msg: Message) {
-        // println!("{:?}",msg);
+        let con = self.pool.get().unwrap();
+        let mut words = msg.content.split_whitespace();
+        if let Some(word) = words.next() {
+            let mut word = word.to_lowercase();
+            let mut args: Vec<String> = words.map(|w| w.to_owned()).collect();
+            let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", self.channel, word), "message");
+            if let Ok(message) = res {
+                let mut message = message;
+                //message = parse_message(&message, con.clone(), &client, channel, Some(&irc_message), &args);
+                let _ = msg.channel_id.send_message(|m| m.content(message));
+            }
+        }
     }
 }
 
