@@ -852,7 +852,7 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                         let lastrun: Vec<&str> = lastrun.split_whitespace().collect();
                         let timestamp = DateTime::parse_from_rfc3339(&lastrun[0]).unwrap();
                         let diff = Utc::now().signed_duration_since(timestamp);
-                        if diff.num_minutes() < 9 {
+                        if diff.num_minutes() <= 9 {
                             within8 = true;
                         }
                         if within8 {

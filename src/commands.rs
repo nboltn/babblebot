@@ -818,7 +818,7 @@ fn commercials_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMa
                                 let lastrun: Vec<&str> = lastrun.split_whitespace().collect();
                                 let timestamp = DateTime::parse_from_rfc3339(&lastrun[0]).unwrap();
                                 let diff = Utc::now().signed_duration_since(timestamp);
-                                if diff.num_minutes() < 9 {
+                                if diff.num_minutes() <= 9 {
                                     within8 = true;
                                 }
                             }

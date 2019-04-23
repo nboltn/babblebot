@@ -27,10 +27,10 @@ impl EventHandler for DiscordHandler {
             if let Ok(message) = res {
                 let mut message = message;
                 //message = parse_message(&message, con.clone(), &client, channel, Some(&irc_message), &args);
-                //let _ = msg.channel_id.send_message(|m| m.content(message));
-                let token: String = con.hget(format!("channel:{}:settings", self.channel), "discord:token").unwrap();
-                let body = format!("{{ \"content\": \"{}\" }}", &message);
-                let _ = discord_request_post(con.clone(), &self.channel, &format!("https://discordapp.com/api/channels/{}/messages", msg.channel_id.as_u64()), body);
+                let _ = msg.channel_id.say(message);
+                //let token: String = con.hget(format!("channel:{}:settings", self.channel), "discord:token").unwrap();
+                //let body = format!("{{ \"content\": \"{}\" }}", &message);
+                //let _ = discord_request_post(con.clone(), &self.channel, &format!("https://discordapp.com/api/channels/{}/messages", msg.channel_id.as_u64()), body);
             }
         }
     }
