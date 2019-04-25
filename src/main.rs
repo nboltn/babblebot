@@ -282,7 +282,7 @@ fn command_listener(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, client
                                         if let Ok(message) = res {
                                             let mut message = message;
                                             message = parse_message(&message, con.clone(), &client, &channel, None, &args);
-                                            let _ = client.send_privmsg(format!("#{}", &channel), message);
+                                            send_message(con.clone(), &client, &channel, message.to_owned(), &args, None);
                                         }
                                     }
                                 }
@@ -346,7 +346,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                         let bkeys: Vec<String> = con.keys(format!("channel:{}:moderation:blacklist:*", channel)).unwrap();
                         if colors == "true" && msg.len() > 6 && msg.as_bytes()[0] == 1 && &msg[1..7] == "ACTION" {
                             let _ = client.send_privmsg(chan, format!("/timeout {} 1", nick));
-                            if display == "true" { let _ = client.send_privmsg(chan, format!("@{} you've been timed out for posting colors", nick)); }
+                            if display == "true" { send_message(con.clone(), &client, channel, format!("@{} you've been timed out for posting colors", nick), &Vec::new(), None); }
                         }
                         if caps == "true" {
                             let limit: String = con.get(format!("channel:{}:moderation:caps:limit", channel)).unwrap();
@@ -362,7 +362,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                                     if ratio >= (limit / 100.0) {
                                         if !subscriber || subscriber && subs != "true" {
                                             let _ = client.send_privmsg(chan, format!("/timeout {} 1", nick));
-                                            if display == "true" { let _ = client.send_privmsg(chan, format!("@{} you've been timed out for posting too many caps", nick)); }
+                                            if display == "true" { send_message(con.clone(), &client, channel, format!("@{} you've been timed out for posting too many caps", nick), &Vec::new(), None); }
                                         }
                                     }
                                 }
@@ -399,7 +399,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                                                 }
                                                 if !whitelisted {
                                                     let _ = client.send_privmsg(chan, format!("/timeout {} 1", nick));
-                                                    if display == "true" { let _ = client.send_privmsg(chan, format!("@{} you've been timed out for posting links", nick)); }
+                                                    if display == "true" { send_message(con.clone(), &client, channel, format!("@{} you've been timed out for posting links", nick), &Vec::new(), None); }
                                                 }
                                             }
                                         }
@@ -416,7 +416,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                                 Ok(rgx) => {
                                     if rgx.is_match(&msg) {
                                         let _ = client.send_privmsg(chan, format!("/timeout {} {}", nick, length));
-                                        if display == "true" { let _ = client.send_privmsg(chan, format!("@{} you've been timed out for posting a blacklisted phrase", nick)); }
+                                        if display == "true" { send_message(con.clone(), &client, channel, format!("@{} you've been timed out for posting a blacklisted phrase", nick), &Vec::new(), None); }
                                         break;
                                     }
                                 }
@@ -466,18 +466,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                             let protected: String = con.hget(format!("channel:{}:commands:{}", channel, word), format!("{}_protected", protected)).unwrap();
                             if protected == "false" || auth {
                                 let _: () = con.hset(format!("channel:{}:commands:{}", channel, word), "lastrun", Utc::now().to_rfc3339()).unwrap();
-                                let mut message = message;
-                                if args.len() > 0 {
-                                    if let Some(char) = args[args.len()-1].chars().next() {
-                                        if char == '@' { message = format!("{} -> {}", args[args.len()-1], message) }
-                                    }
-                                }
-                                let me: String = con.hget(format!("channel:{}:settings", channel), "channel:me").unwrap_or("false".to_owned());
-                                if me == "true" {
-                                    message = format!("/me {}", message);
-                                }
-                                message = parse_message(&message, con.clone(), &client, channel, Some(&irc_message), &args);
-                                let _ = client.send_privmsg(chan, message);
+                                send_message(con.clone(), &client, channel, message.to_owned(), &args, Some(&irc_message));
                             }
                         }
                     }
@@ -495,7 +484,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                                 let diff = Utc::now().signed_duration_since(timestamp);
                                 if diff.num_hours() < hours { break }
                             }
-                            let _ = client.send_privmsg(chan, msg);
+                            send_message(con.clone(), &client, channel, msg, &Vec::new(), None);
                             break;
                         }
                     }
@@ -793,9 +782,11 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                     let cmd: String = con.lpop(format!("channel:{}:notices:{}:commands", notice_channel, int)).unwrap();
                     let _: () = con.rpush(format!("channel:{}:notices:{}:commands", notice_channel, int), cmd.clone()).unwrap();
                     let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", notice_channel, cmd), "message");
-                    if let Ok(message) = res {
+                    if let Ok(mut message) = res {
+                        let me: String = con.hget(format!("channel:{}:settings", notice_channel), "channel:me").unwrap_or("false".to_owned());
+                        if me == "true" { message = format!("/me {}", message); }
                         let message = parse_message(&message, con.clone(), &notice_client, &notice_channel, None, &Vec::new());
-                        let _ = notice_client.send_privmsg(format!("#{}", notice_channel), message);
+                        send_message(con.clone(), &notice_client, &notice_channel, message, &Vec::new(), None);
                     }
                 }
             }
@@ -820,7 +811,7 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                         match json {
                             Err(e) => { println!("[auto_shoutouts] {}", e); }
                             Ok(json) => {
-                                let list: String = con.hget(format!("channel:{}:settings", channel), "autohost:blacklist").unwrap_or("".to_owned());
+                                let list: String = con.hget(format!("channel:{}:settings", &so_channel), "autohost:blacklist").unwrap_or("".to_owned());
                                 let mut blacklist: Vec<&str> = Vec::new();
                                 for nick in list.split_whitespace() { blacklist.push(nick) }
                                 for host in json.hosts {
@@ -842,7 +833,7 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                                                                     message = replace_var("name", &json.streams[0].channel.display_name, &message);
                                                                     message = replace_var("game", &json.streams[0].channel.game, &message);
                                                                     message = replace_var("viewers", &json.streams[0].viewers.to_string(), &message);
-                                                                    let _ = client.send_privmsg(format!("#{}", &so_channel), &message);
+                                                                    send_message(con.clone(), &so_client, &so_channel, message, &Vec::new(), None);
                                                                 }
                                                             } else {
                                                                 if !autom.is_empty() {
@@ -858,7 +849,7 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                                                                                     message = replace_var("url", &json.url, &message);
                                                                                     message = replace_var("name", &json.display_name, &message);
                                                                                     message = replace_var("game", &json.game, &message);
-                                                                                    let _ = client.send_privmsg(format!("#{}", channel), &message);
+                                                                                    send_message(con.clone(), &so_client, &so_channel, message, &Vec::new(), None);
                                                                                 }
                                                                             }
                                                                         }
@@ -958,10 +949,10 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                     if let Ok(notice) = nres {
                         let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", comm_channel, notice), "message");
                         if let Ok(message) = res {
-                            let _ = comm_client.send_privmsg(format!("#{}", comm_channel), message);
+                            send_message(con.clone(), &client, &comm_channel, message, &Vec::new(), None);
                         }
                     }
-                    let _ = comm_client.send_privmsg(format!("#{}", comm_channel), format!("{} commercials have been run", num));
+                    send_message(con.clone(), &client, &comm_channel, format!("{} commercials have been run", num), &Vec::new(), None);
                 }
 
                 let rsp = comm_receiver.recv_timeout(time::Duration::from_secs(3600));

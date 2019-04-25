@@ -14,6 +14,18 @@ use regex::{Regex,RegexBuilder,Captures};
 use r2d2_redis::r2d2;
 use r2d2_redis::redis::Commands;
 
+pub fn send_message(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, mut message: String, args: &Vec<&str>, irc_message: Option<&Message>) {
+    if args.len() > 0 {
+        if let Some(char) = args[args.len()-1].chars().next() {
+            if char == '@' { message = format!("{} -> {}", args[args.len()-1], message) }
+        }
+    }
+    let me: String = con.hget(format!("channel:{}:settings", channel), "channel:me").unwrap_or("false".to_owned());
+    if me == "true" { message = format!("/me {}", message); }
+    message = parse_message(&message, con.clone(), &client, channel, irc_message, &args);
+    let _ = client.send_privmsg(format!("#{}", channel), message);
+}
+
 pub fn request_get(url: &str) -> reqwest::Result<reqwest::Response> {
     let req = reqwest::Client::builder().http1_title_case_headers().build().unwrap();
     let rsp = req.get(url).send();
