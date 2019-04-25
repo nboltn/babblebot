@@ -192,7 +192,7 @@ fn rename_channel_listener(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>,
                                 let _ = sender.send(ThreadAction::Kill);
                             }
                         }
-                        client.send_quit("").unwrap();
+                        let _ = client.send_quit("");
 
                         let bot: String = con.get(format!("channel:{}:bot", &channel)).unwrap();
                         let _: () = con.srem(format!("bot:{}:channels", &bot), &channel).unwrap();
@@ -461,17 +461,21 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                             if diff.num_seconds() < 5 { within5 = true }
                         }
                         if !within5 {
-                            let _: () = con.hset(format!("channel:{}:commands:{}", channel, word), "lastrun", Utc::now().to_rfc3339()).unwrap();
-                            let mut message = message;
-                            if args.len() > 0 {
-                                if let Some(char) = args[args.len()-1].chars().next() {
-                                    if char == '@' { message = format!("{} -> {}", args[args.len()-1], message) }
-                                }
-                            }
                             let mut protected: &str = "cmd";
                             if args.len() > 0 { protected = "arg" }
                             let protected: String = con.hget(format!("channel:{}:commands:{}", channel, word), format!("{}_protected", protected)).unwrap();
                             if protected == "false" || auth {
+                                let _: () = con.hset(format!("channel:{}:commands:{}", channel, word), "lastrun", Utc::now().to_rfc3339()).unwrap();
+                                let mut message = message;
+                                if args.len() > 0 {
+                                    if let Some(char) = args[args.len()-1].chars().next() {
+                                        if char == '@' { message = format!("{} -> {}", args[args.len()-1], message) }
+                                    }
+                                }
+                                let me: String = con.hget(format!("channel:{}:settings", channel), "channel:me").unwrap_or("false".to_owned());
+                                if me == "true" {
+                                    message = format!("/me {}", message);
+                                }
                                 message = parse_message(&message, con.clone(), &client, channel, Some(&irc_message), &args);
                                 let _ = client.send_privmsg(chan, message);
                             }
