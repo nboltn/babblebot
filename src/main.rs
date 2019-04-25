@@ -280,8 +280,6 @@ fn command_listener(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, client
                                         // parse custom commands
                                         let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", channel, word), "message");
                                         if let Ok(message) = res {
-                                            let mut message = message;
-                                            message = parse_message(&message, con.clone(), &client, &channel, None, &args);
                                             send_message(con.clone(), &client, &channel, message.to_owned(), &args, None);
                                         }
                                     }
@@ -783,9 +781,6 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                     let _: () = con.rpush(format!("channel:{}:notices:{}:commands", notice_channel, int), cmd.clone()).unwrap();
                     let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", notice_channel, cmd), "message");
                     if let Ok(mut message) = res {
-                        let me: String = con.hget(format!("channel:{}:settings", notice_channel), "channel:me").unwrap_or("false".to_owned());
-                        if me == "true" { message = format!("/me {}", message); }
-                        let message = parse_message(&message, con.clone(), &notice_client, &notice_channel, None, &Vec::new());
                         send_message(con.clone(), &notice_client, &notice_channel, message, &Vec::new(), None);
                     }
                 }
