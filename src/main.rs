@@ -19,7 +19,7 @@ use clap::load_yaml;
 use config;
 use clap::{App, ArgMatches};
 use bcrypt::{DEFAULT_COST, hash};
-use crossbeam_channel::{unbounded,Sender,Receiver,RecvTimeoutError};
+use crossbeam_channel::{unbounded,Sender,Receiver,RecvTimeoutError,TryRecvError};
 use irc::error;
 use irc::client::prelude::*;
 use url::Url;
@@ -107,9 +107,11 @@ fn run_reactor(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, bots: HashM
                 let (sender1, receiver1) = unbounded();
                 let (sender2, receiver2) = unbounded();
                 let (sender3, receiver3) = unbounded();
-                senders.insert(channel.to_owned(), [sender1,sender2,sender3].to_vec());
+                let (sender4, receiver4) = unbounded();
+                senders.insert(channel.to_owned(), [sender1,sender2,sender3,sender4].to_vec());
                 spawn_timers(client.clone(), pool.clone(), channel.to_owned(), [receiver1,receiver2,receiver3].to_vec());
                 rename_channel_listener(pool.clone(), client.clone(), channel.to_owned(), senders.clone());
+                command_listener(pool.clone(), client.clone(), channel.to_owned(), receiver4);
             }
         });
         let res = reactor.run();
@@ -214,6 +216,78 @@ fn rename_channel_listener(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>,
                         };
                         bots.insert(bot.to_owned(), (channel_hash.clone(), config));
                         run_reactor(pool.clone(), bots);
+                    }
+                }
+            }
+        }
+    });
+}
+
+fn command_listener(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, client: Arc<IrcClient>, channel: String, receiver: Receiver<ThreadAction>) {
+    thread::spawn(move || {
+        let con = Arc::new(pool.get().unwrap());
+        let mut conn = pool.get().unwrap();
+        let mut ps = conn.as_pubsub();
+        ps.set_read_timeout(Some(time::Duration::from_secs(10)));
+
+        loop {
+            let rsp = receiver.try_recv();
+            match rsp {
+                Ok(action) => {
+                    match action {
+                        ThreadAction::Kill => break
+                    }
+                }
+                Err(err) => {
+                    match err {
+                        TryRecvError::Disconnected => break,
+                        TryRecvError::Empty => {
+                            ps.subscribe(format!("channel:{}:signals:command", channel)).unwrap();
+
+                            let res = ps.get_message();
+                            match res {
+                                Err(_) => {}
+                                Ok(msg) => {
+                                    let payload: String = msg.get_payload().unwrap();
+                                    let mut words = payload.split_whitespace();
+                                    let prefix: String = con.hget(format!("channel:{}:settings", channel), "command:prefix").unwrap_or("!".to_owned());
+                                    if let Some(word) = words.next() {
+                                        let mut word = word.to_lowercase();
+                                        let mut args: Vec<String> = words.map(|w| w.to_owned()).collect();
+
+                                        // expand aliases
+                                        let res: Result<String,_> = con.hget(format!("channel:{}:aliases", channel), &word);
+                                        if let Ok(alias) = res {
+                                            let mut awords = alias.split_whitespace();
+                                            if let Some(aword) = awords.next() {
+                                                let mut cargs = args.clone();
+                                                let mut awords: Vec<String> = awords.map(|w| w.to_owned()).collect();
+                                                awords.append(&mut cargs);
+                                                word = aword.to_owned();
+                                                args = awords.to_owned();
+                                            }
+                                        }
+                                        let args: Vec<&str> = args.iter().map(|a| a.as_ref()).collect();
+
+                                        // parse native commands
+                                        for cmd in commands::native_commands.iter() {
+                                            if format!("{}{}", prefix, cmd.0) == word {
+                                                (cmd.1)(con.clone(), &client, &channel, &args);
+                                                break;
+                                            }
+                                        }
+
+                                        // parse custom commands
+                                        let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", channel, word), "message");
+                                        if let Ok(message) = res {
+                                            let mut message = message;
+                                            message = parse_message(&message, con.clone(), &client, &channel, None, &args);
+                                            let _ = client.send_privmsg(format!("#{}", &channel), message);
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -929,6 +1003,6 @@ fn run_command(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, settings: &
 
     if command.len() > 0 {
         let args = &command[1..];
-        let _: () = con.publish(format!("channel:{}:signals:command", &channel), format!("{} {}", &channel, command.join(" "))).unwrap();
+        let _: () = con.publish(format!("channel:{}:signals:command", &channel), format!("{}", command.join(" "))).unwrap();
     }
 }
