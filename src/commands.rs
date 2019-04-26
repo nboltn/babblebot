@@ -43,7 +43,7 @@ fn cmd_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>,
                     message = parse_var(var, &message, con.clone(), &client, channel, irc_message, &vargs[1..].to_vec());
                 }
             }
-            send_message(con.clone(), client, channel, message, cargs, irc_message);
+            send_parsed_message(con.clone(), client, channel, message, cargs, irc_message);
         } else {
             for cmd in native_commands.iter() {
                 if format!("!{}", cmd.0) == vargs[0] {
@@ -457,7 +457,7 @@ fn pubg_wins_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMana
 }
 
 fn echo_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<&str>) {
-    send_message(con.clone(), client, channel, args.join(" "), &Vec::new(), None);
+    send_message(con.clone(), client, channel, args.join(" "));
 }
 
 fn set_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<&str>) {
@@ -465,11 +465,11 @@ fn set_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>,
         0 => {}
         1 => {
             let _: () = con.hset(format!("channel:{}:settings", channel), args[0], true).unwrap();
-            send_message(con.clone(), client, channel, format!("{} has been set to: true", args[0]), &Vec::new(), None);
+            send_message(con.clone(), client, channel, format!("{} has been set to: true", args[0]));
         }
         _ => {
             let _: () = con.hset(format!("channel:{}:settings", channel), args[0], args[1..].join(" ")).unwrap();
-            send_message(con.clone(), client, channel, format!("{} has been set to: {}", args[0], args[1..].join(" ")), &Vec::new(), None);
+            send_message(con.clone(), client, channel, format!("{} has been set to: {}", args[0], args[1..].join(" ")));
         }
     }
 }
@@ -477,7 +477,7 @@ fn set_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>,
 fn unset_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<&str>) {
     if args.len() == 1 {
         let _: () = con.hdel(format!("channel:{}:settings", channel), args[0]).unwrap();
-        send_message(con.clone(), client, channel, format!("{} has been unset", args[0]), &Vec::new(), None);
+        send_message(con.clone(), client, channel, format!("{} has been unset", args[0]));
     }
 }
 
@@ -489,7 +489,7 @@ fn command_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManage
                     let _: () = con.hset(format!("channel:{}:commands:{}", channel, args[1]), "message", args[2..].join(" ")).unwrap();
                     let _: () = con.hset(format!("channel:{}:commands:{}", channel, args[1]), "cmd_protected", false).unwrap();
                     let _: () = con.hset(format!("channel:{}:commands:{}", channel, args[1]), "arg_protected", false).unwrap();
-                    send_message(con.clone(), client, channel, format!("{} has been added", args[1]), &Vec::new(), None);
+                    send_message(con.clone(), client, channel, format!("{} has been added", args[1]));
                 }
             }
             "modadd" => {
@@ -497,22 +497,22 @@ fn command_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManage
                     let _: () = con.hset(format!("channel:{}:commands:{}", channel, args[1]), "message", args[2..].join(" ")).unwrap();
                     let _: () = con.hset(format!("channel:{}:commands:{}", channel, args[1]), "cmd_protected", true).unwrap();
                     let _: () = con.hset(format!("channel:{}:commands:{}", channel, args[1]), "arg_protected", true).unwrap();
-                    send_message(con.clone(), client, channel, format!("{} has been added", args[1]), &Vec::new(), None);
+                    send_message(con.clone(), client, channel, format!("{} has been added", args[1]));
                 }
             }
             "remove" => {
                 let _: () = con.del(format!("channel:{}:commands:{}", channel, args[1])).unwrap();
-                send_message(con.clone(), client, channel, format!("{} has been removed", args[1]), &Vec::new(), None);
+                send_message(con.clone(), client, channel, format!("{} has been removed", args[1]));
             }
             "alias" => {
                 if args.len() > 2 {
                     let _: () = con.hset(format!("channel:{}:aliases", channel), args[1], args[2..].join(" ")).unwrap();
-                    send_message(con.clone(), client, channel, format!("{} has been added as an alias to {}", args[1], args[2..].join(" ")), &Vec::new(), None);
+                    send_message(con.clone(), client, channel, format!("{} has been added as an alias to {}", args[1], args[2..].join(" ")));
                 }
             }
             "remalias" => {
                 let _: () = con.hdel(format!("channel:{}:aliases", channel), args[1]).unwrap();
-                send_message(con.clone(), client, channel, format!("{} has been removed as an alias", args[1]), &Vec::new(), None);
+                send_message(con.clone(), client, channel, format!("{} has been removed as an alias", args[1]));
             }
             _ => {}
         }
@@ -530,7 +530,7 @@ fn title_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>
                 let json: Result<KrakenChannel,_> = rsp.json();
                 match json {
                     Err(e) => { println!("{}", e) }
-                    Ok(json) => { let _ = send_message(con.clone(), client, channel, json.status, &Vec::new(), None); }
+                    Ok(json) => { let _ = send_message(con.clone(), client, channel, json.status); }
                 }
             }
         }
@@ -543,7 +543,7 @@ fn title_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>
                 let json: Result<KrakenChannel,_> = rsp.json();
                 match json {
                     Err(e) => { println!("{}", e) }
-                    Ok(json) => { send_message(con.clone(), client, channel, format!("Title is now set to: {}", json.status), &Vec::new(), None); }
+                    Ok(json) => { send_message(con.clone(), client, channel, format!("Title is now set to: {}", json.status)); }
                 }
             }
         }
@@ -561,7 +561,7 @@ fn game_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>
                 let json: Result<KrakenChannel,_> = rsp.json();
                 match json {
                     Err(e) => { println!("{}", e) }
-                    Ok(json) => { let _ = send_message(con.clone(), client, channel, json.game, &Vec::new(), None); }
+                    Ok(json) => { let _ = send_message(con.clone(), client, channel, json.game); }
                 }
             }
         }
@@ -576,7 +576,7 @@ fn game_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>
                     Err(e) => { println!("{}", e) }
                     Ok(json) => {
                         if json.data.len() == 0 {
-                            send_message(con.clone(), client, channel, format!("Unable to find a game matching: {}", args.join(" ")), &Vec::new(), None);
+                            send_message(con.clone(), client, channel, format!("Unable to find a game matching: {}", args.join(" ")));
                         } else {
                             let name = &json.data[0].name;
                             let rsp = twitch_request_put(con.clone(), channel, &format!("https://api.twitch.tv/kraken/channels/{}", id), format!("channel[game]={}", name));
@@ -587,7 +587,7 @@ fn game_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>
                                     let json: Result<KrakenChannel,_> = rsp.json();
                                     match json {
                                         Err(e) => { println!("{}", e) }
-                                        Ok(json) => { send_message(con.clone(), client, channel, format!("Game is now set to: {}", name), &Vec::new(), None); }
+                                        Ok(json) => { send_message(con.clone(), client, channel, format!("Game is now set to: {}", name)); }
                                     }
                                 }
                             }
@@ -609,9 +609,9 @@ fn notices_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManage
                         if num % 60 == 0 {
                             let _: () = con.rpush(format!("channel:{}:notices:{}:commands", channel, args[1]), args[2]).unwrap();
                             let _: () = con.set(format!("channel:{}:notices:{}:countdown", channel, args[1]), args[1]).unwrap();
-                            send_message(con.clone(), client, channel, "notice has been added".to_owned(), &Vec::new(), None);
+                            send_message(con.clone(), client, channel, "notice has been added".to_owned());
                         } else {
-                            send_message(con.clone(), client, channel, "notice interval must be a multiple of 60".to_owned(), &Vec::new(), None);
+                            send_message(con.clone(), client, channel, "notice interval must be a multiple of 60".to_owned());
                         }
                     }
                     Err(_) => {}
@@ -630,22 +630,22 @@ fn moderation_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMan
                     "add" => {
                         if args.len() > 2 {
                             let _: () = con.sadd(format!("channel:{}:moderation:links", channel), args[2]).unwrap();
-                            send_message(con.clone(), client, channel, format!("{} has been whitelisted", args[2]), &Vec::new(), None);
+                            send_message(con.clone(), client, channel, format!("{} has been whitelisted", args[2]));
                         }
                     }
                     "remove" => {
                         if args.len() > 2 {
                             let _: () = con.srem(format!("channel:{}:moderation:links", channel), args[2]).unwrap();
-                            send_message(con.clone(), client, channel, format!("{} has been removed from the whitelist", args[2]), &Vec::new(), None);
+                            send_message(con.clone(), client, channel, format!("{} has been removed from the whitelist", args[2]));
                         }
                     }
                     "allowsubs" => {
                         let _: () = con.set(format!("channel:{}:moderation:links:subs", channel), true).unwrap();
-                        send_message(con.clone(), client, channel, "Subs are now allowed to post links".to_owned(), &Vec::new(), None);
+                        send_message(con.clone(), client, channel, "Subs are now allowed to post links".to_owned());
                     }
                     "blocksubs" => {
                         let _: () = con.set(format!("channel:{}:moderation:links:subs", channel), false).unwrap();
-                        send_message(con.clone(), client, channel, "Subs are not allowed to post links".to_owned(), &Vec::new(), None);
+                        send_message(con.clone(), client, channel, "Subs are not allowed to post links".to_owned());
                     }
                     _ => {}
                 }
@@ -654,11 +654,11 @@ fn moderation_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMan
                 match args[1] {
                     "on" => {
                         let _: () = con.set(format!("channel:{}:moderation:colors", channel), true).unwrap();
-                        send_message(con.clone(), client, channel, "Color filter has been turned on".to_owned(), &Vec::new(), None);
+                        send_message(con.clone(), client, channel, "Color filter has been turned on".to_owned());
                     }
                     "off" => {
                         let _: () = con.set(format!("channel:{}:moderation:colors", channel), false).unwrap();
-                        send_message(con.clone(), client, channel, "Color filter has been turned off".to_owned(), &Vec::new(), None);
+                        send_message(con.clone(), client, channel, "Color filter has been turned off".to_owned());
                     }
                     _ => {}
                 }
@@ -671,12 +671,12 @@ fn moderation_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMan
                             let _: () = con.set(format!("channel:{}:moderation:caps:limit", channel), args[2]).unwrap();
                             let _: () = con.set(format!("channel:{}:moderation:caps:trigger", channel), args[3]).unwrap();
                             if args.len() > 4 { let _: () = con.set(format!("channel:{}:moderation:caps:subs", channel), args[4]).unwrap(); }
-                            send_message(con.clone(), client, channel, "Caps filter has been turned on".to_owned(), &Vec::new(), None);
+                            send_message(con.clone(), client, channel, "Caps filter has been turned on".to_owned());
                         }
                     }
                     "off" => {
                         let _: () = con.del(format!("channel:{}:moderation:caps", channel)).unwrap();
-                        send_message(con.clone(), client, channel, "Caps filter has been turned off".to_owned(), &Vec::new(), None);
+                        send_message(con.clone(), client, channel, "Caps filter has been turned off".to_owned());
                     }
                     _ => {}
                 }
@@ -685,11 +685,11 @@ fn moderation_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMan
                 match args[1] {
                     "on" => {
                         let _: () = con.set(format!("channel:{}:moderation:display", channel), true).unwrap();
-                        send_message(con.clone(), client, channel, "Displaying timeout reasons has been turned on".to_owned(), &Vec::new(), None);
+                        send_message(con.clone(), client, channel, "Displaying timeout reasons has been turned on".to_owned());
                     }
                     "off" => {
                         let _: () = con.set(format!("channel:{}:moderation:display", channel), false).unwrap();
-                        send_message(con.clone(), client, channel, "Displaying timeout reasons has been turned off".to_owned(), &Vec::new(), None);
+                        send_message(con.clone(), client, channel, "Displaying timeout reasons has been turned off".to_owned());
                     }
                     _ => {}
                 }
@@ -704,7 +704,7 @@ fn permit_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager
         let nick = args[0].to_lowercase();
         let _: () = con.set(format!("channel:{}:moderation:permitted:{}", channel, nick), "").unwrap();
         let _: () = con.expire(format!("channel:{}:moderation:permitted:{}", channel, nick), 30).unwrap();
-        send_message(con.clone(), client, channel, format!("{} can post links for the next 30 seconds", nick), &Vec::new(), None);
+        send_message(con.clone(), client, channel, format!("{} can post links for the next 30 seconds", nick));
     }
 }
 
@@ -714,13 +714,13 @@ fn multi_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>
         if streams.len() > 0 { let _ = client.send_privmsg(format!("#{}", channel), format!("http://multistre.am/{}/{}", channel, streams.iter().join("/"))); }
     } else if args.len() == 1 && args[0] == "clear" {
         let _: () = con.del(format!("channel:{}:multi", channel)).unwrap();
-        send_message(con.clone(), client, channel, "!multi has been cleared".to_owned(), &Vec::new(), None);
+        send_message(con.clone(), client, channel, "!multi has been cleared".to_owned());
     } else if args.len() > 1 && args[0] == "set" {
         let _: () = con.del(format!("channel:{}:multi", channel)).unwrap();
         for arg in args[1..].iter() {
             let _: () = con.sadd(format!("channel:{}:multi", channel), arg.to_owned()).unwrap();
         }
-        send_message(con.clone(), client, channel, "!multi has been set".to_owned(), &Vec::new(), None);
+        send_message(con.clone(), client, channel, "!multi has been set".to_owned());
     }
 }
 
@@ -730,7 +730,7 @@ fn counters_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManag
             "set" => {
                 if args.len() > 2 {
                     let _: () = con.hset(format!("channel:{}:counters", channel), args[1], args[2]).unwrap();
-                    send_message(con.clone(), client, channel, format!("{} has been set to: {}", args[1], args[2]), &Vec::new(), None);
+                    send_message(con.clone(), client, channel, format!("{} has been set to: {}", args[1], args[2]));
                 }
             }
             "inc" => {
@@ -745,7 +745,7 @@ fn counters_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManag
                 } else {
                     let _: () = con.hset(format!("channel:{}:counters", channel), args[1], 1).unwrap();
                 }
-                send_message(con.clone(), client, channel, format!("{} has been increased", args[1]), &Vec::new(), None);
+                send_message(con.clone(), client, channel, format!("{} has been increased", args[1]));
             }
             _ => {}
         }
@@ -757,7 +757,7 @@ fn phrases_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManage
         match args[0] {
             "set" => {
                 let _: () = con.hset(format!("channel:{}:phrases", channel), args[1], args[2..].join(" ")).unwrap();
-                send_message(con.clone(), client, channel, format!("{} has been set to: {}", args[1], args[2..].join(" ")), &Vec::new(), None);
+                send_message(con.clone(), client, channel, format!("{} has been set to: {}", args[1], args[2..].join(" ")));
             }
             _ => {}
         }
@@ -771,11 +771,11 @@ fn commercials_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMa
                 match args[1] {
                     "on" => {
                         let _: () = con.set(format!("channel:{}:commercials:submode", channel), true).unwrap();
-                        send_message(con.clone(), client, channel, "Submode during commercials has been turned on".to_owned(), &Vec::new(), None);
+                        send_message(con.clone(), client, channel, "Submode during commercials has been turned on".to_owned());
                     }
                     "off" => {
                         let _: () = con.set(format!("channel:{}:commercials:submode", channel), false).unwrap();
-                        send_message(con.clone(), client, channel, "Submode during commercials has been turned off".to_owned(), &Vec::new(), None);
+                        send_message(con.clone(), client, channel, "Submode during commercials has been turned off".to_owned());
                     }
                     _ => {}
                 }
@@ -784,9 +784,9 @@ fn commercials_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMa
                 let exists: bool = con.exists(format!("channel:{}:commands:{}", channel, args[1])).unwrap();
                 if exists {
                     let _: () = con.set(format!("channel:{}:commercials:notice", channel), args[1]).unwrap();
-                    send_message(con.clone(), client, channel, format!("{} will be run at the start of commercials", args[1]), &Vec::new(), None);
+                    send_message(con.clone(), client, channel, format!("{} will be run at the start of commercials", args[1]));
                 } else {
-                    send_message(con.clone(), client, channel, format!("{} is not an existing command", args[1]), &Vec::new(), None);
+                    send_message(con.clone(), client, channel, format!("{} is not an existing command", args[1]));
                 }
             }
             "hourly" => {
@@ -794,10 +794,10 @@ fn commercials_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMa
                 match num {
                     Ok(num) => {
                         let _: () = con.set(format!("channel:{}:commercials:hourly", channel), args[1]).unwrap();
-                        send_message(con.clone(), client, channel, format!("{} commercials will be run each hour", args[1]), &Vec::new(), None);
+                        send_message(con.clone(), client, channel, format!("{} commercials will be run each hour", args[1]));
                     }
                     Err(e) => {
-                        send_message(con.clone(), client, channel, format!("{} could not be parsed as a number", args[1]), &Vec::new(), None);
+                        send_message(con.clone(), client, channel, format!("{} could not be parsed as a number", args[1]));
                     }
                 }
             }
@@ -817,7 +817,7 @@ fn commercials_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMa
                                 }
                             }
                             if within8 {
-                                send_message(con.clone(), client, channel, "Commercials can't be run within eight minutes of each other".to_owned(), &Vec::new(), None);
+                                send_message(con.clone(), client, channel, "Commercials can't be run within eight minutes of each other".to_owned());
                             } else {
                                 let id: String = con.get(format!("channel:{}:id", channel)).unwrap();
                                 let submode: String = con.get(format!("channel:{}:commercials:submode", channel)).unwrap_or("false".to_owned());
@@ -840,17 +840,17 @@ fn commercials_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMa
                                 if let Ok(notice) = nres {
                                     let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", channel, notice), "message");
                                     if let Ok(message) = res {
-                                        send_message(con.clone(), client, channel, message, &Vec::new(), None);
+                                        send_message(con.clone(), client, channel, message);
                                     }
                                 }
-                                send_message(con.clone(), client, channel, format!("{} commercials have been run", args[1]), &Vec::new(), None);
+                                send_message(con.clone(), client, channel, format!("{} commercials have been run", args[1]));
                             }
                         } else {
-                            send_message(con.clone(), client, channel, format!("{} must be a number between one and six", args[1]), &Vec::new(), None);
+                            send_message(con.clone(), client, channel, format!("{} must be a number between one and six", args[1]));
                         }
                     }
                     Err(e) => {
-                        send_message(con.clone(), client, channel, format!("{} could not be parsed as a number", args[1]), &Vec::new(), None);
+                        send_message(con.clone(), client, channel, format!("{} could not be parsed as a number", args[1]));
                     }
                 }
             }

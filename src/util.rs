@@ -14,7 +14,13 @@ use regex::{Regex,RegexBuilder,Captures};
 use r2d2_redis::r2d2;
 use r2d2_redis::redis::Commands;
 
-pub fn send_message(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, mut message: String, args: &Vec<&str>, irc_message: Option<&Message>) {
+pub fn send_message(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, mut message: String) {
+    let me: String = con.hget(format!("channel:{}:settings", channel), "channel:me").unwrap_or("false".to_owned());
+    if me == "true" { message = format!("/me {}", message); }
+    let _ = client.send_privmsg(format!("#{}", channel), message);
+}
+
+pub fn send_parsed_message(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, mut message: String, args: &Vec<&str>, irc_message: Option<&Message>) {
     if args.len() > 0 {
         if let Some(char) = args[args.len()-1].chars().next() {
             if char == '@' { message = format!("{} -> {}", args[args.len()-1], message) }
