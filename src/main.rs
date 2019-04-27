@@ -1,5 +1,6 @@
 #![feature(proc_macro_hygiene, decl_macro, custom_attribute)]
 
+#[macro_use] extern crate log;
 #[macro_use] extern crate rocket;
 
 mod commands;
@@ -15,10 +16,11 @@ use std::ops::Deref;
 use std::sync::{Arc,Mutex};
 use std::{thread,time};
 
-use clap::load_yaml;
 use config;
+use clap::load_yaml;
 use clap::{App, ArgMatches};
 use bcrypt::{DEFAULT_COST, hash};
+use flexi_logger::{Cleanup,Duplicate,Logger};
 use crossbeam_channel::{unbounded,Sender,Receiver,RecvTimeoutError,TryRecvError};
 use irc::error;
 use irc::client::prelude::*;
@@ -47,6 +49,14 @@ fn main() {
     let manager = RedisConnectionManager::new(&redis_host[..]).unwrap();
     let pool = r2d2::Pool::builder().max_size(200).build(manager).unwrap();
     let pool_c1 = pool.clone();
+
+    Logger::with_env_or_str("warn")
+        .log_to_file()
+        .directory("logs")
+        .rotate(1000000, Cleanup::KeepLogFiles(10))
+        .duplicate_to_stderr(Duplicate::Warn)
+        .start()
+        .unwrap_or_else(|e| panic!("Logger initialization failed with {}", e));
 
     if let Some(matches) = matches.subcommand_matches("run_command") { run_command(pool.clone(), &settings, matches) }
     else {
@@ -126,7 +136,7 @@ fn run_reactor(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, bots: HashM
             match res {
                 Ok(_) => break,
                 Err(e) => {
-                    eprintln!("[run_reactor] {}", e);
+                    error!("[run_reactor] {}", e);
                     bots.iter().for_each(|(_bot, channels)| {
                         for channel in channels.0.iter() {
                             if let Some(senders) = senders.get(channel) {
@@ -190,11 +200,14 @@ fn rename_channel_listener(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>,
         let req = reqwest::Client::new();
         let rsp = req.get("https://api.twitch.tv/helix/users").header(header::AUTHORIZATION, format!("Bearer {}", &token)).send();
         match rsp {
-            Err(e) => { eprintln!("[rename_channel_listener] {}", e) }
+            Err(e) => { error!("[rename_channel_listener] {}", e) }
             Ok(mut rsp) => {
                 let json: Result<HelixUsers,_> = rsp.json();
                 match json {
-                    Err(e) => { eprintln!("[rename_channel_listener] {}", e) }
+                    Err(e) => {
+                        error!("[rename_channel_listener] {}", e);
+                        error!("[request_body] {}", rsp.text().unwrap_or("".to_owned()));
+                    }
                     Ok(json) => {
                         if let Some(senders) = senders.get(&channel) {
                             for sender in senders {
@@ -419,7 +432,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                             let rgx: String = con.hget(format!("channel:{}:moderation:blacklist:{}", channel, key[4]), "regex").unwrap();
                             let length: String = con.hget(format!("channel:{}:moderation:blacklist:{}", channel, key[4]), "length").unwrap();
                             match RegexBuilder::new(&rgx).case_insensitive(true).build() {
-                                Err(e) => { eprintln!("{}", e) }
+                                Err(e) => { error!("[regex_error] {}", e) }
                                 Ok(rgx) => {
                                     if rgx.is_match(&msg) {
                                         let _ = client.send_privmsg(chan, format!("/timeout {} {}", nick, length));
@@ -517,7 +530,7 @@ fn discord_handler(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel
                 client.with_framework(StandardFramework::new());
 
                 if let Err(e) = client.start() {
-                    eprintln!("[discord_handler] {}", e);
+                    error!("[discord_handler] {}", e);
                 }
             }
             thread::sleep(time::Duration::from_secs(10));
@@ -534,11 +547,14 @@ fn update_watchtime(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channe
             if live == "true" && enabled != "false" {
                 let rsp = request_get(&format!("http://tmi.twitch.tv/group/user/{}/chatters", channel));
                 match rsp {
-                    Err(e) => { println!("[update_watchtime] {}", e) }
+                    Err(e) => { error!("[update_watchtime] {}", e) }
                     Ok(mut rsp) => {
                         let json: Result<TmiChatters,_> = rsp.json();
                         match json {
-                            Err(e) => { println!("[update_watchtime] {}", e); }
+                            Err(e) => {
+                                error!("[update_watchtime] {}", e);
+                                error!("[request_body] {}", rsp.text().unwrap_or("".to_owned()));
+                            }
                             Ok(json) => {
                                 let mut nicks: Vec<String> = Vec::new();
                                 let mut moderators = json.chatters.moderators.clone();
@@ -573,11 +589,14 @@ fn update_live(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: St
         loop {
             let rsp = twitch_request_get(con.clone(), &channel, &format!("https://api.twitch.tv/kraken/streams?channel={}", id));
             match rsp {
-                Err(e) => { println!("[update_live] {}", e) }
+                Err(e) => { error!("[update_live] {}", e) }
                 Ok(mut rsp) => {
                     let json: Result<KrakenStreams,_> = rsp.json();
                     match json {
-                        Err(e) => { println!("[update_live] {}", e); }
+                        Err(e) => {
+                            error!("[update_live] {}", e);
+                            error!("[request_body] {}", rsp.text().unwrap_or("".to_owned()));
+                        }
                         Ok(json) => {
                             let live: String = con.get(format!("channel:{}:live", channel)).unwrap();
                             if json.total == 0 {
@@ -643,11 +662,14 @@ fn update_pubg(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: St
                     } else {
                         let rsp = pubg_request_get(con.clone(), &channel, &format!("https://api.pubg.com/shards/{}/players?filter%5BplayerNames%5D={}", region, name));
                         match rsp {
-                            Err(e) => { println!("[update_pubg] {}", e) }
+                            Err(e) => { error!("[update_pubg] {}", e) }
                             Ok(mut rsp) => {
                                 let json: Result<PubgPlayers,_> = rsp.json();
                                 match json {
-                                    Err(e) => { println!("[update_pubg] {}", e); }
+                                    Err(e) => {
+                                        error!("[update_pubg] {}", e);
+                                        error!("[request_body] {}", rsp.text().unwrap_or("".to_owned()));
+                                    }
                                     Ok(json) => {
                                         if json.data.len() > 0 {
                                             let _: () = con.hset(format!("channel:{}:settings", channel), "pubg:id", &json.data[0].id).unwrap();
@@ -662,11 +684,14 @@ fn update_pubg(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: St
                         let mut cursor: String = con.hget(format!("channel:{}:stats:pubg", channel), "cursor").unwrap_or("".to_owned());
                         let rsp = pubg_request_get(con.clone(), &channel, &format!("https://api.pubg.com/shards/{}/players/{}", region, id));
                         match rsp {
-                            Err(e) => { println!("[update_pubg] {}", e) }
+                            Err(e) => { error!("[update_pubg] {}", e) }
                             Ok(mut rsp) => {
                                 let json: Result<PubgPlayer,_> = rsp.json();
                                 match json {
-                                    Err(e) => { println!("[update_pubg] {}", e); }
+                                    Err(e) => {
+                                        error!("[update_pubg] {}", e);
+                                        error!("[request_body] {}", rsp.text().unwrap_or("".to_owned()));
+                                    }
                                     Ok(json) => {
                                         if cursor == "" { cursor = json.data.relationships.matches.data[0].id.to_owned() }
                                         let _: () = con.hset(format!("channel:{}:stats:pubg", channel), "cursor", &json.data.relationships.matches.data[0].id).unwrap();
@@ -675,11 +700,14 @@ fn update_pubg(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: St
                                             else {
                                                 let rsp = pubg_request_get(con.clone(), &channel, &format!("https://api.pubg.com/shards/pc-na/matches/{}", &match_.id));
                                                 match rsp {
-                                                    Err(e) => { println!("[update_pubg] {}", e) }
+                                                    Err(e) => { error!("[update_pubg] {}", e) }
                                                     Ok(mut rsp) => {
                                                         let json: Result<PubgMatch,_> = rsp.json();
                                                         match json {
-                                                            Err(e) => { println!("[update_pubg] {}", e); }
+                                                            Err(e) => {
+                                                                error!("[update_pubg] {}", e);
+                                                                error!("[request_body] {}", rsp.text().unwrap_or("".to_owned()));
+                                                            }
                                                             Ok(json) => {
                                                                 for p in json.included.iter().filter(|i| i.type_ == "participant") {
                                                                     if p.attributes["stats"]["playerId"] == id {
@@ -809,11 +837,14 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                 let recent: Vec<String> = con.smembers(format!("channel:{}:hosts:recent", &so_channel)).unwrap_or(Vec::new());
                 let rsp = twitch_request_get(con.clone(), &so_channel, &format!("https://api.twitch.tv/kraken/channels/{}/hosts", &id));
                 match rsp {
-                    Err(e) => { println!("[auto_shoutouts] {}", e) }
+                    Err(e) => { error!("[auto_shoutouts] {}", e) }
                     Ok(mut rsp) => {
                         let json: Result<KrakenHosts,_> = rsp.json();
                         match json {
-                            Err(e) => { println!("[auto_shoutouts] {}", e); }
+                            Err(e) => {
+                                error!("[auto_shoutouts] {}", e);
+                                error!("[request_body] {}", rsp.text().unwrap_or("".to_owned()));
+                            }
                             Ok(json) => {
                                 let list: String = con.hget(format!("channel:{}:settings", &so_channel), "autohost:blacklist").unwrap_or("".to_owned());
                                 let mut blacklist: Vec<&str> = Vec::new();
@@ -823,11 +854,14 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                                         let _: () = con.sadd(format!("channel:{}:hosts:recent", &so_channel), &host.host_id).unwrap();
                                         let rsp = twitch_request_get(con.clone(), &so_channel, &format!("https://api.twitch.tv/kraken/streams?channel={}", &host.host_id));
                                         match rsp {
-                                            Err(e) => { println!("[auto_shoutouts] {}", e) }
+                                            Err(e) => { error!("[auto_shoutouts] {}", e) }
                                             Ok(mut rsp) => {
                                                 let json: Result<KrakenStreams,_> = rsp.json();
                                                 match json {
-                                                    Err(e) => { println!("[auto_shoutouts] {}", e); }
+                                                    Err(e) => {
+                                                        error!("[auto_shoutouts] {}", e);
+                                                        error!("[request_body] {}", rsp.text().unwrap_or("".to_owned()));
+                                                    }
                                                     Ok(json) => {
                                                         if !blacklist.contains(&host.host_id.as_ref()) {
                                                             if json.total > 0 {
@@ -843,11 +877,14 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                                                                 if !autom.is_empty() {
                                                                     let rsp = twitch_request_get(con.clone(), &so_channel, &format!("https://api.twitch.tv/kraken/channels/{}", &host.host_id));
                                                                     match rsp {
-                                                                        Err(e) => { println!("[auto_shoutouts] {}", e) }
+                                                                        Err(e) => { error!("[auto_shoutouts] {}", e) }
                                                                         Ok(mut rsp) => {
                                                                             let json: Result<KrakenChannel,_> = rsp.json();
                                                                             match json {
-                                                                                Err(e) => { println!("[auto_shoutouts] {}", e); }
+                                                                                Err(e) => {
+                                                                                    error!("[auto_shoutouts] {}", e);
+                                                                                    error!("[request_body] {}", rsp.text().unwrap_or("".to_owned()));
+                                                                                }
                                                                                 Ok(json) => {
                                                                                     let mut message: String = autom.to_owned();
                                                                                     message = replace_var("url", &json.url, &message);

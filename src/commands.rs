@@ -64,7 +64,11 @@ fn uptime_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager
         Ok(mut rsp) => {
             let json: Result<KrakenStreams,_> = rsp.json();
             match json {
-                Err(e) => { eprintln!("{}",e);"".to_owned() }
+                Err(e) => {
+                    error!("{}",e);
+                    error!("[request_body] {}", rsp.text().unwrap_or("".to_owned()));
+                    "".to_owned()
+                }
                 Ok(json) => {
                     if json.total > 0 {
                         let dt = DateTime::parse_from_rfc3339(&json.streams[0].created_at).unwrap();
@@ -337,7 +341,7 @@ fn watchrank_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMana
             if vargs.len() > 0 {
                 let res: Result<usize,_> = vargs[0].parse();
                 if let Ok(num) = res {
-                    let top: Vec<(String,u64)>;
+                    let top: Vec<(String,u64)>;"".to_owned();
                     if watchtimes.len() < num {
                         top = watchtimes.drain(..).collect();
                     } else {
@@ -525,11 +529,14 @@ fn title_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>
         let rsp = twitch_request_get(con.clone(), channel, &format!("https://api.twitch.tv/kraken/channels/{}", id));
 
         match rsp {
-            Err(e) => { println!("{}", e) }
+            Err(e) => { error!("{}", e) }
             Ok(mut rsp) => {
                 let json: Result<KrakenChannel,_> = rsp.json();
                 match json {
-                    Err(e) => { println!("{}", e) }
+                    Err(e) => {
+                        error!("{}", e);
+                        error!("[request_body] {}", rsp.text().unwrap_or("".to_owned()));
+                    }
                     Ok(json) => { let _ = send_message(con.clone(), client, channel, json.status); }
                 }
             }
@@ -538,11 +545,14 @@ fn title_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>
         let rsp = twitch_request_put(con.clone(), channel, &format!("https://api.twitch.tv/kraken/channels/{}", id), format!("channel[status]={}", args.join(" ")));
 
         match rsp {
-            Err(e) => { println!("{}", e) }
+            Err(e) => { error!("{}", e) }
             Ok(mut rsp) => {
                 let json: Result<KrakenChannel,_> = rsp.json();
                 match json {
-                    Err(e) => { println!("{}", e) }
+                    Err(e) => {
+                        error!("{}", e);
+                        error!("[request_body] {}", rsp.text().unwrap_or("".to_owned()));
+                    }
                     Ok(json) => { send_message(con.clone(), client, channel, format!("Title is now set to: {}", json.status)); }
                 }
             }
@@ -556,11 +566,14 @@ fn game_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>
         let rsp = twitch_request_get(con.clone(), channel, &format!("https://api.twitch.tv/kraken/channels/{}", id));
 
         match rsp {
-            Err(e) => { println!("{}", e) }
+            Err(e) => { error!("{}", e) }
             Ok(mut rsp) => {
                 let json: Result<KrakenChannel,_> = rsp.json();
                 match json {
-                    Err(e) => { println!("{}", e) }
+                    Err(e) => {
+                        error!("{}", e);
+                        error!("[request_body] {}", rsp.text().unwrap_or("".to_owned()));
+                    }
                     Ok(json) => { let _ = send_message(con.clone(), client, channel, json.game); }
                 }
             }
@@ -569,11 +582,14 @@ fn game_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>
         let rsp = twitch_request_get(con.clone(), channel, &format!("https://api.twitch.tv/helix/games?name={}", args.join(" ")));
 
         match rsp {
-            Err(e) => { println!("{}", e) }
+            Err(e) => { error!("{}", e) }
             Ok(mut rsp) => {
                 let json: Result<HelixGames,_> = rsp.json();
                 match json {
-                    Err(e) => { println!("{}", e) }
+                    Err(e) => {
+                        error!("{}", e);
+                        error!("[request_body] {}", rsp.text().unwrap_or("".to_owned()));
+                    }
                     Ok(json) => {
                         if json.data.len() == 0 {
                             send_message(con.clone(), client, channel, format!("Unable to find a game matching: {}", args.join(" ")));
@@ -582,11 +598,14 @@ fn game_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>
                             let rsp = twitch_request_put(con.clone(), channel, &format!("https://api.twitch.tv/kraken/channels/{}", id), format!("channel[game]={}", name));
 
                             match rsp {
-                                Err(e) => { println!("{}", e) }
+                                Err(e) => { error!("{}", e) }
                                 Ok(mut rsp) => {
                                     let json: Result<KrakenChannel,_> = rsp.json();
                                     match json {
-                                        Err(e) => { println!("{}", e) }
+                                        Err(e) => {
+                                            error!("{}", e);
+                                            error!("[request_body] {}", rsp.text().unwrap_or("".to_owned()));
+                                        }
                                         Ok(json) => { send_message(con.clone(), client, channel, format!("Game is now set to: {}", name)); }
                                     }
                                 }

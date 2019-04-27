@@ -176,7 +176,7 @@ pub fn parse_code(message: &str, con: Arc<r2d2::PooledConnection<r2d2_redis::Red
         if let Some(capture) = captures.get(1) {
             let rsp = request_post("http://localhost:9412/execute", format!("function() {{ {} }}", capture.as_str()));
             match rsp {
-                Err(e) => println!("[parse_code] {}", e),
+                Err(e) => error!("[parse_code] {}", e),
                 Ok(mut rsp) => { msg = rgx.replace(&msg, |_: &Captures| { strip_chars(&rsp.text().unwrap(), "\"") }).to_string(); }
             }
         }
