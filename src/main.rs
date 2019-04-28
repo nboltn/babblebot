@@ -202,11 +202,12 @@ fn rename_channel_listener(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>,
         match rsp {
             Err(e) => { error!("[rename_channel_listener] {}", e) }
             Ok(mut rsp) => {
-                let json: Result<HelixUsers,_> = rsp.json();
+                let text = rsp.text().unwrap();
+                let json: Result<HelixUsers,_> = serde_json::from_str(&text);
                 match json {
                     Err(e) => {
                         error!("[rename_channel_listener] {}", e);
-                        error!("[request_body] {}", rsp.text().unwrap_or("".to_owned()));
+                        error!("[request_body] {}", text);
                     }
                     Ok(json) => {
                         if let Some(senders) = senders.get(&channel) {
@@ -549,11 +550,12 @@ fn update_watchtime(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channe
                 match rsp {
                     Err(e) => { error!("[update_watchtime] {}", e) }
                     Ok(mut rsp) => {
-                        let json: Result<TmiChatters,_> = rsp.json();
+                        let text = rsp.text().unwrap();
+                        let json: Result<TmiChatters,_> = serde_json::from_str(&text);
                         match json {
                             Err(e) => {
                                 error!("[update_watchtime] {}", e);
-                                error!("[request_body] {}", rsp.text().unwrap_or("".to_owned()));
+                                error!("[request_body] {}", text);
                             }
                             Ok(json) => {
                                 let mut nicks: Vec<String> = Vec::new();
@@ -591,11 +593,12 @@ fn update_live(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: St
             match rsp {
                 Err(e) => { error!("[update_live] {}", e) }
                 Ok(mut rsp) => {
-                    let json: Result<KrakenStreams,_> = rsp.json();
+                    let text = rsp.text().unwrap();
+                    let json: Result<KrakenStreams,_> = serde_json::from_str(&text);
                     match json {
                         Err(e) => {
                             error!("[update_live] {}", e);
-                            error!("[request_body] {}", rsp.text().unwrap_or("".to_owned()));
+                            error!("[request_body] {}", text);
                         }
                         Ok(json) => {
                             let live: String = con.get(format!("channel:{}:live", channel)).unwrap();
@@ -664,11 +667,12 @@ fn update_pubg(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: St
                         match rsp {
                             Err(e) => { error!("[update_pubg] {}", e) }
                             Ok(mut rsp) => {
-                                let json: Result<PubgPlayers,_> = rsp.json();
+                                let text = rsp.text().unwrap();
+                                let json: Result<PubgPlayers,_> = serde_json::from_str(&text);
                                 match json {
                                     Err(e) => {
                                         error!("[update_pubg] {}", e);
-                                        error!("[request_body] {}", rsp.text().unwrap_or("".to_owned()));
+                                        error!("[request_body] {}", text);
                                     }
                                     Ok(json) => {
                                         if json.data.len() > 0 {
@@ -686,11 +690,12 @@ fn update_pubg(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: St
                         match rsp {
                             Err(e) => { error!("[update_pubg] {}", e) }
                             Ok(mut rsp) => {
-                                let json: Result<PubgPlayer,_> = rsp.json();
+                                let text = rsp.text().unwrap();
+                                let json: Result<PubgPlayer,_> = serde_json::from_str(&text);
                                 match json {
                                     Err(e) => {
                                         error!("[update_pubg] {}", e);
-                                        error!("[request_body] {}", rsp.text().unwrap_or("".to_owned()));
+                                        error!("[request_body] {}", text);
                                     }
                                     Ok(json) => {
                                         if cursor == "" { cursor = json.data.relationships.matches.data[0].id.to_owned() }
@@ -702,11 +707,12 @@ fn update_pubg(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: St
                                                 match rsp {
                                                     Err(e) => { error!("[update_pubg] {}", e) }
                                                     Ok(mut rsp) => {
-                                                        let json: Result<PubgMatch,_> = rsp.json();
+                                                        let text = rsp.text().unwrap();
+                                                        let json: Result<PubgMatch,_> = serde_json::from_str(&text);
                                                         match json {
                                                             Err(e) => {
                                                                 error!("[update_pubg] {}", e);
-                                                                error!("[request_body] {}", rsp.text().unwrap_or("".to_owned()));
+                                                                error!("[request_body] {}", text);
                                                             }
                                                             Ok(json) => {
                                                                 for p in json.included.iter().filter(|i| i.type_ == "participant") {
@@ -839,11 +845,12 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                 match rsp {
                     Err(e) => { error!("[auto_shoutouts] {}", e) }
                     Ok(mut rsp) => {
-                        let json: Result<KrakenHosts,_> = rsp.json();
+                        let text = rsp.text().unwrap();
+                        let json: Result<KrakenHosts,_> = serde_json::from_str(&text);
                         match json {
                             Err(e) => {
                                 error!("[auto_shoutouts] {}", e);
-                                error!("[request_body] {}", rsp.text().unwrap_or("".to_owned()));
+                                error!("[request_body] {}", text);
                             }
                             Ok(json) => {
                                 let list: String = con.hget(format!("channel:{}:settings", &so_channel), "autohost:blacklist").unwrap_or("".to_owned());
@@ -856,11 +863,12 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                                         match rsp {
                                             Err(e) => { error!("[auto_shoutouts] {}", e) }
                                             Ok(mut rsp) => {
-                                                let json: Result<KrakenStreams,_> = rsp.json();
+                                                let text = rsp.text().unwrap();
+                                                let json: Result<KrakenStreams,_> = serde_json::from_str(&text);
                                                 match json {
                                                     Err(e) => {
                                                         error!("[auto_shoutouts] {}", e);
-                                                        error!("[request_body] {}", rsp.text().unwrap_or("".to_owned()));
+                                                        error!("[request_body] {}", text);
                                                     }
                                                     Ok(json) => {
                                                         if !blacklist.contains(&host.host_id.as_ref()) {
@@ -879,11 +887,12 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                                                                     match rsp {
                                                                         Err(e) => { error!("[auto_shoutouts] {}", e) }
                                                                         Ok(mut rsp) => {
-                                                                            let json: Result<KrakenChannel,_> = rsp.json();
+                                                                            let text = rsp.text().unwrap();
+                                                                            let json: Result<KrakenChannel,_> = serde_json::from_str(&text);
                                                                             match json {
                                                                                 Err(e) => {
                                                                                     error!("[auto_shoutouts] {}", e);
-                                                                                    error!("[request_body] {}", rsp.text().unwrap_or("".to_owned()));
+                                                                                    error!("[request_body] {}", text);
                                                                                 }
                                                                                 Ok(json) => {
                                                                                     let mut message: String = autom.to_owned();

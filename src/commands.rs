@@ -62,11 +62,12 @@ fn uptime_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager
     match rsp {
         Err(e) => { "".to_owned() }
         Ok(mut rsp) => {
-            let json: Result<KrakenStreams,_> = rsp.json();
+            let text = rsp.text().unwrap();
+            let json: Result<KrakenStreams,_> = serde_json::from_str(&text);
             match json {
                 Err(e) => {
                     error!("{}",e);
-                    error!("[request_body] {}", rsp.text().unwrap_or("".to_owned()));
+                    error!("[request_body] {}", text);
                     "".to_owned()
                 }
                 Ok(json) => {
@@ -531,11 +532,12 @@ fn title_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>
         match rsp {
             Err(e) => { error!("{}", e) }
             Ok(mut rsp) => {
-                let json: Result<KrakenChannel,_> = rsp.json();
+                let text = rsp.text().unwrap();
+                let json: Result<KrakenChannel,_> = serde_json::from_str(&text);
                 match json {
                     Err(e) => {
                         error!("{}", e);
-                        error!("[request_body] {}", rsp.text().unwrap_or("".to_owned()));
+                        error!("[request_body] {}", text);
                     }
                     Ok(json) => { let _ = send_message(con.clone(), client, channel, json.status); }
                 }
@@ -547,11 +549,12 @@ fn title_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>
         match rsp {
             Err(e) => { error!("{}", e) }
             Ok(mut rsp) => {
-                let json: Result<KrakenChannel,_> = rsp.json();
+                let text = rsp.text().unwrap();
+                let json: Result<KrakenChannel,_> = serde_json::from_str(&text);
                 match json {
                     Err(e) => {
                         error!("{}", e);
-                        error!("[request_body] {}", rsp.text().unwrap_or("".to_owned()));
+                        error!("[request_body] {}", text);
                     }
                     Ok(json) => { send_message(con.clone(), client, channel, format!("Title is now set to: {}", json.status)); }
                 }
@@ -568,11 +571,12 @@ fn game_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>
         match rsp {
             Err(e) => { error!("{}", e) }
             Ok(mut rsp) => {
-                let json: Result<KrakenChannel,_> = rsp.json();
+                let text = rsp.text().unwrap();
+                let json: Result<KrakenChannel,_> = serde_json::from_str(&text);
                 match json {
                     Err(e) => {
                         error!("{}", e);
-                        error!("[request_body] {}", rsp.text().unwrap_or("".to_owned()));
+                        error!("[request_body] {}", text);
                     }
                     Ok(json) => { let _ = send_message(con.clone(), client, channel, json.game); }
                 }
@@ -584,11 +588,12 @@ fn game_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>
         match rsp {
             Err(e) => { error!("{}", e) }
             Ok(mut rsp) => {
-                let json: Result<HelixGames,_> = rsp.json();
+                let text = rsp.text().unwrap();
+                let json: Result<HelixGames,_> = serde_json::from_str(&text);
                 match json {
                     Err(e) => {
                         error!("{}", e);
-                        error!("[request_body] {}", rsp.text().unwrap_or("".to_owned()));
+                        error!("[request_body] {}", text);
                     }
                     Ok(json) => {
                         if json.data.len() == 0 {
@@ -600,11 +605,12 @@ fn game_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>
                             match rsp {
                                 Err(e) => { error!("{}", e) }
                                 Ok(mut rsp) => {
-                                    let json: Result<KrakenChannel,_> = rsp.json();
+                                    let text = rsp.text().unwrap();
+                                    let json: Result<KrakenChannel,_> = serde_json::from_str(&text);
                                     match json {
                                         Err(e) => {
                                             error!("{}", e);
-                                            error!("[request_body] {}", rsp.text().unwrap_or("".to_owned()));
+                                            error!("[request_body] {}", text);
                                         }
                                         Ok(json) => { send_message(con.clone(), client, channel, format!("Game is now set to: {}", name)); }
                                     }
