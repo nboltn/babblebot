@@ -342,7 +342,7 @@ fn watchrank_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMana
             if vargs.len() > 0 {
                 let res: Result<usize,_> = vargs[0].parse();
                 if let Ok(num) = res {
-                    let top: Vec<(String,u64)>;"".to_owned();
+                    let top: Vec<(String,u64)>;
                     if watchtimes.len() < num {
                         top = watchtimes.drain(..).collect();
                     } else {
