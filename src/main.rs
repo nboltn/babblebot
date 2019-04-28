@@ -71,7 +71,6 @@ fn main() {
               .launch()
         });
         thread::spawn(move || {
-            info!("test");
             let con = Arc::new(pool.get().unwrap());
             let mut bots: HashMap<String, (HashSet<String>, Config)> = HashMap::new();
             let bs: HashSet<String> = con.smembers("bots").unwrap();
