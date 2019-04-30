@@ -488,7 +488,7 @@ fn unset_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>
 
 fn command_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<&str>) {
     if args.len() > 1 {
-        match args[0] {
+        match args[0].to_lowercase().as_ref() {
             "add" => {
                 if args.len() > 2 {
                     let _: () = con.hset(format!("channel:{}:commands:{}", channel, args[1]), "message", args[2..].join(" ")).unwrap();
@@ -626,7 +626,7 @@ fn game_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>
 
 fn notices_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<&str>) {
     if args.len() > 1 {
-        match args[0] {
+        match args[0].to_lowercase().as_ref() {
             "add" => {
                 let num: Result<u16,_> = args[1].parse();
                 match num {
@@ -649,9 +649,9 @@ fn notices_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManage
 
 fn moderation_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<&str>) {
     if args.len() > 1 {
-        match args[0] {
+        match args[0].to_lowercase().as_ref() {
             "links" => {
-                match args[1] {
+                match args[1].to_lowercase().as_ref() {
                     "add" => {
                         if args.len() > 2 {
                             let _: () = con.sadd(format!("channel:{}:moderation:links", channel), args[2]).unwrap();
@@ -676,7 +676,7 @@ fn moderation_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMan
                 }
             }
             "colors" => {
-                match args[1] {
+                match args[1].to_lowercase().as_ref() {
                     "on" => {
                         let _: () = con.set(format!("channel:{}:moderation:colors", channel), true).unwrap();
                         send_message(con.clone(), client, channel, "Color filter has been turned on".to_owned());
@@ -689,7 +689,7 @@ fn moderation_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMan
                 }
             }
             "caps" => {
-                match args[1] {
+                match args[1].to_lowercase().as_ref() {
                     "set" => {
                         if args.len() > 3 {
                             let _: () = con.set(format!("channel:{}:moderation:caps", channel), true).unwrap();
@@ -707,7 +707,7 @@ fn moderation_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMan
                 }
             }
             "display" => {
-                match args[1] {
+                match args[1].to_lowercase().as_ref() {
                     "on" => {
                         let _: () = con.set(format!("channel:{}:moderation:display", channel), true).unwrap();
                         send_message(con.clone(), client, channel, "Displaying timeout reasons has been turned on".to_owned());
@@ -751,7 +751,7 @@ fn multi_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>
 
 fn counters_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<&str>) {
     if args.len() > 1 {
-        match args[0] {
+        match args[0].to_lowercase().as_ref() {
             "set" => {
                 if args.len() > 2 {
                     let _: () = con.hset(format!("channel:{}:counters", channel), args[1], args[2]).unwrap();
@@ -779,7 +779,7 @@ fn counters_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManag
 
 fn phrases_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<&str>) {
     if args.len() > 2 {
-        match args[0] {
+        match args[0].to_lowercase().as_ref() {
             "set" => {
                 let _: () = con.hset(format!("channel:{}:phrases", channel), args[1], args[2..].join(" ")).unwrap();
                 send_message(con.clone(), client, channel, format!("{} has been set to: {}", args[1], args[2..].join(" ")));
@@ -791,9 +791,9 @@ fn phrases_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManage
 
 fn commercials_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<&str>) {
     if args.len() > 1 {
-        match args[0] {
+        match args[0].to_lowercase().as_ref() {
             "submode" => {
-                match args[1] {
+                match args[1].to_lowercase().as_ref() {
                     "on" => {
                         let _: () = con.set(format!("channel:{}:commercials:submode", channel), true).unwrap();
                         send_message(con.clone(), client, channel, "Submode during commercials has been turned on".to_owned());
