@@ -924,7 +924,7 @@ fn songreq_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManage
                                     for key in entries.iter() {
                                         let entry: String = con.hget(format!("channel:{}:songreqs:{}", channel, key), "nick").unwrap();
                                         if entry == nick {
-                                            //exists = true;
+                                            exists = true;
                                             break;
                                         }
                                     }
