@@ -6,11 +6,14 @@
   <link rel='stylesheet' type='text/css' href='https://fonts.googleapis.com/css?family=Open+Sans|Ubuntu|Overpass+Mono'>
   <link rel='stylesheet' type='text/css' href='https://cdnjs.cloudflare.com/ajax/libs/balloon-css/0.5.0/balloon.min.css'>
   <link rel='stylesheet' type='text/css' href='https://use.fontawesome.com/releases/v5.8.1/css/all.css'>
+  <link rel='stylesheet' type='text/css' href='https://cdnjs.cloudflare.com/ajax/libs/mediaelement/4.2.10/mediaelementplayer.min.css'>
   <link rel='stylesheet' type='text/css' href='/assets/css/master.css'>
   <link rel='stylesheet' type='text/css' href='/assets/css/animate.css'>
   <script type='text/javascript' src='/assets/js/umbrella.min.js'></script>
   <script type='text/javascript' src='/assets/js/underscore.min.js'></script>
-  <script type='text/javascript' src="https://cdn.jsdelivr.net/npm/vue"></script>
+  <script type='text/javascript' src='https://cdn.jsdelivr.net/npm/vue'></script>
+  <script type='text/javascript' src='https://cdnjs.cloudflare.com/ajax/libs/mediaelement/4.2.10/mediaelement-and-player.min.js'></script>
+  <script type='text/javascript' src='https://cdnjs.cloudflare.com/ajax/libs/mediaelement/4.2.10/renderers/soundcloud.min.js'></script>
   <title></title>
 </head>
 <body>

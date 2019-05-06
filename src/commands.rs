@@ -8,6 +8,8 @@ use crate::util::*;
 use std::sync::Arc;
 use std::collections::{HashMap, HashSet};
 use std::{thread,time};
+use bcrypt::{DEFAULT_COST, hash};
+use regex::Regex;
 use irc::client::prelude::*;
 use chrono::{Utc, DateTime, FixedOffset, Duration};
 use humantime::format_duration;
@@ -15,13 +17,13 @@ use itertools::Itertools;
 use r2d2_redis::r2d2;
 use r2d2_redis::redis::Commands;
 
-pub const native_commands: [(&str, fn(Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, &IrcClient, &str, &Vec<&str>), bool, bool); 13] = [("echo", echo_cmd, true, true), ("set", set_cmd, true, true), ("unset", unset_cmd, true, true), ("command", command_cmd, true, true), ("title", title_cmd, false, true), ("game", game_cmd, false, true), ("notices", notices_cmd, true, true), ("moderation", moderation_cmd, true, true), ("permit", permit_cmd, true, true), ("multi", multi_cmd, false, true), ("counters", counters_cmd, true, true), ("phrases", phrases_cmd, true, true), ("commercials", commercials_cmd, true, true)];
+pub const native_commands: [(&str, fn(Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, &IrcClient, &str, &Vec<String>, Option<&Message>), bool, bool); 14] = [("echo", echo_cmd, true, true), ("set", set_cmd, true, true), ("unset", unset_cmd, true, true), ("command", command_cmd, true, true), ("title", title_cmd, false, true), ("game", game_cmd, false, true), ("notices", notices_cmd, true, true), ("moderation", moderation_cmd, true, true), ("permit", permit_cmd, true, true), ("multi", multi_cmd, false, true), ("counters", counters_cmd, true, true), ("phrases", phrases_cmd, true, true), ("commercials", commercials_cmd, true, true), ("songreq", songreq_cmd, false, false)];
 
-pub const command_vars: [(&str, fn(Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, &IrcClient, &str, Option<&Message>, Vec<&str>, &Vec<&str>) -> String); 26] = [("args", args_var), ("uptime", uptime_var), ("user", user_var), ("channel", channel_var), ("cmd", cmd_var), ("counterinc", counterinc_var), ("followage", followage_var), ("subcount", subcount_var), ("followcount", followcount_var), ("counter", counter_var), ("phrase", phrase_var), ("countdown", countdown_var), ("date", date_var), ("dateinc", dateinc_var), ("watchtime", watchtime_var), ("watchrank", watchrank_var), ("urlfetch", urlfetch_var), ("youtube:latest-url", youtube_latest_url_var), ("youtube:latest-title", youtube_latest_title_var), ("pubg:damage", pubg_damage_var), ("pubg:headshots", pubg_headshots_var), ("pubg:kills", pubg_kills_var), ("pubg:roadkills", pubg_roadkills_var), ("pubg:teamkills", pubg_teamkills_var), ("pubg:vehiclesDestroyed", pubg_vehicles_destroyed_var), ("pubg:wins", pubg_wins_var)];
+pub const command_vars: [(&str, fn(Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, &IrcClient, &str, Option<&Message>, Vec<&str>, &Vec<String>) -> String); 26] = [("args", args_var), ("uptime", uptime_var), ("user", user_var), ("channel", channel_var), ("cmd", cmd_var), ("counterinc", counterinc_var), ("followage", followage_var), ("subcount", subcount_var), ("followcount", followcount_var), ("counter", counter_var), ("phrase", phrase_var), ("countdown", countdown_var), ("date", date_var), ("dateinc", dateinc_var), ("watchtime", watchtime_var), ("watchrank", watchrank_var), ("urlfetch", urlfetch_var), ("youtube:latest-url", youtube_latest_url_var), ("youtube:latest-title", youtube_latest_title_var), ("pubg:damage", pubg_damage_var), ("pubg:headshots", pubg_headshots_var), ("pubg:kills", pubg_kills_var), ("pubg:roadkills", pubg_roadkills_var), ("pubg:teamkills", pubg_teamkills_var), ("pubg:vehiclesDestroyed", pubg_vehicles_destroyed_var), ("pubg:wins", pubg_wins_var)];
 
 pub const twitch_bots: [&str; 20] = ["electricallongboard","lanfusion","cogwhistle","freddyybot","anotherttvviewer","apricotdrupefruit","skinnyseahorse","p0lizei_","xbit01","n3td3v","cachebear","icon_bot","virgoproz","v_and_k","slocool","host_giveaway","nightbot","commanderroot","p0sitivitybot","streamlabs"];
 
-fn args_var(_con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
+fn args_var(_con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
     if vargs.len() > 0 {
         let num: Result<usize,_> = vargs[0].parse();
         match num {
@@ -33,21 +35,26 @@ fn args_var(_con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>
     }
 }
 
-fn cmd_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, irc_message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
+fn cmd_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, irc_message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
     if vargs.len() > 0 {
         let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", channel, vargs[0]), "message");
         if let Ok(message) = res {
             let mut message = message;
             for var in command_vars.iter() {
                 if var.0 != "cmd" && var.0 != "var" {
-                    message = parse_var(var, &message, con.clone(), &client, channel, irc_message, &vargs[1..].to_vec());
+                    let args: Vec<String> = vargs[1..].iter().map(|a| a.to_string()).collect();
+                    message = parse_var(var, &message, con.clone(), &client, channel, irc_message, &args);
                 }
             }
             send_parsed_message(con.clone(), client, channel, message, cargs, irc_message);
         } else {
             for cmd in native_commands.iter() {
                 if format!("!{}", cmd.0) == vargs[0] {
-                    (cmd.1)(con.clone(), &client, channel, &vargs[1..].to_vec())
+                    let args: Vec<String> = vargs[1..].iter().map(|a| a.to_string()).collect();
+                    match irc_message {
+                        None => { (cmd.1)(con.clone(), &client, channel, &args, None) }
+                        Some(msg) => { (cmd.1)(con.clone(), &client, channel, &args, Some(msg)) }
+                    }
                 }
             }
         }
@@ -55,7 +62,7 @@ fn cmd_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>,
     "".to_owned()
 }
 
-fn uptime_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
+fn uptime_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
     let id: String = con.get(format!("channel:{}:id", channel)).unwrap();
     let rsp = twitch_request_get(con.clone(), channel, &format!("https://api.twitch.tv/kraken/streams?channel={}", id));
 
@@ -90,7 +97,7 @@ fn uptime_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager
     }
 }
 
-fn user_var(_con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
+fn user_var(_con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
     if let Some(message) = message {
         let mut display = get_nick(&message);
         if let Some(tags) = &message.tags {
@@ -110,12 +117,12 @@ fn user_var(_con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>
     }
 }
 
-fn channel_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
+fn channel_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
     let display: String = con.get(format!("channel:{}:display-name", channel)).unwrap();
     return display;
 }
 
-fn counterinc_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
+fn counterinc_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
     if vargs.len() > 0 {
         let res: Result<String,_> = con.hget(format!("channel:{}:counters", channel), vargs[0]);
         if let Ok(counter) = res {
@@ -133,7 +140,7 @@ fn counterinc_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMan
     "".to_owned()
 }
 
-fn followage_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
+fn followage_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
     if let Some(message) = message {
         let rsp = twitch_request_get(con.clone(), channel, &format!("https://api.twitch.tv/kraken/users?login={}", get_nick(message)));
         match rsp {
@@ -178,7 +185,7 @@ fn followage_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMana
     }
 }
 
-fn subcount_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
+fn subcount_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
     let id: String = con.get(format!("channel:{}:id", channel)).unwrap();
     let rsp = twitch_request_get(con.clone(), channel, &format!("https://api.twitch.tv/kraken/channels/{}/subscriptions", id));
 
@@ -194,7 +201,7 @@ fn subcount_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManag
     }
 }
 
-fn followcount_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
+fn followcount_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
     let id: String = con.get(format!("channel:{}:id", channel)).unwrap();
     let rsp = twitch_request_get(con.clone(), channel, &format!("https://api.twitch.tv/kraken/channels/{}/follows", id));
 
@@ -210,7 +217,7 @@ fn followcount_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMa
     }
 }
 
-fn counter_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
+fn counter_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
     if vargs.len() > 0 {
         let res: Result<String,_> = con.hget(format!("channel:{}:counters", channel), vargs[0]);
         if let Ok(counter) = res {
@@ -227,7 +234,7 @@ fn counter_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManage
     }
 }
 
-fn phrase_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
+fn phrase_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
     if vargs.len() > 0 {
         let res: Result<String,_> = con.hget(format!("channel:{}:phrases", channel), vargs[0]);
         if let Ok(phrase) = res {
@@ -240,7 +247,7 @@ fn phrase_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager
     }
 }
 
-fn date_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
+fn date_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
     if vargs.len() > 0 {
         let res: Result<String,_> = con.hget(format!("channel:{}:phrases", channel), vargs[0]);
         if let Ok(phrase) = res {
@@ -258,7 +265,7 @@ fn date_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>
     }
 }
 
-fn dateinc_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
+fn dateinc_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
     if vargs.len() > 1 {
         let res: Result<String,_> = con.hget(format!("channel:{}:phrases", channel), vargs[1]);
         if let Ok(phrase) = res {
@@ -275,7 +282,7 @@ fn dateinc_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManage
     "".to_string()
 }
 
-fn countdown_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
+fn countdown_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
     if vargs.len() > 0 {
         let dt = DateTime::parse_from_str(&vargs[0], "%Y-%m-%dT%H:%M%z");
         if let Ok(timestamp) = dt {
@@ -299,7 +306,7 @@ fn countdown_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMana
     }
 }
 
-fn watchtime_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
+fn watchtime_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
     if let Some(message) = message {
         let res: Result<String,_> = con.hget(format!("channel:{}:watchtimes", channel), get_nick(&message));
         if let Ok(watchtime) = res {
@@ -324,7 +331,7 @@ fn watchtime_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMana
     }
 }
 
-fn watchrank_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
+fn watchrank_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
     if let Some(message) = message {
         let hashtimes: HashMap<String,String> = con.hgetall(format!("channel:{}:watchtimes", channel)).unwrap_or(HashMap::new());
         let mut watchtimes: Vec<(String,u64)> = Vec::new();
@@ -368,7 +375,7 @@ fn watchrank_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMana
     }
 }
 
-fn urlfetch_var(_con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
+fn urlfetch_var(_con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
     if vargs.len() > 0 {
         let res = request_get(vargs[0]);
         match res {
@@ -380,7 +387,7 @@ fn urlfetch_var(_con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMana
     }
 }
 
-fn youtube_latest_url_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
+fn youtube_latest_url_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
     if vargs.len() > 0 {
         let rsp = request_get(&format!("https://decapi.me/youtube/latest_video?id={}", vargs[0]));
         match rsp {
@@ -403,7 +410,7 @@ fn youtube_latest_url_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConne
     }
 }
 
-fn youtube_latest_title_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
+fn youtube_latest_title_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
     if vargs.len() > 0 {
         let rsp = request_get(&format!("https://decapi.me/youtube/latest_video?id={}", vargs[0]));
         match rsp {
@@ -426,105 +433,105 @@ fn youtube_latest_title_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisCon
     }
 }
 
-fn pubg_damage_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
+fn pubg_damage_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
     let value: String = con.hget(format!("channel:{}:stats:pubg", channel), "damageDealt").unwrap_or("0".to_owned());
     return value;
 }
 
-fn pubg_headshots_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
+fn pubg_headshots_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
     let value: String = con.hget(format!("channel:{}:stats:pubg", channel), "headshotKills").unwrap_or("0".to_owned());
     return value;
 }
 
-fn pubg_kills_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
+fn pubg_kills_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
     let value: String = con.hget(format!("channel:{}:stats:pubg", channel), "kills").unwrap_or("0".to_owned());
     return value;
 }
 
-fn pubg_roadkills_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
+fn pubg_roadkills_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
     let value: String = con.hget(format!("channel:{}:stats:pubg", channel), "roadKills").unwrap_or("0".to_owned());
     return value;
 }
 
-fn pubg_teamkills_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
+fn pubg_teamkills_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
     let value: String = con.hget(format!("channel:{}:stats:pubg", channel), "teamKills").unwrap_or("0".to_owned());
     return value;
 }
 
-fn pubg_vehicles_destroyed_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
+fn pubg_vehicles_destroyed_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
     let value: String = con.hget(format!("channel:{}:stats:pubg", channel), "vehicleDestroys").unwrap_or("0".to_owned());
     return value;
 }
 
-fn pubg_wins_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<&str>) -> String {
+fn pubg_wins_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
     let value: String = con.hget(format!("channel:{}:stats:pubg", channel), "wins").unwrap_or("0".to_owned());
     return value;
 }
 
-fn echo_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<&str>) {
+fn echo_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<String>, message: Option<&Message>) {
     send_message(con.clone(), client, channel, args.join(" "));
 }
 
-fn set_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<&str>) {
+fn set_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<String>, message: Option<&Message>) {
     match args.len() {
         0 => {}
         1 => {
-            let _: () = con.hset(format!("channel:{}:settings", channel), args[0], true).unwrap();
+            let _: () = con.hset(format!("channel:{}:settings", channel), &args[0], true).unwrap();
             send_message(con.clone(), client, channel, format!("{} has been set to: true", args[0]));
         }
         _ => {
-            let _: () = con.hset(format!("channel:{}:settings", channel), args[0], args[1..].join(" ")).unwrap();
-            send_message(con.clone(), client, channel, format!("{} has been set to: {}", args[0], args[1..].join(" ")));
+            let _: () = con.hset(format!("channel:{}:settings", channel), &args[0], args[1..].join(" ")).unwrap();
+            send_message(con.clone(), client, channel, format!("{} has been set to: {}", &args[0], args[1..].join(" ")));
         }
     }
 }
 
-fn unset_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<&str>) {
+fn unset_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<String>, message: Option<&Message>) {
     if args.len() == 1 {
-        let _: () = con.hdel(format!("channel:{}:settings", channel), args[0]).unwrap();
-        send_message(con.clone(), client, channel, format!("{} has been unset", args[0]));
+        let _: () = con.hdel(format!("channel:{}:settings", channel), &args[0]).unwrap();
+        send_message(con.clone(), client, channel, format!("{} has been unset", &args[0]));
     }
 }
 
-fn command_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<&str>) {
+fn command_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<String>, message: Option<&Message>) {
     if args.len() > 1 {
         match args[0].to_lowercase().as_ref() {
             "add" => {
                 if args.len() > 2 {
-                    let _: () = con.hset(format!("channel:{}:commands:{}", channel, args[1]), "message", args[2..].join(" ")).unwrap();
-                    let _: () = con.hset(format!("channel:{}:commands:{}", channel, args[1]), "cmd_protected", false).unwrap();
-                    let _: () = con.hset(format!("channel:{}:commands:{}", channel, args[1]), "arg_protected", false).unwrap();
-                    send_message(con.clone(), client, channel, format!("{} has been added", args[1]));
+                    let _: () = con.hset(format!("channel:{}:commands:{}", channel, &args[1]), "message", args[2..].join(" ")).unwrap();
+                    let _: () = con.hset(format!("channel:{}:commands:{}", channel, &args[1]), "cmd_protected", false).unwrap();
+                    let _: () = con.hset(format!("channel:{}:commands:{}", channel, &args[1]), "arg_protected", false).unwrap();
+                    send_message(con.clone(), client, channel, format!("{} has been added", &args[1]));
                 }
             }
             "modadd" => {
                 if args.len() > 2 {
-                    let _: () = con.hset(format!("channel:{}:commands:{}", channel, args[1]), "message", args[2..].join(" ")).unwrap();
-                    let _: () = con.hset(format!("channel:{}:commands:{}", channel, args[1]), "cmd_protected", true).unwrap();
-                    let _: () = con.hset(format!("channel:{}:commands:{}", channel, args[1]), "arg_protected", true).unwrap();
-                    send_message(con.clone(), client, channel, format!("{} has been added", args[1]));
+                    let _: () = con.hset(format!("channel:{}:commands:{}", channel, &args[1]), "message", args[2..].join(" ")).unwrap();
+                    let _: () = con.hset(format!("channel:{}:commands:{}", channel, &args[1]), "cmd_protected", true).unwrap();
+                    let _: () = con.hset(format!("channel:{}:commands:{}", channel, &args[1]), "arg_protected", true).unwrap();
+                    send_message(con.clone(), client, channel, format!("{} has been added", &args[1]));
                 }
             }
             "remove" => {
-                let _: () = con.del(format!("channel:{}:commands:{}", channel, args[1])).unwrap();
-                send_message(con.clone(), client, channel, format!("{} has been removed", args[1]));
+                let _: () = con.del(format!("channel:{}:commands:{}", channel, &args[1])).unwrap();
+                send_message(con.clone(), client, channel, format!("{} has been removed", &args[1]));
             }
             "alias" => {
                 if args.len() > 2 {
-                    let _: () = con.hset(format!("channel:{}:aliases", channel), args[1], args[2..].join(" ")).unwrap();
-                    send_message(con.clone(), client, channel, format!("{} has been added as an alias to {}", args[1], args[2..].join(" ")));
+                    let _: () = con.hset(format!("channel:{}:aliases", channel), &args[1], args[2..].join(" ")).unwrap();
+                    send_message(con.clone(), client, channel, format!("{} has been added as an alias to {}", &args[1], args[2..].join(" ")));
                 }
             }
             "remalias" => {
-                let _: () = con.hdel(format!("channel:{}:aliases", channel), args[1]).unwrap();
-                send_message(con.clone(), client, channel, format!("{} has been removed as an alias", args[1]));
+                let _: () = con.hdel(format!("channel:{}:aliases", channel), &args[1]).unwrap();
+                send_message(con.clone(), client, channel, format!("{} has been removed as an alias", &args[1]));
             }
             _ => {}
         }
     }
 }
 
-fn title_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<&str>) {
+fn title_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<String>, message: Option<&Message>) {
     let id: String = con.get(format!("channel:{}:id", channel)).unwrap();
     if args.len() == 0 {
         let rsp = twitch_request_get(con.clone(), channel, &format!("https://api.twitch.tv/kraken/channels/{}", id));
@@ -563,7 +570,7 @@ fn title_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>
     }
 }
 
-fn game_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<&str>) {
+fn game_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<String>, message: Option<&Message>) {
     let id: String = con.get(format!("channel:{}:id", channel)).unwrap();
     if args.len() == 0 {
         let rsp = twitch_request_get(con.clone(), channel, &format!("https://api.twitch.tv/kraken/channels/{}", id));
@@ -624,7 +631,7 @@ fn game_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>
     }
 }
 
-fn notices_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<&str>) {
+fn notices_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<String>, message: Option<&Message>) {
     if args.len() > 1 {
         match args[0].to_lowercase().as_ref() {
             "add" => {
@@ -632,8 +639,8 @@ fn notices_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManage
                 match num {
                     Ok(num) => {
                         if num % 60 == 0 {
-                            let _: () = con.rpush(format!("channel:{}:notices:{}:commands", channel, args[1]), args[2]).unwrap();
-                            let _: () = con.set(format!("channel:{}:notices:{}:countdown", channel, args[1]), args[1]).unwrap();
+                            let _: () = con.rpush(format!("channel:{}:notices:{}:commands", channel, args[1]), &args[2]).unwrap();
+                            let _: () = con.set(format!("channel:{}:notices:{}:countdown", channel, args[1]), &args[1]).unwrap();
                             send_message(con.clone(), client, channel, "notice has been added".to_owned());
                         } else {
                             send_message(con.clone(), client, channel, "notice interval must be a multiple of 60".to_owned());
@@ -647,21 +654,21 @@ fn notices_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManage
     }
 }
 
-fn moderation_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<&str>) {
+fn moderation_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<String>, message: Option<&Message>) {
     if args.len() > 1 {
         match args[0].to_lowercase().as_ref() {
             "links" => {
                 match args[1].to_lowercase().as_ref() {
                     "add" => {
                         if args.len() > 2 {
-                            let _: () = con.sadd(format!("channel:{}:moderation:links", channel), args[2]).unwrap();
-                            send_message(con.clone(), client, channel, format!("{} has been whitelisted", args[2]));
+                            let _: () = con.sadd(format!("channel:{}:moderation:links", channel), &args[2]).unwrap();
+                            send_message(con.clone(), client, channel, format!("{} has been whitelisted", &args[2]));
                         }
                     }
                     "remove" => {
                         if args.len() > 2 {
-                            let _: () = con.srem(format!("channel:{}:moderation:links", channel), args[2]).unwrap();
-                            send_message(con.clone(), client, channel, format!("{} has been removed from the whitelist", args[2]));
+                            let _: () = con.srem(format!("channel:{}:moderation:links", channel), &args[2]).unwrap();
+                            send_message(con.clone(), client, channel, format!("{} has been removed from the whitelist", &args[2]));
                         }
                     }
                     "allowsubs" => {
@@ -693,9 +700,9 @@ fn moderation_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMan
                     "set" => {
                         if args.len() > 3 {
                             let _: () = con.set(format!("channel:{}:moderation:caps", channel), true).unwrap();
-                            let _: () = con.set(format!("channel:{}:moderation:caps:limit", channel), args[2]).unwrap();
-                            let _: () = con.set(format!("channel:{}:moderation:caps:trigger", channel), args[3]).unwrap();
-                            if args.len() > 4 { let _: () = con.set(format!("channel:{}:moderation:caps:subs", channel), args[4]).unwrap(); }
+                            let _: () = con.set(format!("channel:{}:moderation:caps:limit", channel), &args[2]).unwrap();
+                            let _: () = con.set(format!("channel:{}:moderation:caps:trigger", channel), &args[3]).unwrap();
+                            if args.len() > 4 { let _: () = con.set(format!("channel:{}:moderation:caps:subs", channel), &args[4]).unwrap(); }
                             send_message(con.clone(), client, channel, "Caps filter has been turned on".to_owned());
                         }
                     }
@@ -724,7 +731,7 @@ fn moderation_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMan
     }
 }
 
-fn permit_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<&str>) {
+fn permit_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<String>, message: Option<&Message>) {
     if args.len() > 0 {
         let nick = args[0].to_lowercase();
         let _: () = con.set(format!("channel:{}:moderation:permitted:{}", channel, nick), "").unwrap();
@@ -733,7 +740,7 @@ fn permit_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager
     }
 }
 
-fn multi_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<&str>) {
+fn multi_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<String>, message: Option<&Message>) {
     if args.len() == 0 {
         let streams: HashSet<String> = con.smembers(format!("channel:{}:multi", channel)).unwrap();
         if streams.len() > 0 { let _ = client.send_privmsg(format!("#{}", channel), format!("http://multistre.am/{}/{}", channel, streams.iter().join("/"))); }
@@ -749,47 +756,47 @@ fn multi_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>
     }
 }
 
-fn counters_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<&str>) {
+fn counters_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<String>, message: Option<&Message>) {
     if args.len() > 1 {
         match args[0].to_lowercase().as_ref() {
             "set" => {
                 if args.len() > 2 {
-                    let _: () = con.hset(format!("channel:{}:counters", channel), args[1], args[2]).unwrap();
-                    send_message(con.clone(), client, channel, format!("{} has been set to: {}", args[1], args[2]));
+                    let _: () = con.hset(format!("channel:{}:counters", channel), &args[1], &args[2]).unwrap();
+                    send_message(con.clone(), client, channel, format!("{} has been set to: {}", &args[1], &args[2]));
                 }
             }
             "inc" => {
-                let res: Result<String,_> = con.hget(format!("channel:{}:counters", channel), args[1]);
+                let res: Result<String,_> = con.hget(format!("channel:{}:counters", channel), &args[1]);
                 if let Ok(counter) = res {
                     let res: Result<u16,_> = counter.parse();
                     if let Ok(num) = res {
-                        let _: () = con.hset(format!("channel:{}:counters", channel), args[1], num + 1).unwrap();
+                        let _: () = con.hset(format!("channel:{}:counters", channel), &args[1], num + 1).unwrap();
                     } else {
-                        let _: () = con.hset(format!("channel:{}:counters", channel), args[1], 1).unwrap();
+                        let _: () = con.hset(format!("channel:{}:counters", channel), &args[1], 1).unwrap();
                     }
                 } else {
-                    let _: () = con.hset(format!("channel:{}:counters", channel), args[1], 1).unwrap();
+                    let _: () = con.hset(format!("channel:{}:counters", channel), &args[1], 1).unwrap();
                 }
-                send_message(con.clone(), client, channel, format!("{} has been increased", args[1]));
+                send_message(con.clone(), client, channel, format!("{} has been increased", &args[1]));
             }
             _ => {}
         }
     }
 }
 
-fn phrases_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<&str>) {
+fn phrases_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<String>, message: Option<&Message>) {
     if args.len() > 2 {
         match args[0].to_lowercase().as_ref() {
             "set" => {
-                let _: () = con.hset(format!("channel:{}:phrases", channel), args[1], args[2..].join(" ")).unwrap();
-                send_message(con.clone(), client, channel, format!("{} has been set to: {}", args[1], args[2..].join(" ")));
+                let _: () = con.hset(format!("channel:{}:phrases", channel), &args[1], args[2..].join(" ")).unwrap();
+                send_message(con.clone(), client, channel, format!("{} has been set to: {}", &args[1], args[2..].join(" ")));
             }
             _ => {}
         }
     }
 }
 
-fn commercials_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<&str>) {
+fn commercials_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<String>, message: Option<&Message>) {
     if args.len() > 1 {
         match args[0].to_lowercase().as_ref() {
             "submode" => {
@@ -806,23 +813,23 @@ fn commercials_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMa
                 }
             }
             "notice" => {
-                let exists: bool = con.exists(format!("channel:{}:commands:{}", channel, args[1])).unwrap();
+                let exists: bool = con.exists(format!("channel:{}:commands:{}", channel, &args[1])).unwrap();
                 if exists {
-                    let _: () = con.set(format!("channel:{}:commercials:notice", channel), args[1]).unwrap();
-                    send_message(con.clone(), client, channel, format!("{} will be run at the start of commercials", args[1]));
+                    let _: () = con.set(format!("channel:{}:commercials:notice", channel), &args[1]).unwrap();
+                    send_message(con.clone(), client, channel, format!("{} will be run at the start of commercials", &args[1]));
                 } else {
-                    send_message(con.clone(), client, channel, format!("{} is not an existing command", args[1]));
+                    send_message(con.clone(), client, channel, format!("{} is not an existing command", &args[1]));
                 }
             }
             "hourly" => {
                 let num: Result<u16,_> = args[1].parse();
                 match num {
                     Ok(num) => {
-                        let _: () = con.set(format!("channel:{}:commercials:hourly", channel), args[1]).unwrap();
-                        send_message(con.clone(), client, channel, format!("{} commercials will be run each hour", args[1]));
+                        let _: () = con.set(format!("channel:{}:commercials:hourly", channel), &args[1]).unwrap();
+                        send_message(con.clone(), client, channel, format!("{} commercials will be run each hour", &args[1]));
                     }
                     Err(e) => {
-                        send_message(con.clone(), client, channel, format!("{} could not be parsed as a number", args[1]));
+                        send_message(con.clone(), client, channel, format!("{} could not be parsed as a number", &args[1]));
                     }
                 }
             }
@@ -880,6 +887,69 @@ fn commercials_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMa
                 }
             }
             _ => {}
+        }
+    }
+}
+
+fn songreq_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<String>, message: Option<&Message>) {
+    if let Some(message) = message {
+        let nick = get_nick(message);
+        let badges = get_badges(message);
+        if args.len() > 0 {
+            match args[0].to_lowercase().as_ref() {
+                "clear" => {
+                    let badges = get_badges(message);
+                    let mut auth = false;
+                    if let Some(value) = badges.get("broadcaster") { auth = true }
+                    if let Some(value) = badges.get("moderator") { auth = true }
+                    if auth {
+                        let _: () = con.del(format!("channel:{}:songreqs", channel)).unwrap();
+                        let keys: Vec<String> = con.keys(format!("channel:{}:songreqs:*", channel)).unwrap();
+                        for key in keys.iter() {
+                            let _: () = con.del(key).unwrap();
+                        }
+                        send_message(con.clone(), client, channel, "song requests have been cleared".to_owned());
+                    }
+                }
+                _ => {
+                    let rgx = Regex::new("^[a-zA-Z0-9]+$").unwrap();
+                    if rgx.is_match(&args[0]) {
+                        let rsp = request_get(&format!("https://www.youtube.com/oembed?format=json&url=https://youtube.com/watch?v={}", args[0]));
+                        match rsp {
+                            Err(e) => { error!("{}",e); }
+                            Ok(mut rsp) => {
+                                if rsp.status().is_success() {
+                                    let mut exists = false;
+                                    let entries: Vec<String> = con.lrange(format!("channel:{}:songreqs", channel), 0, -1).unwrap();
+                                    for key in entries.iter() {
+                                        let entry: String = con.hget(format!("channel:{}:songreqs:{}", channel, key), "nick").unwrap();
+                                        if entry == nick {
+                                            //exists = true;
+                                            break;
+                                        }
+                                    }
+                                    if exists {
+                                        send_message(con.clone(), client, channel, format!("{} already has an entry in the queue", nick));
+                                    } else {
+                                        let text = rsp.text().unwrap();
+                                        let json: YoutubeData = serde_json::from_str(&text).unwrap();
+                                        let key = hash(&args[0], DEFAULT_COST).unwrap();
+                                        let _: () = con.rpush(format!("channel:{}:songreqs", channel), format!("{}", key)).unwrap();
+                                        let _: () = con.hset(format!("channel:{}:songreqs:{}", channel, key), "src", format!("https://youtube.com/watch?v={}", args[0])).unwrap();
+                                        let _: () = con.hset(format!("channel:{}:songreqs:{}", channel, key), "title", json.title).unwrap();
+                                        let _: () = con.hset(format!("channel:{}:songreqs:{}", channel, key), "nick", nick).unwrap();
+                                        send_message(con.clone(), client, channel, format!("{} has been added to the queue", args[0]));
+                                    }
+                                } else {
+                                    send_message(con.clone(), client, channel, format!("{} is not a proper youtube id", args[0]));
+                                }
+                            }
+                        }
+                    } else {
+                        send_message(con.clone(), client, channel, format!("{} is not a proper youtube id", args[0]));
+                    }
+                }
+            }
         }
     }
 }

@@ -4,6 +4,7 @@
 
 use crate::types::*;
 use crate::commands::*;
+use std::collections::HashMap;
 use std::sync::Arc;
 use config;
 use reqwest;
@@ -20,7 +21,7 @@ pub fn send_message(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionM
     let _ = client.send_privmsg(format!("#{}", channel), message);
 }
 
-pub fn send_parsed_message(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, mut message: String, args: &Vec<&str>, irc_message: Option<&Message>) {
+pub fn send_parsed_message(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, mut message: String, args: &Vec<String>, irc_message: Option<&Message>) {
     if args.len() > 0 {
         if let Some(char) = args[args.len()-1].chars().next() {
             if char == '@' { message = format!("{} -> {}", args[args.len()-1], message) }
@@ -117,7 +118,7 @@ pub fn twitch_request_post(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConn
     return rsp;
 }
 
-pub fn parse_message(message: &str, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, irc_message: Option<&Message>, cargs: &Vec<&str>) -> String {
+pub fn parse_message(message: &str, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, irc_message: Option<&Message>, cargs: &Vec<String>) -> String {
     let mut msg: String = message.to_owned();
     let mut vars: Vec<(&str,String)> = Vec::new();
 
@@ -130,7 +131,8 @@ pub fn parse_message(message: &str, con: Arc<r2d2::PooledConnection<r2d2_redis::
                 let mut cmd_message = cmd;
                 for var in command_vars.iter() {
                     if var.0 != "cmd" {
-                        cmd_message = parse_var(var, &cmd_message, con.clone(), &client, channel, irc_message, &capture[1..].to_vec());
+                        let captures: Vec<String> = capture[1..].iter().map(|a| a.to_string()).collect();
+                        cmd_message = parse_var(var, &cmd_message, con.clone(), &client, channel, irc_message, &captures);
                     }
                 }
                 cmd_message = parse_code(&cmd_message, con.clone(), &client, channel, None, &Vec::new());
@@ -154,7 +156,7 @@ pub fn parse_message(message: &str, con: Arc<r2d2::PooledConnection<r2d2_redis::
     return msg;
 }
 
-pub fn parse_var(var: &(&str, fn(Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, &IrcClient, &str, Option<&Message>, Vec<&str>, &Vec<&str>) -> String), message: &str, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, irc_message: Option<&Message>, cargs: &Vec<&str>) -> String {
+pub fn parse_var(var: &(&str, fn(Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, &IrcClient, &str, Option<&Message>, Vec<&str>, &Vec<String>) -> String), message: &str, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, irc_message: Option<&Message>, cargs: &Vec<String>) -> String {
     let rgx = Regex::new(&format!("\\({} ?((?:[\\w\\-\\?\\._:/&!= ]+)*)\\)", var.0)).unwrap();
     let mut msg: String = message.to_owned();
     let mut vargs: Vec<&str> = Vec::new();
@@ -169,7 +171,7 @@ pub fn parse_var(var: &(&str, fn(Arc<r2d2::PooledConnection<r2d2_redis::RedisCon
     return msg.to_owned();
 }
 
-pub fn parse_code(message: &str, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, irc_message: Option<&Message>, cargs: &Vec<&str>) -> String {
+pub fn parse_code(message: &str, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, irc_message: Option<&Message>, cargs: &Vec<String>) -> String {
     let mut msg: String = message.to_owned();
     let rgx = Regex::new("\\{-(.+?)\\-}").unwrap();
     for captures in rgx.captures_iter(&msg.clone()) {
@@ -204,6 +206,24 @@ pub fn get_nick(msg: &Message) -> String {
         name = split[0];
     }
     return name.to_owned();
+}
+
+pub fn get_badges(msg: &Message) -> HashMap<String, String> {
+    let mut badges = HashMap::new();
+    if let Some(tags) = &msg.tags {
+        tags.iter().for_each(|tag| {
+            if let Some(value) = &tag.1 {
+                if tag.0 == "badges" {
+                    let bs: Vec<&str> = value.split(",").collect();
+                    for bstr in bs.iter() {
+                        let badge: Vec<&str> = bstr.split("/").collect();
+                        badges.insert(badge[0].to_owned(), badge[1].to_owned());
+                    }
+                }
+            }
+        });
+    }
+    return badges;
 }
 
 fn strip_chars(original : &str, strip : &str) -> String {

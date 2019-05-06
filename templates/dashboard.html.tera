@@ -9,6 +9,7 @@
     <div class='pane' v-on:click='pane("notices", $event)'>Notices</div>
     <div class='pane' v-on:click='pane("moderation", $event)'>Moderation</div>
     <div class='pane' v-on:click='pane("settings", $event)'>Settings</div>
+    <div class='pane' v-on:click='pane("songrequests", $event)'>Song Requests</div>
     <div class='pane' v-on:click='logout'>Logout</div>
   </div><div id='panes'>
     <div class='pane active' id='dashboard'>
@@ -167,6 +168,25 @@
         </tbody>
       </table>
     </div>
+    <div class='pane' id='songrequests'>
+      <div class='title is-4'>Song Requests</div>
+      <div id='player'>
+        <audio id='audio'></audio>
+      </div>
+      <table class='table is-striped' id='songreqs'>
+        <tbody>
+          <tr v-for='(req, index) in songreqs'>
+            <td class='song'>{%raw%}{{req[1]}}{%endraw%}</td>
+            <td class='nick'>{%raw%}{{req[2]}}{%endraw%}</td>
+            <td class='actions'>
+              <div class='icons'>
+                <span class='icon trash' v-on:click='trashSong(index, false)'><i class='fas fa-trash'></i></span>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
   </div>
 </div>
 
@@ -181,11 +201,13 @@
       notices: {},
       settings: {},
       blacklist: {},
+      songreqs: [],
       newCmd: { name: '', message: '' },
       newNotice: { interval: '', command: ''},
       newSetting: { name: '', value: '' },
       newBlacklist: { regex: '', length: '' },
-      error: ''
+      error: '',
+      player: null
     },
     created: function(){
       var vm = this;
@@ -196,10 +218,16 @@
         }).then(res => res.json());
 
         vm.fields = data.fields;
+        vm.songreqs = data.songreqs;
         vm.commands = _.sortKeysBy(data.commands);
         vm.notices = _.sortKeysBy(data.notices);
         vm.settings = _.sortKeysBy(data.settings);
         vm.blacklist = _.sortKeysBy(data.blacklist);
+
+        vm.player = new MediaElementPlayer('audio');
+        var player = document.getElementById('audio');
+        player.addEventListener('ended', function(e) { vm.trashSong(0, true) });
+        if (vm.songreqs.length > 0) { vm.player.setSrc(vm.songreqs[0][0]) }
       }
 
       fetch_data();
@@ -588,6 +616,35 @@
               }).then(res => res.json());
 
               vm.blacklist = _.sortKeysBy(data.blacklist);
+            }
+            fetch_data();
+          }
+        }
+
+        submitForm();
+      },
+      trashSong: function(index, next){
+        var vm = this;
+        const submitForm = async () => {
+          const data = await fetch('/api/trash_song', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'NoForward': '' },
+            body: "index=" + encodeURIComponent(index)
+          }).then(res => res.json());
+
+          if (data.success) {
+            const fetch_data = async () => {
+              const data = await fetch('/api/data', {
+                method: 'GET',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'NoForward': '' }
+              }).then(res => res.json());
+
+              vm.songreqs = data.songreqs;
+
+              if (index == 0 && vm.songreqs.length > 0) {
+                vm.player.setSrc(vm.songreqs[0][0]);
+                if (next) { vm.player.play() }
+              }
             }
             fetch_data();
           }

@@ -196,3 +196,14 @@ html.funky {
 #panes .pane .table#blacklist .length {
   width: 160px;
 }
+#panes .pane .table#songreqs {
+  margin-top: 40px;
+}
+#panes .pane .table#songreqs .song {
+  width: 400px;
+  padding-top: 12px;
+}
+#panes .pane .table#songreqs .nick {
+  width: 160px;
+  padding-top: 12px;
+}

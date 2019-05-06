@@ -226,13 +226,19 @@ pub struct PlayerMatch {
     pub mtype: String
 }
 
+#[derive(Debug, Deserialize)]
+pub struct YoutubeData {
+    pub title: String
+}
+
 #[derive(Debug, Serialize)]
 pub struct ApiData {
     pub fields: HashMap<String, String>,
     pub commands: HashMap<String, String>,
     pub notices: HashMap<String, Vec<String>>,
     pub settings: HashMap<String, String>,
-    pub blacklist: HashMap<String, HashMap<String,String>>
+    pub blacklist: HashMap<String, HashMap<String,String>>,
+    pub songreqs: Vec<(String,String,String)>
 }
 
 #[derive(Serialize)]
@@ -318,4 +324,9 @@ pub struct ApiSaveBlacklistReq {
 #[derive(FromForm)]
 pub struct ApiTrashBlacklistReq {
     pub key: String
+}
+
+#[derive(FromForm)]
+pub struct ApiTrashSongReq {
+    pub index: usize
 }

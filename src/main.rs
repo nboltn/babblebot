@@ -53,7 +53,7 @@ fn main() {
     Logger::with_env_or_str("babblebot")
         .log_to_file()
         .directory("logs")
-        .rotate(1000000, Cleanup::KeepLogFiles(10))
+        .rotate(1000000, Cleanup::Never)
         .duplicate_to_stderr(Duplicate::Warn)
         .start()
         .unwrap_or_else(|e| panic!("Logger initialization failed with {}", e));
@@ -64,7 +64,7 @@ fn main() {
         thread::spawn(move || {
             rocket::ignite()
               .mount("/assets", StaticFiles::from("assets"))
-              .mount("/", routes![web::index, web::dashboard, web::commands, web::public_data, web::data, web::login, web::logout, web::signup, web::password, web::title, web::game, web::new_command, web::save_command, web::trash_command, web::new_notice, web::trash_notice, web::save_setting, web::trash_setting, web::new_blacklist, web::save_blacklist, web::trash_blacklist])
+              .mount("/", routes![web::index, web::dashboard, web::commands, web::public_data, web::data, web::login, web::logout, web::signup, web::password, web::title, web::game, web::new_command, web::save_command, web::trash_command, web::new_notice, web::trash_notice, web::save_setting, web::trash_setting, web::new_blacklist, web::save_blacklist, web::trash_blacklist, web::trash_song])
               .register(catchers![web::internal_error, web::not_found])
               .attach(Template::fairing())
               .attach(RedisConnection::fairing())
@@ -290,12 +290,11 @@ fn command_listener(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, client
                                                 args = awords.to_owned();
                                             }
                                         }
-                                        let args: Vec<&str> = args.iter().map(|a| a.as_ref()).collect();
 
                                         // parse native commands
                                         for cmd in commands::native_commands.iter() {
                                             if format!("{}{}", prefix, cmd.0) == word {
-                                                (cmd.1)(con.clone(), &client, &channel, &args);
+                                                (cmd.1)(con.clone(), &client, &channel, &args, None);
                                                 break;
                                             }
                                         }
@@ -330,25 +329,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                 if let Some(word) = words.next() {
                     let mut word = word.to_lowercase();
                     let mut args: Vec<String> = words.map(|w| w.to_owned()).collect();
-                    let mut badges: HashMap<String, Option<String>> = HashMap::new();
-                    if let Some(tags) = &irc_message.tags {
-                        tags.iter().for_each(|tag| {
-                            if let Some(value) = &tag.1 {
-                                // println!("{}: {}", tag.0, value);
-                                if tag.0 == "badges" {
-                                    let bs: Vec<&str> = value.split(",").collect();
-                                    for bstr in bs.iter() {
-                                        let badge: Vec<&str> = bstr.split("/").collect();
-                                        if badge.len() == 2 {
-                                            badges.insert(badge[0].to_owned(), Some(badge[1].to_owned()));
-                                        } else {
-                                            badges.insert(badge[0].to_owned(), None);
-                                        }
-                                    }
-                                }
-                            }
-                        });
-                    }
+                    let badges = get_badges(&irc_message);
 
                     let mut subscriber = false;
                     if let Some(value) = badges.get("subscriber") { subscriber = true }
@@ -457,15 +438,14 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                             args = awords.to_owned();
                         }
                     }
-                    let args: Vec<&str> = args.iter().map(|a| a.as_ref()).collect();
 
                     // parse native commands
                     for cmd in commands::native_commands.iter() {
                         if format!("{}{}", prefix, cmd.0) == word {
                             if args.len() == 0 {
-                                if !cmd.2 || auth { (cmd.1)(con.clone(), &client, channel, &args) }
+                                if !cmd.2 || auth { (cmd.1)(con.clone(), &client, channel, &args, Some(&irc_message)) }
                             } else {
-                                if !cmd.3 || auth { (cmd.1)(con.clone(), &client, channel, &args) }
+                                if !cmd.3 || auth { (cmd.1)(con.clone(), &client, channel, &args, Some(&irc_message)) }
                             }
                             break;
                         }
