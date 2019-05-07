@@ -585,6 +585,11 @@ fn update_live(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: St
                             if json.total == 0 {
                                 if live == "true" {
                                     let _: () = con.set(format!("channel:{}:live", channel), false).unwrap();
+                                    // reset stats
+                                    let res: Result<String,_> = con.hget(format!("channel:{}:settings", channel), "stats:reset");
+                                    if let Err(e) = res {
+                                        let _: () = con.del(format!("channel:{}:stats:pubg", channel)).unwrap();
+                                    }
                                 }
                             } else {
                                 if live == "false" {
