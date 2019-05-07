@@ -217,7 +217,11 @@ pub fn get_badges(msg: &Message) -> HashMap<String, String> {
                     let bs: Vec<&str> = value.split(",").collect();
                     for bstr in bs.iter() {
                         let badge: Vec<&str> = bstr.split("/").collect();
-                        badges.insert(badge[0].to_owned(), badge[1].to_owned());
+                        if badge.len() > 0 {
+                            badges.insert(badge[0].to_owned(), badge[1].to_owned());
+                        } else {
+                            badges.insert(badge[0].to_owned(), "".to_owned());
+                        }
                     }
                 }
             }
