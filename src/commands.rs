@@ -27,8 +27,14 @@ fn args_var(_con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>
     if vargs.len() > 0 {
         let num: Result<usize,_> = vargs[0].parse();
         match num {
-            Ok(num) => cargs[num-1].to_owned(),
-            Err(_) => "".to_owned()
+            Err(_) => "".to_owned(),
+            Ok(num) => {
+                if num > 0 && cargs.len() >= num {
+                    cargs[num-1].to_owned()
+                } else {
+                    "".to_owned()
+                }
+            }
         }
     } else {
         cargs.join(" ").to_owned()
