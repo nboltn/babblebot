@@ -50,7 +50,7 @@ fn main() {
     let pool = r2d2::Pool::builder().max_size(200).build(manager).unwrap();
     let pool_c1 = pool.clone();
 
-    Logger::with_env_or_str("info, rocket=off, serenity=off")
+    Logger::with_env_or_str("babblebot")
         .log_to_file()
         .directory("logs")
         .append()
