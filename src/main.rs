@@ -74,10 +74,10 @@ fn main() {
         thread::spawn(move || {
             let con = Arc::new(pool.get().unwrap());
             let mut bots: HashMap<String, (HashSet<String>, Config)> = HashMap::new();
-            let bs: HashSet<String> = con.smembers("bots").expect("smembers:bots");
+            let bs: HashSet<String> = con.smembers("bots").unwrap();
             for bot in bs {
                 let passphrase: String = con.get(format!("bot:{}:token", bot)).expect("get:token");
-                let channel_hash: HashSet<String> = con.smembers(format!("bot:{}:channels", bot)).expect("smembers:channels");
+                let channel_hash: HashSet<String> = con.smembers(format!("bot:{}:channels", bot)).unwrap();
                 let mut channels: Vec<String> = Vec::new();
                 channels.extend(channel_hash.iter().cloned().map(|chan| { format!("#{}", chan) }));
                 let config = Config {
@@ -219,11 +219,11 @@ fn rename_channel_listener(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>,
                         let _ = client.send_quit("");
 
                         let bot: String = con.get(format!("channel:{}:bot", &channel)).expect("get:bot");
-                        let _: () = con.srem(format!("bot:{}:channels", &bot), &channel).expect("srem:channels");
-                        let _: () = con.sadd("bots", &json.data[0].login).expect("sadd:bots");
-                        let _: () = con.sadd(format!("bot:{}:channels", &json.data[0].login), &channel).expect("sadd:channels");
-                        let _: () = con.set(format!("bot:{}:token", &json.data[0].login), &token).expect("set:token");
-                        let _: () = con.set(format!("channel:{}:bot", &channel), &json.data[0].login).expect("set:bot");
+                        let _: () = con.srem(format!("bot:{}:channels", &bot), &channel).unwrap();
+                        let _: () = con.sadd("bots", &json.data[0].login).unwrap();
+                        let _: () = con.sadd(format!("bot:{}:channels", &json.data[0].login), &channel).unwrap();
+                        let _: () = con.set(format!("bot:{}:token", &json.data[0].login), &token).unwrap();
+                        let _: () = con.set(format!("channel:{}:bot", &channel), &json.data[0].login).unwrap();
 
                         let mut bots: HashMap<String, (HashSet<String>, Config)> = HashMap::new();
                         let mut channel_hash: HashSet<String> = HashSet::new();

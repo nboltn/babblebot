@@ -69,7 +69,7 @@ fn cmd_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>,
 }
 
 fn uptime_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
-    let id: String = con.get(format!("channel:{}:id", channel)).unwrap();
+    let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
     let rsp = twitch_request_get(con.clone(), channel, &format!("https://api.twitch.tv/kraken/streams?channel={}", id));
 
     match rsp {
@@ -124,7 +124,7 @@ fn user_var(_con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>
 }
 
 fn channel_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
-    let display: String = con.get(format!("channel:{}:display-name", channel)).unwrap();
+    let display: String = con.get(format!("channel:{}:display-name", channel)).expect("get:display-name");
     return display;
 }
 
@@ -157,7 +157,7 @@ fn followage_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMana
                     Err(e) => { "".to_owned() }
                     Ok(json) => {
                         if json.total > 0 {
-                            let id: String = con.get(format!("channel:{}:id", channel)).unwrap();
+                            let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
                             let rsp = twitch_request_get(con.clone(), channel, &format!("https://api.twitch.tv/kraken/users/{}/follows/channels/{}", &json.users[0].id, id));
                             match rsp {
                                 Err(e) => { "".to_owned() }
@@ -192,7 +192,7 @@ fn followage_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMana
 }
 
 fn subcount_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
-    let id: String = con.get(format!("channel:{}:id", channel)).unwrap();
+    let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
     let rsp = twitch_request_get(con.clone(), channel, &format!("https://api.twitch.tv/kraken/channels/{}/subscriptions", id));
 
     match rsp {
@@ -208,7 +208,7 @@ fn subcount_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManag
 }
 
 fn followcount_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
-    let id: String = con.get(format!("channel:{}:id", channel)).unwrap();
+    let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
     let rsp = twitch_request_get(con.clone(), channel, &format!("https://api.twitch.tv/kraken/channels/{}/follows", id));
 
     match rsp {
@@ -538,7 +538,7 @@ fn command_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManage
 }
 
 fn title_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<String>, message: Option<&Message>) {
-    let id: String = con.get(format!("channel:{}:id", channel)).unwrap();
+    let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
     if args.len() == 0 {
         let rsp = twitch_request_get(con.clone(), channel, &format!("https://api.twitch.tv/kraken/channels/{}", id));
 
@@ -577,7 +577,7 @@ fn title_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>
 }
 
 fn game_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<String>, message: Option<&Message>) {
-    let id: String = con.get(format!("channel:{}:id", channel)).unwrap();
+    let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
     if args.len() == 0 {
         let rsp = twitch_request_get(con.clone(), channel, &format!("https://api.twitch.tv/kraken/channels/{}", id));
 
@@ -857,7 +857,7 @@ fn commercials_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMa
                             if within8 {
                                 send_message(con.clone(), client, channel, "Commercials can't be run within eight minutes of each other".to_owned());
                             } else {
-                                let id: String = con.get(format!("channel:{}:id", channel)).unwrap();
+                                let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
                                 let submode: String = con.get(format!("channel:{}:commercials:submode", channel)).unwrap_or("false".to_owned());
                                 let nres: Result<String,_> = con.get(format!("channel:{}:commercials:notice", channel));
                                 let rsp = twitch_request_post(con.clone(), channel, &format!("https://api.twitch.tv/kraken/channels/{}/commercial", id), format!("{{\"length\": {}}}", num * 30));
@@ -928,7 +928,7 @@ fn songreq_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManage
                                     let mut exists = false;
                                     let entries: Vec<String> = con.lrange(format!("channel:{}:songreqs", channel), 0, -1).unwrap();
                                     for key in entries.iter() {
-                                        let entry: String = con.hget(format!("channel:{}:songreqs:{}", channel, key), "nick").unwrap();
+                                        let entry: String = con.hget(format!("channel:{}:songreqs:{}", channel, key), "nick").expect("hget:nick");
                                         if entry == nick {
                                             exists = true;
                                             break;
