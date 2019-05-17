@@ -50,9 +50,10 @@ fn main() {
     let pool = r2d2::Pool::builder().max_size(200).build(manager).unwrap();
     let pool_c1 = pool.clone();
 
-    Logger::with_env_or_str("babblebot")
+    Logger::with_env_or_str("info, rocket=off, serenity=off")
         .log_to_file()
         .directory("logs")
+        .append()
         .rotate(1000000, Cleanup::Never)
         .duplicate_to_stderr(Duplicate::Warn)
         .start()
@@ -73,10 +74,10 @@ fn main() {
         thread::spawn(move || {
             let con = Arc::new(pool.get().unwrap());
             let mut bots: HashMap<String, (HashSet<String>, Config)> = HashMap::new();
-            let bs: HashSet<String> = con.smembers("bots").unwrap();
+            let bs: HashSet<String> = con.smembers("bots").expect("smembers:bots");
             for bot in bs {
-                let passphrase: String = con.get(format!("bot:{}:token", bot)).unwrap();
-                let channel_hash: HashSet<String> = con.smembers(format!("bot:{}:channels", bot)).unwrap();
+                let passphrase: String = con.get(format!("bot:{}:token", bot)).expect("get:token");
+                let channel_hash: HashSet<String> = con.smembers(format!("bot:{}:channels", bot)).expect("smembers:channels");
                 let mut channels: Vec<String> = Vec::new();
                 channels.extend(channel_hash.iter().cloned().map(|chan| { format!("#{}", chan) }));
                 let config = Config {
@@ -162,8 +163,8 @@ fn new_channel_listener(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
         let msg = ps.get_message().unwrap();
         let channel: String = msg.get_payload().unwrap();
         let mut bots: HashMap<String, (HashSet<String>, Config)> = HashMap::new();
-        let bot: String = con.get(format!("channel:{}:bot", channel)).unwrap();
-        let passphrase: String = con.get(format!("bot:{}:token", bot)).unwrap();
+        let bot: String = con.get(format!("channel:{}:bot", channel)).expect("get:bot");
+        let passphrase: String = con.get(format!("bot:{}:token", bot)).expect("get:token");
         let mut channel_hash: HashSet<String> = HashSet::new();
         let mut channels: Vec<String> = Vec::new();
         channel_hash.insert(channel.to_owned());
@@ -217,12 +218,12 @@ fn rename_channel_listener(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>,
                         }
                         let _ = client.send_quit("");
 
-                        let bot: String = con.get(format!("channel:{}:bot", &channel)).unwrap();
-                        let _: () = con.srem(format!("bot:{}:channels", &bot), &channel).unwrap();
-                        let _: () = con.sadd("bots", &json.data[0].login).unwrap();
-                        let _: () = con.sadd(format!("bot:{}:channels", &json.data[0].login), &channel).unwrap();
-                        let _: () = con.set(format!("bot:{}:token", &json.data[0].login), &token).unwrap();
-                        let _: () = con.set(format!("channel:{}:bot", &channel), &json.data[0].login).unwrap();
+                        let bot: String = con.get(format!("channel:{}:bot", &channel)).expect("get:bot");
+                        let _: () = con.srem(format!("bot:{}:channels", &bot), &channel).expect("srem:channels");
+                        let _: () = con.sadd("bots", &json.data[0].login).expect("sadd:bots");
+                        let _: () = con.sadd(format!("bot:{}:channels", &json.data[0].login), &channel).expect("sadd:channels");
+                        let _: () = con.set(format!("bot:{}:token", &json.data[0].login), &token).expect("set:token");
+                        let _: () = con.set(format!("channel:{}:bot", &channel), &json.data[0].login).expect("set:bot");
 
                         let mut bots: HashMap<String, (HashSet<String>, Config)> = HashMap::new();
                         let mut channel_hash: HashSet<String> = HashSet::new();
@@ -351,8 +352,8 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                             if display == "true" { send_message(con.clone(), &client, channel, format!("@{} you've been timed out for posting colors", nick)); }
                         }
                         if caps == "true" {
-                            let limit: String = con.get(format!("channel:{}:moderation:caps:limit", channel)).unwrap();
-                            let trigger: String = con.get(format!("channel:{}:moderation:caps:trigger", channel)).unwrap();
+                            let limit: String = con.get(format!("channel:{}:moderation:caps:limit", channel)).expect("get:limit");
+                            let trigger: String = con.get(format!("channel:{}:moderation:caps:trigger", channel)).expect("get:trigger");
                             let subs: String = con.get(format!("channel:{}:moderation:caps:subs", channel)).unwrap_or("false".to_owned());
                             let limit: Result<f32,_> = limit.parse();
                             let trigger: Result<f32,_> = trigger.parse();
@@ -411,8 +412,8 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                         }
                         for key in bkeys {
                             let key: Vec<&str> = key.split(":").collect();
-                            let rgx: String = con.hget(format!("channel:{}:moderation:blacklist:{}", channel, key[4]), "regex").unwrap();
-                            let length: String = con.hget(format!("channel:{}:moderation:blacklist:{}", channel, key[4]), "length").unwrap();
+                            let rgx: String = con.hget(format!("channel:{}:moderation:blacklist:{}", channel, key[4]), "regex").expect("hget:regex");
+                            let length: String = con.hget(format!("channel:{}:moderation:blacklist:{}", channel, key[4]), "length").expect("hget:length");
                             match RegexBuilder::new(&rgx).case_insensitive(true).build() {
                                 Err(e) => { error!("[regex_error] {}", e) }
                                 Ok(rgx) => {
@@ -464,7 +465,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                         if !within5 {
                             let mut protected: &str = "cmd";
                             if args.len() > 0 { protected = "arg" }
-                            let protected: String = con.hget(format!("channel:{}:commands:{}", channel, word), format!("{}_protected", protected)).unwrap();
+                            let protected: String = con.hget(format!("channel:{}:commands:{}", channel, word), format!("{}_protected", protected)).expect("hget:protected");
                             if protected == "false" || auth {
                                 let _: () = con.hset(format!("channel:{}:commands:{}", channel, word), "lastrun", Utc::now().to_rfc3339()).unwrap();
                                 send_parsed_message(con.clone(), &client, channel, message.to_owned(), &args, Some(&irc_message));
@@ -477,8 +478,8 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                     for key in keys.iter() {
                         let key: Vec<&str> = key.split(":").collect();
                         if key[3] == nick {
-                            let msg: String = con.hget(format!("channel:{}:greetings:{}", channel, key[3]), "message").unwrap();
-                            let hours: i64 = con.hget(format!("channel:{}:greetings:{}", channel, key[3]), "hours").unwrap();
+                            let msg: String = con.hget(format!("channel:{}:greetings:{}", channel, key[3]), "message").expect("hget:message");
+                            let hours: i64 = con.hget(format!("channel:{}:greetings:{}", channel, key[3]), "hours").expect("hget:hours");
                             let res: Result<String,_> = con.hget(format!("channel:{}:lastseen", channel), key[3]);
                             if let Ok(lastseen) = res {
                                 let timestamp = DateTime::parse_from_rfc3339(&lastseen).unwrap();
@@ -567,7 +568,7 @@ fn update_watchtime(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channe
 fn update_live(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: String) {
     thread::spawn(move || {
         let con = Arc::new(pool.get().unwrap());
-        let id: String = con.get(format!("channel:{}:id", channel)).unwrap();
+        let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
         loop {
             let rsp = twitch_request_get(con.clone(), &channel, &format!("https://api.twitch.tv/kraken/streams?channel={}", id));
             match rsp {
@@ -581,7 +582,7 @@ fn update_live(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: St
                             error!("[request_body] {}", text);
                         }
                         Ok(json) => {
-                            let live: String = con.get(format!("channel:{}:live", channel)).unwrap();
+                            let live: String = con.get(format!("channel:{}:live", channel)).expect("get:live");
                             if json.total == 0 {
                                 if live == "true" {
                                     let _: () = con.set(format!("channel:{}:live", channel), false).unwrap();
@@ -606,7 +607,7 @@ fn update_live(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: St
                                     let ires: Result<String,_> = con.hget(format!("channel:{}:settings", channel), "discord:channel-id");
                                     if let (Ok(token), Ok(id)) = (tres, ires) {
                                         let message: String = con.hget(format!("channel:{}:settings", channel), "discord:live-message").unwrap_or("".to_owned());
-                                        let display: String = con.get(format!("channel:{}:display-name", channel)).unwrap();
+                                        let display: String = con.get(format!("channel:{}:display-name", channel)).expect("get:display-name");
                                         let body = format!("{{ \"content\": \"{}\", \"embed\": {{ \"author\": {{ \"name\": \"{}\" }}, \"title\": \"{}\", \"url\": \"http://twitch.tv/{}\", \"thumbnail\": {{ \"url\": \"{}\" }}, \"fields\": [{{ \"name\": \"Now Playing\", \"value\": \"{}\" }}] }} }}", &message, &display, &json.streams[0].channel.status, channel, &json.streams[0].channel.logo, &json.streams[0].channel.game);
                                         let _ = discord_request_post(con.clone(), &channel, &format!("https://discordapp.com/api/channels/{}/messages", id), body);
                                     }
@@ -637,7 +638,7 @@ fn update_pubg(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: St
                     }
                 }
             }
-            let live: String = con.get(format!("channel:{}:live", channel)).unwrap();
+            let live: String = con.get(format!("channel:{}:live", channel)).expect("get:live");
             if live == "true" {
                 let res1: Result<String,_> = con.hget(format!("channel:{}:settings", channel), "pubg:token");
                 let res2: Result<String,_> = con.hget(format!("channel:{}:settings", channel), "pubg:name");
@@ -782,7 +783,7 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                 }
             }
 
-            let live: String = con.get(format!("channel:{}:live", notice_channel)).unwrap();
+            let live: String = con.get(format!("channel:{}:live", notice_channel)).expect("get:live");
             if live == "true" {
                 let keys: Vec<String> = con.keys(format!("channel:{}:notices:*:commands", notice_channel)).unwrap();
                 let ints: Vec<&str> = keys.iter().map(|str| {
@@ -805,7 +806,7 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
 
                 if int != 0 {
                     let _: () = con.set(format!("channel:{}:notices:{}:countdown", notice_channel, int), int.clone()).unwrap();
-                    let cmd: String = con.lpop(format!("channel:{}:notices:{}:commands", notice_channel, int)).unwrap();
+                    let cmd: String = con.lpop(format!("channel:{}:notices:{}:commands", notice_channel, int)).expect("lpop:commands");
                     let _: () = con.rpush(format!("channel:{}:notices:{}:commands", notice_channel, int), cmd.clone()).unwrap();
                     let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", notice_channel, cmd), "message");
                     if let Ok(mut message) = res {
@@ -924,7 +925,7 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
     thread::spawn(move || {
         let con = Arc::new(comm_con);
         loop {
-            let live: String = con.get(format!("channel:{}:live", comm_channel)).unwrap();
+            let live: String = con.get(format!("channel:{}:live", comm_channel)).expect("get:live");
             if live == "true" {
                 let hourly: String = con.get(format!("channel:{}:commercials:hourly", comm_channel)).unwrap_or("0".to_owned());
                 let hourly: u64 = hourly.parse().unwrap();

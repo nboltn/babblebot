@@ -46,7 +46,7 @@ pub fn request_post(url: &str, body: String) -> reqwest::Result<reqwest::Respons
 }
 
 pub fn pubg_request_get(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, url: &str) -> reqwest::Result<reqwest::Response> {
-    let token: String = con.hget(format!("channel:{}:settings", channel), "pubg:token").unwrap();
+    let token: String = con.hget(format!("channel:{}:settings", channel), "pubg:token").expect("hget:token");
     let mut headers = header::HeaderMap::new();
     headers.insert("Accept", HeaderValue::from_str("application/vnd.api+json").unwrap());
     headers.insert("Authorization", HeaderValue::from_str(&format!("Bearer {}", token)).unwrap());
@@ -72,7 +72,7 @@ pub fn twitch_request_get(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConne
     let mut settings = config::Config::default();
     settings.merge(config::File::with_name("Settings")).unwrap();
     settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
-    let token: String = con.get(format!("channel:{}:token", channel)).unwrap();
+    let token: String = con.get(format!("channel:{}:token", channel)).expect("get:token");
 
     let mut headers = header::HeaderMap::new();
     headers.insert("Accept", HeaderValue::from_str("application/vnd.twitchtv.v5+json").unwrap());
@@ -88,7 +88,7 @@ pub fn twitch_request_put(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConne
     let mut settings = config::Config::default();
     settings.merge(config::File::with_name("Settings")).unwrap();
     settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
-    let token: String = con.get(format!("channel:{}:token", channel)).unwrap();
+    let token: String = con.get(format!("channel:{}:token", channel)).expect("get:token");
 
     let mut headers = header::HeaderMap::new();
     headers.insert("Accept", HeaderValue::from_str("application/vnd.twitchtv.v5+json").unwrap());
@@ -105,7 +105,7 @@ pub fn twitch_request_post(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConn
     let mut settings = config::Config::default();
     settings.merge(config::File::with_name("Settings")).unwrap();
     settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
-    let token: String = con.get(format!("channel:{}:token", channel)).unwrap();
+    let token: String = con.get(format!("channel:{}:token", channel)).expect("get:token");
 
     let mut headers = header::HeaderMap::new();
     headers.insert("Accept", HeaderValue::from_str("application/vnd.twitchtv.v5+json").unwrap());
