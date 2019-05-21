@@ -5,27 +5,24 @@ authors = ["toovs <toovs@tutamail.com>"]
 edition = "2018"
 
 [dependencies]
-bcrypt = "0.3"
+bcrypt = "0.4"
 config = "0.9"
-clap = { version = "2.32", features = ["yaml"] }
+clap = { version = "2.33", features = ["yaml"] }
 redis = "0.10"
 url = "1.7"
 irc = "0.13"
 reqwest = "0.9"
 serde = { version = "1.0", features = ["derive"] }
-serde_json = "*"
+serde_json = "1.0"
 itertools = "0.8"
-rocket = { version = "0.4", features = ["tls"] }
-rocket_contrib = { version = "0.4", features = ["json", "tera_templates", "redis_pool"] }
+rocket = { features = ["tls"], git = "https://github.com/SergioBenitez/Rocket", branch = "master" }
+rocket_contrib = { features = ["json", "tera_templates", "redis_pool"], git = "https://github.com/SergioBenitez/Rocket", branch = "master" }
 r2d2_redis = "0.8"
-jsonwebtoken = "5.0"
+jsonwebtoken = "6.0"
 regex = "1.1"
 chrono = "0.4"
 crossbeam-channel = "0.3"
 humantime = "1.2"
-serenity = "*"
-flexi_logger = "^0.11.5"
+serenity = "0.6.0-rc.1"
+flexi_logger = "0.11"
 log = "0.4"
-
-[patch.crates-io]
-openssl = { git = "https://github.com/ishitatsuyuki/rust-openssl", branch = "0.9.x" }
