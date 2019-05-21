@@ -19,15 +19,21 @@ pub struct DiscordHandler {
 impl EventHandler for DiscordHandler {
     fn message(&self, ctx: Context, msg: Message) {
         let con = Arc::new(self.pool.get().unwrap());
-        let mut words = msg.content.split_whitespace();
-        if let Some(word) = words.next() {
-            let mut word = word.to_lowercase();
-            let mut args: Vec<String> = words.map(|w| w.to_owned()).collect();
-            let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", self.channel, word), "message");
-            if let Ok(message) = res {
-                let mut message = message;
-                //message = parse_message(&message, con.clone(), &client, channel, Some(&irc_message), &args);
-                let _ = msg.channel_id.say(&ctx.http, message);
+        let prefix: String = con.hget(format!("channel:{}:settings", self.channel), "command:prefix").unwrap_or("!".to_owned());
+        let id: String = con.hget(format!("channel:{}:settings", self.channel), "discord:mod-channel").unwrap_or("".to_owned());
+        if msg.channel_id.as_u64().to_string() == id {
+            let _: () = con.publish(format!("channel:{}:signals:command", self.channel), msg.content).unwrap();
+        } else {
+            let mut words = msg.content.split_whitespace();
+            if let Some(word) = words.next() {
+                let mut word = word.to_lowercase();
+                let mut args: Vec<String> = words.map(|w| w.to_owned()).collect();
+                let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", self.channel, word), "message");
+                if let Ok(message) = res {
+                    let mut message = message;
+                    message = parse_message(&message, con.clone(), None, &self.channel, None, &args);
+                    let _ = msg.channel_id.say(&ctx.http, message);
+                }
             }
         }
     }

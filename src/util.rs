@@ -29,7 +29,7 @@ pub fn send_parsed_message(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConn
     }
     let me: String = con.hget(format!("channel:{}:settings", channel), "channel:me").unwrap_or("false".to_owned());
     if me == "true" { message = format!("/me {}", message); }
-    message = parse_message(&message, con.clone(), &client, channel, irc_message, &args);
+    message = parse_message(&message, con.clone(), Some(&client), channel, irc_message, &args);
     let _ = client.send_privmsg(format!("#{}", channel), message);
 }
 
@@ -118,7 +118,7 @@ pub fn twitch_request_post(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConn
     return rsp;
 }
 
-pub fn parse_message(message: &str, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, irc_message: Option<&Message>, cargs: &Vec<String>) -> String {
+pub fn parse_message(message: &str, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, irc_message: Option<&Message>, cargs: &Vec<String>) -> String {
     let mut msg: String = message.to_owned();
     let mut vars: Vec<(&str,String)> = Vec::new();
 
@@ -132,10 +132,10 @@ pub fn parse_message(message: &str, con: Arc<r2d2::PooledConnection<r2d2_redis::
                 for var in command_vars.iter() {
                     if var.0 != "cmd" {
                         let captures: Vec<String> = capture[1..].iter().map(|a| a.to_string()).collect();
-                        cmd_message = parse_var(var, &cmd_message, con.clone(), &client, channel, irc_message, &captures);
+                        cmd_message = parse_var(var, &cmd_message, con.clone(), client, channel, irc_message, &captures);
                     }
                 }
-                cmd_message = parse_code(&cmd_message, con.clone(), &client, channel, None, &Vec::new());
+                cmd_message = parse_code(&cmd_message);
                 vars.push((capture[0], cmd_message));
             }
             msg = rgx.replace(&msg, |_: &Captures| { "" }).to_string();
@@ -148,15 +148,15 @@ pub fn parse_message(message: &str, con: Arc<r2d2::PooledConnection<r2d2_redis::
     }
 
     for var in command_vars.iter() {
-        msg = parse_var(var, &msg, con.clone(), &client, channel, irc_message, &cargs);
+        msg = parse_var(var, &msg, con.clone(), client, channel, irc_message, &cargs);
     }
 
-    msg = parse_code(&msg, con.clone(), &client, channel, irc_message, &cargs);
+    msg = parse_code(&msg);
 
     return msg;
 }
 
-pub fn parse_var(var: &(&str, fn(Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, &IrcClient, &str, Option<&Message>, Vec<&str>, &Vec<String>) -> String), message: &str, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, irc_message: Option<&Message>, cargs: &Vec<String>) -> String {
+pub fn parse_var(var: &(&str, fn(Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, Option<&IrcClient>, &str, Option<&Message>, Vec<&str>, &Vec<String>) -> String), message: &str, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, irc_message: Option<&Message>, cargs: &Vec<String>) -> String {
     let rgx = Regex::new(&format!("\\({} ?((?:[\\w\\-\\?\\._:/&!= ]+)*)\\)", var.0)).unwrap();
     let mut msg: String = message.to_owned();
     let mut vargs: Vec<&str> = Vec::new();
@@ -171,7 +171,7 @@ pub fn parse_var(var: &(&str, fn(Arc<r2d2::PooledConnection<r2d2_redis::RedisCon
     return msg.to_owned();
 }
 
-pub fn parse_code(message: &str, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, irc_message: Option<&Message>, cargs: &Vec<String>) -> String {
+pub fn parse_code(message: &str) -> String {
     let mut msg: String = message.to_owned();
     let rgx = Regex::new("\\{-(.+?)\\-}").unwrap();
     for captures in rgx.captures_iter(&msg.clone()) {
