@@ -25,7 +25,7 @@ impl EventHandler for DiscordHandler {
         if msg.channel_id.as_u64().to_string() == id {
             let rgx = Regex::new("<:(\\w+):\\d+>").unwrap();
             let content = rgx.replace_all(&msg.content, |caps: &Captures| { if let Some(emote) = caps.get(1) { emote.as_str() } else { "" } }).to_string();
-            let _: () = con.publish(format!("channel:{}:signals:command", self.channel), msg.content).unwrap();
+            let _: () = con.publish(format!("channel:{}:signals:command", self.channel), content).unwrap();
         } else {
             let mut words = msg.content.split_whitespace();
             if let Some(word) = words.next() {
