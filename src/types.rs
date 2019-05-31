@@ -6,6 +6,7 @@ use serenity::client::{Context, EventHandler};
 use serenity::model::channel::Message;
 use serde::{Serialize, Deserialize};
 use serde_json::Value;
+use regex::{Regex,RegexBuilder,Captures};
 use rocket_contrib::database;
 use rocket_contrib::databases::redis;
 use r2d2_redis::{r2d2, RedisConnectionManager};
@@ -22,6 +23,8 @@ impl EventHandler for DiscordHandler {
         let prefix: String = con.hget(format!("channel:{}:settings", self.channel), "command:prefix").unwrap_or("!".to_owned());
         let id: String = con.hget(format!("channel:{}:settings", self.channel), "discord:mod-channel").unwrap_or("".to_owned());
         if msg.channel_id.as_u64().to_string() == id {
+            let rgx = Regex::new("<:(\\w+):\\d+>").unwrap();
+            let content = rgx.replace_all(&msg.content, |caps: &Captures| { if let Some(emote) = caps.get(1) { emote.as_str() } else { "" } }).to_string();
             let _: () = con.publish(format!("channel:{}:signals:command", self.channel), msg.content).unwrap();
         } else {
             let mut words = msg.content.split_whitespace();
