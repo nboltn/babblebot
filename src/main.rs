@@ -643,13 +643,13 @@ fn update_pubg(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: St
                 let res1: Result<String,_> = con.hget(format!("channel:{}:settings", channel), "pubg:token");
                 let res2: Result<String,_> = con.hget(format!("channel:{}:settings", channel), "pubg:name");
                 if let (Ok(token), Ok(name)) = (res1, res2) {
-                    let region: String = con.hget(format!("channel:{}:settings", channel), "pubg:region").unwrap_or("pc-ca".to_owned());
+                    let platform: String = con.hget(format!("channel:{}:settings", channel), "pubg:platform").unwrap_or("steam".to_owned());
                     let res: Result<String,_> = con.hget(format!("channel:{}:settings", channel), "pubg:id");
                     let mut id: String = "".to_owned();
                     if let Ok(v) = res {
                         id = v;
                     } else {
-                        let rsp = pubg_request_get(con.clone(), &channel, &format!("https://api.pubg.com/shards/{}/players?filter%5BplayerNames%5D={}", region, name));
+                        let rsp = pubg_request_get(con.clone(), &channel, &format!("https://api.pubg.com/shards/{}/players?filter%5BplayerNames%5D={}", platform, name));
                         match rsp {
                             Err(e) => { error!("[update_pubg] {}", e) }
                             Ok(mut rsp) => {
@@ -672,7 +672,7 @@ fn update_pubg(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: St
                     }
                     if !id.is_empty() {
                         let mut cursor: String = con.hget(format!("channel:{}:stats:pubg", channel), "cursor").unwrap_or("".to_owned());
-                        let rsp = pubg_request_get(con.clone(), &channel, &format!("https://api.pubg.com/shards/{}/players/{}", region, id));
+                        let rsp = pubg_request_get(con.clone(), &channel, &format!("https://api.pubg.com/shards/{}/players/{}", platform, id));
                         match rsp {
                             Err(e) => { error!("[update_pubg] {}", e) }
                             Ok(mut rsp) => {
