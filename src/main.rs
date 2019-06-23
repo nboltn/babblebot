@@ -590,6 +590,7 @@ fn update_live(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: St
                                     let res: Result<String,_> = con.hget(format!("channel:{}:settings", channel), "stats:reset");
                                     if let Err(e) = res {
                                         let _: () = con.del(format!("channel:{}:stats:pubg", channel)).unwrap();
+                                        let _: () = con.del(format!("channel:{}:stats:fortnite", channel)).unwrap();
                                     }
                                 }
                             } else {
