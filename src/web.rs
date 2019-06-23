@@ -428,10 +428,10 @@ pub fn game(con: RedisConnection, data: Form<ApiGameReq>, auth: Auth) -> Json<Ap
 
 #[post("/api/new_command", data="<data>")]
 pub fn new_command(con: RedisConnection, data: Form<ApiSaveCommandReq>, auth: Auth) -> Json<ApiRsp> {
-    if !data.command.is_empty() && !data.message.is_empty() {
-        redis::cmd("HSET").arg(format!("channel:{}:commands:{}", &auth.channel, &data.command)).arg("message").arg(&data.message).execute(&*con);
-        redis::cmd("HSET").arg(format!("channel:{}:commands:{}", &auth.channel, &data.command)).arg("cmd_protected").arg(false).execute(&*con);
-        redis::cmd("HSET").arg(format!("channel:{}:commands:{}", &auth.channel, &data.command)).arg("arg_protected").arg(false).execute(&*con);
+    if !data.command.is_empty() && !data.message.is_empty() && !data.command.is_empty() {
+        redis::cmd("HSET").arg(format!("channel:{}:commands:{}", &auth.channel, &data.command.to_lowercase())).arg("message").arg(&data.message).execute(&*con);
+        redis::cmd("HSET").arg(format!("channel:{}:commands:{}", &auth.channel, &data.command.to_lowercase())).arg("cmd_protected").arg(false).execute(&*con);
+        redis::cmd("HSET").arg(format!("channel:{}:commands:{}", &auth.channel, &data.command.to_lowercase())).arg("arg_protected").arg(false).execute(&*con);
         let json = ApiRsp { success: true, success_value: None, field: None, error_message: None };
         return Json(json);
     } else {
@@ -512,7 +512,7 @@ pub fn trash_notice(con: RedisConnection, data: Form<ApiNoticeReq>, auth: Auth) 
 #[post("/api/save_setting", data="<data>")]
 pub fn save_setting(con: RedisConnection, data: Form<ApiSaveSettingReq>, auth: Auth) -> Json<ApiRsp> {
     if !data.name.is_empty() && !data.value.is_empty() {
-        redis::cmd("HSET").arg(format!("channel:{}:settings", &auth.channel)).arg(&data.name).arg(&data.value).execute(&*con);
+        redis::cmd("HSET").arg(format!("channel:{}:settings", &auth.channel)).arg(&data.name.to_lowercase()).arg(&data.value).execute(&*con);
         let json = ApiRsp { success: true, success_value: None, field: None, error_message: None };
         return Json(json);
     } else {

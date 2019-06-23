@@ -45,6 +45,17 @@ pub fn request_post(url: &str, body: String) -> reqwest::Result<reqwest::Respons
     return rsp;
 }
 
+pub fn fortnite_request_get(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, url: &str) -> reqwest::Result<reqwest::Response> {
+    let token: String = con.hget(format!("channel:{}:settings", channel), "fortnite:token").expect("hget:token");
+    let mut headers = header::HeaderMap::new();
+    headers.insert("Accept", HeaderValue::from_str("application/vnd.api+json").unwrap());
+    headers.insert("TRN-Api-Key", HeaderValue::from_str(&token).unwrap());
+
+    let req = reqwest::Client::builder().http1_title_case_headers().default_headers(headers).build().unwrap();
+    let rsp = req.get(url).send();
+    return rsp;
+}
+
 pub fn pubg_request_get(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, url: &str) -> reqwest::Result<reqwest::Response> {
     let token: String = con.hget(format!("channel:{}:settings", channel), "pubg:token").expect("hget:token");
     let mut headers = header::HeaderMap::new();

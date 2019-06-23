@@ -172,6 +172,43 @@ pub struct KrakenStream {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct FortniteApi {
+    pub stats: FortniteStats,
+    pub lifetimeStats: Vec<FortniteLifeStat>,
+    pub recent_matches: Vec<FortniteMatch>
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FortniteLifeStat {
+    pub key: String,
+    pub value: String
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FortniteStats {
+    #[serde(rename = "p2")]
+    pub solo: FortniteStat,
+    #[serde(rename = "p10")]
+    pub duo: FortniteStat,
+    #[serde(rename = "p9")]
+    pub squad: FortniteStat
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FortniteStat {
+    pub field: String,
+    pub value: String
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FortniteMatch {
+    pub id: i64,
+    pub playlist: String,
+    pub kills: i16,
+    pub top1: i16
+}
+
+#[derive(Debug, Deserialize)]
 pub struct PubgMatch {
     pub data: PubgMatchData,
     pub included: Vec<PubgMatchIncluded>
