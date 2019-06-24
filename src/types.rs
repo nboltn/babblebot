@@ -174,7 +174,7 @@ pub struct KrakenStream {
 #[derive(Debug, Deserialize)]
 pub struct FortniteApi {
     pub stats: FortniteStats,
-    pub lifetimeStats: Vec<FortniteLifeStat>,
+    pub lifeTimeStats: Vec<FortniteLifeStat>,
     pub recent_matches: Vec<FortniteMatch>
 }
 
