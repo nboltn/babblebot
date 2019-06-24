@@ -793,10 +793,10 @@ fn update_stats(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: S
                                     error!("[request_body] {}", &text);
                                 }
                                 Ok(json) => {
-                                    if json.recent_matches.len() > 0 {
-                                        if cursor == "" { cursor = json.recent_matches[0].id.to_string() }
-                                        let _: () = con.hset(format!("channel:{}:stats:fortnite", &channel_fort), "cursor", &json.recent_matches[0].id.to_string()).unwrap();
-                                        for match_ in json.recent_matches.iter() {
+                                    if json.recentMatches.len() > 0 {
+                                        if cursor == "" { cursor = json.recentMatches[0].id.to_string() }
+                                        let _: () = con.hset(format!("channel:{}:stats:fortnite", &channel_fort), "cursor", &json.recentMatches[0].id.to_string()).unwrap();
+                                        for match_ in json.recentMatches.iter() {
                                             if match_.id.to_string() == cursor { break }
                                             else {
                                                 let res: Result<String,_> = con.hget(format!("channel:{}:stats:fortnite", &channel_fort), "wins");
