@@ -187,16 +187,15 @@ pub struct FortniteLifeStat {
 #[derive(Debug, Deserialize)]
 pub struct FortniteStats {
     #[serde(rename = "p2")]
-    pub solo: FortniteStat,
+    pub solo: HashMap<String,FortniteStat>,
     #[serde(rename = "p10")]
-    pub duo: FortniteStat,
+    pub duo: HashMap<String,FortniteStat>,
     #[serde(rename = "p9")]
-    pub squad: FortniteStat
+    pub squad: HashMap<String,FortniteStat>
 }
 
 #[derive(Debug, Deserialize)]
 pub struct FortniteStat {
-    pub field: String,
     pub value: String
 }
 
