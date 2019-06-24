@@ -47,7 +47,7 @@ fn main() {
     let redis_host = settings.get_str("redis_host").unwrap_or("redis://127.0.0.1".to_owned());
 
     let manager = RedisConnectionManager::new(&redis_host[..]).unwrap();
-    let pool = r2d2::Pool::builder().max_size(200).build(manager).unwrap();
+    let pool = r2d2::Pool::builder().max_size(400).build(manager).unwrap();
     let pool_c1 = pool.clone();
 
     Logger::with_env_or_str("babblebot")
