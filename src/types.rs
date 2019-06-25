@@ -172,6 +172,28 @@ pub struct KrakenStream {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct SpotifyPlaying {
+    pub item: SpotifyItem
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SpotifyItem {
+    pub name: String,
+    pub album: SpotifyAlbum,
+    pub artists: Vec<SpotifyArtist>
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SpotifyAlbum {
+    pub name: String
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SpotifyArtist {
+    pub name: String
+}
+
+#[derive(Debug, Deserialize)]
 pub struct FortniteApi {
     pub stats: FortniteStats,
     pub lifeTimeStats: Vec<FortniteLifeStat>,

@@ -19,7 +19,7 @@ use r2d2_redis::redis::Commands;
 
 pub const native_commands: [(&str, fn(Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, &IrcClient, &str, &Vec<String>, Option<&Message>), bool, bool); 14] = [("echo", echo_cmd, true, true), ("set", set_cmd, true, true), ("unset", unset_cmd, true, true), ("command", command_cmd, true, true), ("title", title_cmd, false, true), ("game", game_cmd, false, true), ("notices", notices_cmd, true, true), ("moderation", moderation_cmd, true, true), ("permit", permit_cmd, true, true), ("multi", multi_cmd, false, true), ("counters", counters_cmd, true, true), ("phrases", phrases_cmd, true, true), ("commercials", commercials_cmd, true, true), ("songreq", songreq_cmd, false, false)];
 
-pub const command_vars: [(&str, fn(Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, Option<&IrcClient>, &str, Option<&Message>, Vec<&str>, &Vec<String>) -> String); 28] = [("args", args_var), ("uptime", uptime_var), ("user", user_var), ("channel", channel_var), ("cmd", cmd_var), ("counterinc", counterinc_var), ("followage", followage_var), ("subcount", subcount_var), ("followcount", followcount_var), ("counter", counter_var), ("phrase", phrase_var), ("countdown", countdown_var), ("date", date_var), ("dateinc", dateinc_var), ("watchtime", watchtime_var), ("watchrank", watchrank_var), ("urlfetch", urlfetch_var), ("youtube:latest-url", youtube_latest_url_var), ("youtube:latest-title", youtube_latest_title_var), ("fortnite:wins", fortnite_wins_var), ("fortnite:kills", fortnite_kills_var), ("pubg:damage", pubg_damage_var), ("pubg:headshots", pubg_headshots_var), ("pubg:kills", pubg_kills_var), ("pubg:roadkills", pubg_roadkills_var), ("pubg:teamkills", pubg_teamkills_var), ("pubg:vehiclesDestroyed", pubg_vehicles_destroyed_var), ("pubg:wins", pubg_wins_var)];
+pub const command_vars: [(&str, fn(Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, Option<&IrcClient>, &str, Option<&Message>, Vec<&str>, &Vec<String>) -> String); 31] = [("args", args_var), ("uptime", uptime_var), ("user", user_var), ("channel", channel_var), ("cmd", cmd_var), ("counterinc", counterinc_var), ("followage", followage_var), ("subcount", subcount_var), ("followcount", followcount_var), ("counter", counter_var), ("phrase", phrase_var), ("countdown", countdown_var), ("date", date_var), ("dateinc", dateinc_var), ("watchtime", watchtime_var), ("watchrank", watchrank_var), ("urlfetch", urlfetch_var), ("spotify:playing-title", spotify_playing_title_var), ("spotify:playing-album", spotify_playing_album_var), ("spotify:playing-artist", spotify_playing_artist_var), ("youtube:latest-url", youtube_latest_url_var), ("youtube:latest-title", youtube_latest_title_var), ("fortnite:wins", fortnite_wins_var), ("fortnite:kills", fortnite_kills_var), ("pubg:damage", pubg_damage_var), ("pubg:headshots", pubg_headshots_var), ("pubg:kills", pubg_kills_var), ("pubg:roadkills", pubg_roadkills_var), ("pubg:teamkills", pubg_teamkills_var), ("pubg:vehiclesDestroyed", pubg_vehicles_destroyed_var), ("pubg:wins", pubg_wins_var)];
 
 pub const twitch_bots: [&str; 20] = ["electricallongboard","lanfusion","cogwhistle","freddyybot","anotherttvviewer","apricotdrupefruit","skinnyseahorse","p0lizei_","xbit01","n3td3v","cachebear","icon_bot","virgoproz","v_and_k","slocool","host_giveaway","nightbot","commanderroot","p0sitivitybot","streamlabs"];
 
@@ -392,6 +392,63 @@ fn urlfetch_var(_con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMana
         }
     } else {
         "".to_owned()
+    }
+}
+
+fn spotify_playing_title_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
+    let rsp = spotify_request_get(con.clone(), channel, "https://api.spotify.com/v1/me/player/currently-playing");
+    match rsp {
+        Err(e) => { error!("{}", e); "".to_owned() }
+        Ok(mut rsp) => {
+            let text = rsp.text().unwrap();
+            let json: Result<SpotifyPlaying,_> = serde_json::from_str(&text);
+            match json {
+                Err(e) => {
+                    error!("{}", e);
+                    error!("[request_body] {}", text);
+                    return "".to_owned();
+                }
+                Ok(json) => { return json.item.name.to_owned(); }
+            }
+        }
+    }
+}
+
+fn spotify_playing_album_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
+    let rsp = spotify_request_get(con.clone(), channel, "https://api.spotify.com/v1/me/player/currently-playing");
+    match rsp {
+        Err(e) => { error!("{}", e); "".to_owned() }
+        Ok(mut rsp) => {
+            let text = rsp.text().unwrap();
+            let json: Result<SpotifyPlaying,_> = serde_json::from_str(&text);
+            match json {
+                Err(e) => {
+                    error!("{}", e);
+                    error!("[request_body] {}", text);
+                    return "".to_owned();
+                }
+                Ok(json) => { return json.item.album.name.to_owned(); }
+            }
+        }
+    }
+}
+
+fn spotify_playing_artist_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
+    let rsp = spotify_request_get(con.clone(), channel, "https://api.spotify.com/v1/me/player/currently-playing");
+    match rsp {
+        Err(e) => { error!("{}", e); "".to_owned() }
+        Ok(mut rsp) => {
+            let text = rsp.text().unwrap();
+            let json: Result<SpotifyPlaying,_> = serde_json::from_str(&text);
+            match json {
+                Err(e) => {
+                    error!("{}", e);
+                    error!("[request_body] {}", text);
+                    return "".to_owned();
+                }
+                Ok(json) => { return json.item.artists[0].name.to_owned(); }
+            }
+        }
     }
 }
 
