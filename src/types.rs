@@ -85,6 +85,16 @@ pub struct Chatters {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct HelixClips {
+    pub data: Vec<HelixClip>
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HelixClip {
+    pub id: String
+}
+
+#[derive(Debug, Deserialize)]
 pub struct HelixUsers {
     pub data: Vec<HelixUsersData>
 }

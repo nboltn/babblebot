@@ -636,11 +636,11 @@ fn update_stats(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: S
             let reset: String = con.hget(format!("channel:{}:stats:pubg", &channel_pubg), "reset").unwrap_or("false".to_owned());
             let res: Result<String,_> = con.hget(format!("channel:{}:settings", &channel_pubg), "stats:reset");
             if let Ok(hour) = res {
-                let num: Result<u32,_> = hour.parse();
-                if let Ok(hour) = num {
-                    if hour == Utc::now().time().hour() && reset == "true" {
+                let res: Result<u32,_> = hour.parse();
+                if let Ok(num) = res {
+                    if num == Utc::now().time().hour() && reset == "true" {
                         let _: () = con.del(format!("channel:{}:stats:pubg", &channel_pubg)).unwrap();
-                    } else if hour != Utc::now().time().hour() && reset == "false" {
+                    } else if num != Utc::now().time().hour() && reset == "false" {
                         let _: () = con.hset(format!("channel:{}:stats:pubg", &channel_pubg), "reset", true).unwrap();
                     }
                 }
