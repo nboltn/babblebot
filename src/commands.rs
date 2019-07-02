@@ -831,7 +831,7 @@ fn clip_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>
                 }
                 Ok(json) => {
                     if json.data.len() > 0 {
-                        //send_message(con.clone(), client, channel, format!("https://clips.twitch.tv/{}", json.data[0].id));
+                        send_message(con.clone(), client, channel, format!("https://clips.twitch.tv/{}", json.data[0].id));
                     }
                 }
             }
