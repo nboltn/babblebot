@@ -75,7 +75,7 @@ fn uptime_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager
     let rsp = twitch_request_get(con.clone(), channel, &format!("https://api.twitch.tv/kraken/streams?channel={}", id));
 
     match rsp {
-        Err(e) => { "".to_owned() }
+        Err(e) => { error!("{}",e);"".to_owned() }
         Ok(mut rsp) => {
             let text = rsp.text().unwrap();
             let json: Result<KrakenStreams,_> = serde_json::from_str(&text);
@@ -97,6 +97,7 @@ fn uptime_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager
                             return format!("{}{}", formatted[0], formatted[1]);
                         }
                     } else {
+                        error!("json.total == 0");
                         "".to_owned()
                     }
                 }
