@@ -123,7 +123,7 @@ pub fn twitch_request_put(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConne
     return rsp;
 }
 
-pub fn twitch_request_post(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, url: &str, body: String) -> reqwest::Result<reqwest::Response> {
+pub fn twitch_request_post(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, url: &str, body: Option<String>) -> reqwest::Result<reqwest::Response> {
     let mut settings = config::Config::default();
     settings.merge(config::File::with_name("Settings")).unwrap();
     settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
@@ -136,7 +136,7 @@ pub fn twitch_request_post(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConn
     headers.insert("Content-Type", HeaderValue::from_str("application/json").unwrap());
 
     let req = reqwest::Client::builder().http1_title_case_headers().default_headers(headers).build().unwrap();
-    let rsp = req.post(url).body(body).send();
+    let rsp = req.post(url).body(body.unwrap_or("".to_owned())).send();
     return rsp;
 }
 
