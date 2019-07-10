@@ -457,7 +457,7 @@ fn youtube_latest_url_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConne
     if vargs.len() > 0 {
         let rsp = request_get(&format!("https://decapi.me/youtube/latest_video?id={}", vargs[0]));
         match rsp {
-            Err(e) => { "".to_owned() }
+            Err(e) => { error!("{}",e);"".to_owned() }
             Ok(mut rsp) => {
                 if let Ok(body) = rsp.text() {
                     let data: Vec<&str> = body.split(" - ").collect();
@@ -480,7 +480,7 @@ fn youtube_latest_title_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisCon
     if vargs.len() > 0 {
         let rsp = request_get(&format!("https://decapi.me/youtube/latest_video?id={}", vargs[0]));
         match rsp {
-            Err(e) => { "".to_owned() }
+            Err(e) => { error!("{}",e);"".to_owned() }
             Ok(mut rsp) => {
                 if let Ok(body) = rsp.text() {
                     let data: Vec<&str> = body.split(" - ").collect();
