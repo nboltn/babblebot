@@ -818,7 +818,7 @@ fn permit_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager
 
 fn clip_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<String>, message: Option<&Message>) {
     let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
-    let rsp = twitch_request_post(con.clone(), channel, format!("https://api.twitch.tv/helix/clips?broadcaster_id={}", id).as_ref(), None);
+    let rsp = twitch_request_helix_post(con.clone(), channel, format!("https://api.twitch.tv/helix/clips?broadcaster_id={}", id).as_ref(), None);
 
     match rsp {
         Err(e) => { }
@@ -954,7 +954,7 @@ fn commercials_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMa
                                 let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
                                 let submode: String = con.get(format!("channel:{}:commercials:submode", channel)).unwrap_or("false".to_owned());
                                 let nres: Result<String,_> = con.get(format!("channel:{}:commercials:notice", channel));
-                                let rsp = twitch_request_post(con.clone(), channel, &format!("https://api.twitch.tv/kraken/channels/{}/commercial", id), Some(format!("{{\"length\": {}}}", num * 30)));
+                                let rsp = twitch_request_kraken_post(con.clone(), channel, &format!("https://api.twitch.tv/kraken/channels/{}/commercial", id), Some(format!("{{\"length\": {}}}", num * 30)));
                                 let length: u16 = con.llen(format!("channel:{}:commercials:recent", channel)).unwrap();
                                 let _: () = con.lpush(format!("channel:{}:commercials:recent", channel), format!("{} {}", Utc::now().to_rfc3339(), num)).unwrap();
                                 if length > 7 {

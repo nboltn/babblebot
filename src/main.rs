@@ -1045,7 +1045,7 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                     let id: String = con.get(format!("channel:{}:id", comm_channel)).unwrap();
                     let submode: String = con.get(format!("channel:{}:commercials:submode", comm_channel)).unwrap_or("false".to_owned());
                     let nres: Result<String,_> = con.get(format!("channel:{}:commercials:notice", comm_channel));
-                    let rsp = twitch_request_post(con.clone(), &comm_channel, &format!("https://api.twitch.tv/kraken/channels/{}/commercial", id), Some(format!("{{\"length\": {}}}", num * 30)));
+                    let rsp = twitch_request_kraken_post(con.clone(), &comm_channel, &format!("https://api.twitch.tv/kraken/channels/{}/commercial", id), Some(format!("{{\"length\": {}}}", num * 30)));
                     let length: u16 = con.llen(format!("channel:{}:commercials:recent", comm_channel)).unwrap();
                     let _: () = con.lpush(format!("channel:{}:commercials:recent", comm_channel), format!("{} {}", Utc::now().to_rfc3339(), num)).unwrap();
                     if length > 7 {
