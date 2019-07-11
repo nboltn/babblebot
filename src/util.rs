@@ -35,11 +35,11 @@ pub fn request(mut method: CallBuilder, url: &str) -> Result<(mio_httpc::Respons
     let mut builder = method.timeout_ms(5000).url(url).unwrap();
 
     match builder.exec() {
-        Err(e) => { error!("[request] {}",e); Err(e.to_string()) }
+        Err(e) => { error!("[{}] {}",url,e); Err(e.to_string()) }
         Ok((meta, body)) => {
             let res = std::str::from_utf8(&body);
             match res {
-                Err(e) => { error!("[request] {}",e); Err(e.to_string()) },
+                Err(e) => { error!("[{}] {}",url,e); Err(e.to_string()) }
                 Ok(body) => { Ok((meta, body.to_owned())) }
             }
         }
@@ -51,11 +51,11 @@ pub fn twitch_kraken_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisCo
     twitch_kraken_headers(con.clone(), channel, content, builder);
 
     match builder.exec() {
-        Err(e) => { error!("[kraken_request] {}",e); Err(e.to_string()) }
+        Err(e) => { error!("[{}] {}",url,e); Err(e.to_string()) }
         Ok((meta, body)) => {
             let res = std::str::from_utf8(&body);
             match res {
-                Err(e) => { error!("[kraken_request] {}",e); Err(e.to_string()) },
+                Err(e) => { error!("[{}] {}",url,e); Err(e.to_string()) }
                 Ok(body) => { Ok((meta, body.to_owned())) }
             }
         }
@@ -67,11 +67,11 @@ pub fn twitch_helix_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisCon
     twitch_helix_headers(con.clone(), channel, content, builder);
 
     match builder.exec() {
-        Err(e) => { error!("[helix_request] {}",e); Err(e.to_string()) }
+        Err(e) => { error!("[{}] {}",url,e); Err(e.to_string()) }
         Ok((meta, body)) => {
             let res = std::str::from_utf8(&body);
             match res {
-                Err(e) => { error!("[helix_request] {}",e); Err(e.to_string()) },
+                Err(e) => { error!("[{}] {}",url,e); Err(e.to_string()) }
                 Ok(body) => { Ok((meta, body.to_owned())) }
             }
         }
@@ -112,11 +112,11 @@ pub fn spotify_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnecti
       .header("Authorization", &format!("Bearer {}", token));
 
     match builder.exec() {
-      Err(e) => { error!("[spotify] {}",e); Err(e.to_string()) }
+      Err(e) => { error!("[{}] {}",url,e); Err(e.to_string()) }
       Ok((meta, body)) => {
           let res = std::str::from_utf8(&body);
           match res {
-              Err(e) => { error!("[spotify] {}",e); Err(e.to_string()) },
+              Err(e) => { error!("[{}] {}",url,e); Err(e.to_string()) }
               Ok(body) => { Ok((meta, body.to_owned())) }
           }
       }
@@ -131,11 +131,11 @@ pub fn discord_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnecti
       .header("Content-Type", "application/json");
 
       match builder.exec() {
-        Err(e) => { error!("[discord] {}",e); Err(e.to_string()) }
+        Err(e) => { error!("[{}] {}",url,e); Err(e.to_string()) }
         Ok((meta, body)) => {
             let res = std::str::from_utf8(&body);
             match res {
-                Err(e) => { error!("[discord] {}",e); Err(e.to_string()) },
+                Err(e) => { error!("[{}] {}",url,e); Err(e.to_string()) }
                 Ok(body) => { Ok((meta, body.to_owned())) }
             }
         }
@@ -150,11 +150,11 @@ pub fn fortnite_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnect
       .header("TRN-Api-Key", &token);
 
       match builder.exec() {
-          Err(e) => { error!("[update_fortnite] {}",e); Err(e.to_string()) }
+          Err(e) => { error!("[{}] {}",url,e); Err(e.to_string()) }
           Ok((meta, body)) => {
               let res = std::str::from_utf8(&body);
               match res {
-                  Err(e) => { error!("[update_fortnite] {}",e); Err(e.to_string()) },
+                  Err(e) => { error!("[{}] {}",url,e); Err(e.to_string()) }
                   Ok(body) => { Ok((meta, body.to_owned())) }
               }
           }
@@ -169,11 +169,11 @@ pub fn pubg_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionM
       .header("Accept", "application/vnd.api+json");
 
     match builder.exec() {
-        Err(e) => { error!("[update_pubg] {}",e); Err(e.to_string()) }
+        Err(e) => { error!("[{}] {}",url,e); Err(e.to_string()) }
         Ok((meta, body)) => {
             let res = std::str::from_utf8(&body);
             match res {
-                Err(e) => { error!("[update_pubg] {}",e); Err(e.to_string()) },
+                Err(e) => { error!("[{}] {}",url,e); Err(e.to_string()) }
                 Ok(body) => { Ok((meta, body.to_owned())) }
             }
         }
