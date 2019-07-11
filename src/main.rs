@@ -89,13 +89,13 @@ fn main() {
                     ..Default::default()
                 };
                 bots.insert(bot.to_owned(), (channel_hash.clone(), config));
-                update_live(pool.clone());
                 for channel in channel_hash.iter() {
                     discord_handler(pool.clone(), channel.to_owned());
                     update_watchtime(pool.clone(), channel.to_owned());
                     update_stats(pool.clone(), channel.to_owned());
                 }
             }
+            update_live(pool.clone());
             run_reactor(pool.clone(), bots);
         });
 
