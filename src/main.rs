@@ -89,10 +89,10 @@ fn main() {
                     ..Default::default()
                 };
                 bots.insert(bot.to_owned(), (channel_hash.clone(), config));
+                update_live(pool.clone());
                 for channel in channel_hash.iter() {
                     discord_handler(pool.clone(), channel.to_owned());
                     update_watchtime(pool.clone(), channel.to_owned());
-                    update_live(pool.clone(), channel.to_owned());
                     update_stats(pool.clone(), channel.to_owned());
                 }
             }
@@ -181,7 +181,6 @@ fn new_channel_listener(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
         for channel in channel_hash.iter() {
             discord_handler(pool.clone(), channel.to_owned());
             update_watchtime(pool.clone(), channel.to_owned());
-            update_live(pool.clone(), channel.to_owned());
             update_stats(pool.clone(), channel.to_owned());
         }
         run_reactor(pool.clone(), bots);
@@ -569,51 +568,62 @@ fn update_watchtime(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channe
     });
 }
 
-fn update_live(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: String) {
+fn update_live(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
     thread::spawn(move || {
         let con = Arc::new(pool.get().unwrap());
-        let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
         loop {
-            let res = twitch_kraken_request(con.clone(), &channel, "", CallBuilder::get(), &format!("https://api.twitch.tv/kraken/streams?channel={}", id));
-            match res {
-                Err(e) => { error!("{}",e); },
-                Ok((meta,body)) => {
-                    let json: Result<KrakenStreams,_> = serde_json::from_str(&body);
-                    match json {
-                        Err(e) => {
-                            error!("[update_live] {}", e);
-                            error!("[request_body] {}", body);
-                        }
-                        Ok(json) => {
-                            let live: String = con.get(format!("channel:{}:live", channel)).expect("get:live");
-                            if json.total == 0 {
-                                if live == "true" {
-                                    let _: () = con.set(format!("channel:{}:live", channel), false).unwrap();
-                                    // reset stats
-                                    let res: Result<String,_> = con.hget(format!("channel:{}:settings", channel), "stats:reset");
-                                    if let Err(e) = res {
-                                        let _: () = con.del(format!("channel:{}:stats:pubg", channel)).unwrap();
-                                        let _: () = con.del(format!("channel:{}:stats:fortnite", channel)).unwrap();
-                                    }
-                                }
-                            } else {
-                                if live == "false" {
-                                    let _: () = con.set(format!("channel:{}:live", channel), true).unwrap();
-                                    let _: () = con.del(format!("channel:{}:hosts:recent", channel)).unwrap();
-                                    // reset notice timers
-                                    let keys: Vec<String> = con.keys(format!("channel:{}:notices:*:messages", channel)).unwrap();
-                                    for key in keys.iter() {
-                                        let int: Vec<&str> = key.split(":").collect();
-                                        let _: () = con.set(format!("channel:{}:notices:{}:countdown", channel, int[3]), int[3].clone()).unwrap();
-                                    }
-                                    // send discord announcements
-                                    let tres: Result<String,_> = con.hget(format!("channel:{}:settings", channel), "discord:token");
-                                    let ires: Result<String,_> = con.hget(format!("channel:{}:settings", channel), "discord:channel-id");
-                                    if let (Ok(token), Ok(id)) = (tres, ires) {
-                                        let message: String = con.hget(format!("channel:{}:settings", channel), "discord:live-message").unwrap_or("".to_owned());
-                                        let display: String = con.get(format!("channel:{}:display-name", channel)).expect("get:display-name");
-                                        let body = format!("{{ \"content\": \"{}\", \"embed\": {{ \"author\": {{ \"name\": \"{}\" }}, \"title\": \"{}\", \"url\": \"http://twitch.tv/{}\", \"thumbnail\": {{ \"url\": \"{}\" }}, \"fields\": [{{ \"name\": \"Now Playing\", \"value\": \"{}\" }}] }} }}", &message, &display, &json.streams[0].channel.status, channel, &json.streams[0].channel.logo, &json.streams[0].channel.game);
-                                        let _ = discord_request(con.clone(), &channel, CallBuilder::post(body.as_bytes().to_owned()), &format!("https://discordapp.com/api/channels/{}/messages", id));
+            let channels: Vec<String> = con.smembers("channels").unwrap_or(Vec::new());
+            if channels.len() > 0 {
+                let mut ids = Vec::new();
+                for channel in channels.clone() {
+                    let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
+                    ids.push(id);
+                }
+                let res = twitch_kraken_request(con.clone(), &channels[0], "", CallBuilder::get(), &format!("https://api.twitch.tv/kraken/streams?channel={}", ids.join(",")));
+                match res {
+                    Err(e) => { error!("{}",e); },
+                    Ok((meta,body)) => {
+                        let json: Result<KrakenStreams,_> = serde_json::from_str(&body);
+                        match json {
+                            Err(e) => {
+                                error!("[update_live] {}", e);
+                                error!("[request_body] {}", body);
+                            }
+                            Ok(json) => {
+                                let live_channels: Vec<String> = json.streams.iter().map(|stream| stream.channel.name.to_owned()).collect();
+                                for channel in channels {
+                                    let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
+                                    let live: String = con.get(format!("channel:{}:live", channel)).expect("get:live");
+                                    if live_channels.contains(&channel) {
+                                        if live == "false" {
+                                            let _: () = con.set(format!("channel:{}:live", channel), true).unwrap();
+                                            let _: () = con.del(format!("channel:{}:hosts:recent", channel)).unwrap();
+                                            // reset notice timers
+                                            let keys: Vec<String> = con.keys(format!("channel:{}:notices:*:messages", channel)).unwrap();
+                                            for key in keys.iter() {
+                                                let int: Vec<&str> = key.split(":").collect();
+                                                let _: () = con.set(format!("channel:{}:notices:{}:countdown", channel, int[3]), int[3].clone()).unwrap();
+                                            }
+                                            // send discord announcements
+                                            let tres: Result<String,_> = con.hget(format!("channel:{}:settings", channel), "discord:token");
+                                            let ires: Result<String,_> = con.hget(format!("channel:{}:settings", channel), "discord:channel-id");
+                                            if let (Ok(token), Ok(id)) = (tres, ires) {
+                                                let message: String = con.hget(format!("channel:{}:settings", channel), "discord:live-message").unwrap_or("".to_owned());
+                                                let display: String = con.get(format!("channel:{}:display-name", channel)).expect("get:display-name");
+                                                let body = format!("{{ \"content\": \"{}\", \"embed\": {{ \"author\": {{ \"name\": \"{}\" }}, \"title\": \"{}\", \"url\": \"http://twitch.tv/{}\", \"thumbnail\": {{ \"url\": \"{}\" }}, \"fields\": [{{ \"name\": \"Now Playing\", \"value\": \"{}\" }}] }} }}", &message, &display, &json.streams[0].channel.status, channel, &json.streams[0].channel.logo, &json.streams[0].channel.game);
+                                                let _ = discord_request(con.clone(), &channel, CallBuilder::post(body.as_bytes().to_owned()), &format!("https://discordapp.com/api/channels/{}/messages", id));
+                                            }
+                                        }
+                                    } else {
+                                        if live == "true" {
+                                            let _: () = con.set(format!("channel:{}:live", channel), false).unwrap();
+                                            // reset stats
+                                            let res: Result<String,_> = con.hget(format!("channel:{}:settings", channel), "stats:reset");
+                                            if let Err(e) = res {
+                                                let _: () = con.del(format!("channel:{}:stats:pubg", channel)).unwrap();
+                                                let _: () = con.del(format!("channel:{}:stats:fortnite", channel)).unwrap();
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -621,6 +631,7 @@ fn update_live(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: St
                     }
                 }
             }
+
             thread::sleep(time::Duration::from_secs(60));
         }
     });
