@@ -7,10 +7,8 @@ use crate::commands::*;
 use std::collections::HashMap;
 use std::sync::Arc;
 use config;
-use reqwest;
+use mio_httpc::CallBuilder;
 use irc::client::prelude::*;
-use reqwest::header;
-use reqwest::header::HeaderValue;
 use regex::{Regex,RegexBuilder,Captures};
 use r2d2_redis::r2d2;
 use r2d2_redis::redis::Commands;
@@ -33,128 +31,153 @@ pub fn send_parsed_message(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConn
     let _ = client.send_privmsg(format!("#{}", channel), message);
 }
 
-pub fn request_get(url: &str) -> reqwest::Result<reqwest::Response> {
-    let req = reqwest::Client::builder().http1_title_case_headers().build().unwrap();
-    let rsp = req.get(url).send();
-    return rsp;
+pub fn request(mut method: CallBuilder, url: &str) -> Result<(mio_httpc::Response, String), String> {
+    let mut builder = method.timeout_ms(5000).url(url).unwrap();
+
+    match builder.exec() {
+        Err(e) => { error!("{}",e); Err(e.to_string()) }
+        Ok((meta, body)) => {
+            let res = std::str::from_utf8(&body);
+            match res {
+                Err(e) => { error!("{}",e); Err(e.to_string()) },
+                Ok(body) => { Ok((meta, body.to_owned())) }
+            }
+        }
+    }
 }
 
-pub fn request_post(url: &str, body: String) -> reqwest::Result<reqwest::Response> {
-    let req = reqwest::Client::builder().http1_title_case_headers().build().unwrap();
-    let rsp = req.post(url).body(body).send();
-    return rsp;
+pub fn twitch_kraken_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, content: &str, mut method: CallBuilder, url: &str) -> Result<(mio_httpc::Response, String), String> {
+    let mut builder = method.timeout_ms(5000).url(url).unwrap();
+    twitch_kraken_headers(con.clone(), channel, content, builder);
+
+    match builder.exec() {
+        Err(e) => { error!("{}",e); Err(e.to_string()) }
+        Ok((meta, body)) => {
+            let res = std::str::from_utf8(&body);
+            match res {
+                Err(e) => { error!("{}",e); Err(e.to_string()) },
+                Ok(body) => { Ok((meta, body.to_owned())) }
+            }
+        }
+    }
 }
 
-pub fn spotify_request_get(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, url: &str) -> reqwest::Result<reqwest::Response> {
+pub fn twitch_helix_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, content: &str, mut method: CallBuilder, url: &str) -> Result<(mio_httpc::Response, String), String> {
+    let mut builder = method.timeout_ms(5000).url(url).unwrap();
+    twitch_helix_headers(con.clone(), channel, content, builder);
+
+    match builder.exec() {
+        Err(e) => { error!("{}",e); Err(e.to_string()) }
+        Ok((meta, body)) => {
+            let res = std::str::from_utf8(&body);
+            match res {
+                Err(e) => { error!("{}",e); Err(e.to_string()) },
+                Ok(body) => { Ok((meta, body.to_owned())) }
+            }
+        }
+    }
+}
+
+pub fn twitch_kraken_headers(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, content: &str, builder: &mut CallBuilder) {
+    let mut settings = config::Config::default();
+    settings.merge(config::File::with_name("Settings")).unwrap();
+    settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
+    let token: String = con.get(format!("channel:{}:token", channel)).expect("get:token");
+
+    builder
+      .header("Accept", "application/vnd.twitchtv.v5+json")
+      .header("Client-ID", &settings.get_str("client_id").unwrap())
+      .header("Authorization", &format!("OAuth {}", token))
+      .header("Content-Type", content);
+}
+
+pub fn twitch_helix_headers(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, content: &str, builder: &mut CallBuilder) {
+    let mut settings = config::Config::default();
+    settings.merge(config::File::with_name("Settings")).unwrap();
+    settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
+    let token: String = con.get(format!("channel:{}:token", channel)).expect("get:token");
+
+    builder
+      .header("Accept", "application/vnd.twitchtv.v5+json")
+      .header("Client-ID", &settings.get_str("client_id").unwrap())
+      .header("Authorization", &format!("Bearer {}", token))
+      .header("Content-Type", content);
+}
+
+pub fn spotify_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, mut method: CallBuilder, url: &str) -> Result<(mio_httpc::Response, String), String> {
     let token: String = con.hget(format!("channel:{}:settings", channel), "spotify:token").unwrap_or("".to_owned());
-    let mut headers = header::HeaderMap::new();
-    headers.insert("Accept", HeaderValue::from_str("application/vnd.api+json").unwrap());
-    headers.insert("Authorization", HeaderValue::from_str(&format!("Bearer {}", token)).unwrap());
+    let mut builder = method.timeout_ms(5000).url(url).unwrap();
+    builder
+      .header("Accept", "application/vnd.api+json")
+      .header("Authorization", &format!("Bearer {}", token));
 
-    let req = reqwest::Client::builder().http1_title_case_headers().default_headers(headers).build().unwrap();
-    let rsp = req.get(url).send();
-    return rsp;
+    match builder.exec() {
+      Err(e) => { error!("{}",e); Err(e.to_string()) }
+      Ok((meta, body)) => {
+          let res = std::str::from_utf8(&body);
+          match res {
+              Err(e) => { error!("{}",e); Err(e.to_string()) },
+              Ok(body) => { Ok((meta, body.to_owned())) }
+          }
+      }
+    }
 }
 
-pub fn fortnite_request_get(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, url: &str) -> reqwest::Result<reqwest::Response> {
-    let token: String = con.hget(format!("channel:{}:settings", channel), "fortnite:token").unwrap_or("".to_owned());
-    let mut headers = header::HeaderMap::new();
-    headers.insert("Accept", HeaderValue::from_str("application/vnd.api+json").unwrap());
-    headers.insert("TRN-Api-Key", HeaderValue::from_str(&token).unwrap());
-
-    let req = reqwest::Client::builder().http1_title_case_headers().default_headers(headers).build().unwrap();
-    let rsp = req.get(url).send();
-    return rsp;
-}
-
-pub fn pubg_request_get(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, url: &str) -> reqwest::Result<reqwest::Response> {
-    let token: String = con.hget(format!("channel:{}:settings", channel), "pubg:token").unwrap_or("".to_owned());
-    let mut headers = header::HeaderMap::new();
-    headers.insert("Accept", HeaderValue::from_str("application/vnd.api+json").unwrap());
-    headers.insert("Authorization", HeaderValue::from_str(&format!("Bearer {}", token)).unwrap());
-
-    let req = reqwest::Client::builder().http1_title_case_headers().default_headers(headers).build().unwrap();
-    let rsp = req.get(url).send();
-    return rsp;
-}
-
-pub fn discord_request_post(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, url: &str, body: String) -> reqwest::Result<reqwest::Response> {
+pub fn discord_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, mut method: CallBuilder, url: &str) -> Result<(mio_httpc::Response, String), String> {
     let token: String = con.hget(format!("channel:{}:settings", channel), "discord:token").unwrap_or("".to_owned());
-    let mut headers = header::HeaderMap::new();
-    headers.insert("Authorization", HeaderValue::from_str(&format!("Bot {}", token)).unwrap());
-    headers.insert("User-Agent", HeaderValue::from_str("Babblebot (https://gitlab.com/toovs/babblebot, 0.1").unwrap());
-    headers.insert("Content-Type", HeaderValue::from_str("application/json").unwrap());
+    let mut builder = method.timeout_ms(5000).url(url).unwrap();
+    builder.header("Authorization", &format!("Bot {}", token))
+      .header("User-Agent", "Babblebot (https://gitlab.com/toovs/babblebot, 0.1")
+      .header("Content-Type", "application/json");
 
-    let req = reqwest::Client::builder().http1_title_case_headers().default_headers(headers).build().unwrap();
-    let rsp = req.post(url).body(body).send();
-    return rsp;
+      match builder.exec() {
+        Err(e) => { error!("{}",e); Err(e.to_string()) }
+        Ok((meta, body)) => {
+            let res = std::str::from_utf8(&body);
+            match res {
+                Err(e) => { error!("{}",e); Err(e.to_string()) },
+                Ok(body) => { Ok((meta, body.to_owned())) }
+            }
+        }
+      }
 }
 
-pub fn twitch_request_get(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, url: &str) -> reqwest::Result<reqwest::Response> {
-    let mut settings = config::Config::default();
-    settings.merge(config::File::with_name("Settings")).unwrap();
-    settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
-    let token: String = con.get(format!("channel:{}:token", channel)).expect("get:token");
+pub fn fortnite_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, mut method: CallBuilder, url: &str) -> Result<(mio_httpc::Response, String), String> {
+    let token: String = con.hget(format!("channel:{}:settings", channel), "fortnite:token").unwrap_or("".to_owned());
+    let mut builder = method.timeout_ms(5000).url(url).unwrap();
+    builder
+      .header("Accept", "application/vnd.api+json")
+      .header("TRN-Api-Key", &token);
 
-    let mut headers = header::HeaderMap::new();
-    headers.insert("Accept", HeaderValue::from_str("application/vnd.twitchtv.v5+json").unwrap());
-    headers.insert("Authorization", HeaderValue::from_str(&format!("OAuth {}", token)).unwrap());
-    headers.insert("Client-ID", HeaderValue::from_str(&settings.get_str("client_id").unwrap()).unwrap());
-
-    let req = reqwest::Client::builder().http1_title_case_headers().default_headers(headers).build().unwrap();
-    let rsp = req.get(url).send();
-    return rsp;
+      match builder.exec() {
+          Err(e) => { error!("{}",e); Err(e.to_string()) }
+          Ok((meta, body)) => {
+              let res = std::str::from_utf8(&body);
+              match res {
+                  Err(e) => { error!("{}",e); Err(e.to_string()) },
+                  Ok(body) => { Ok((meta, body.to_owned())) }
+              }
+          }
+      }
 }
 
-pub fn twitch_request_put(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, url: &str, body: String) -> reqwest::Result<reqwest::Response> {
-    let mut settings = config::Config::default();
-    settings.merge(config::File::with_name("Settings")).unwrap();
-    settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
-    let token: String = con.get(format!("channel:{}:token", channel)).expect("get:token");
+pub fn pubg_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, mut method: CallBuilder, url: &str) -> Result<(mio_httpc::Response, String), String> {
+    let token: String = con.hget(format!("channel:{}:settings", channel), "pubg:token").unwrap_or("".to_owned());
+    let mut builder = method.timeout_ms(5000).url(url).unwrap();
+    builder
+      .header("Authorization", &format!("Bot {}", token))
+      .header("Accept", "application/vnd.api+json");
 
-    let mut headers = header::HeaderMap::new();
-    headers.insert("Accept", HeaderValue::from_str("application/vnd.twitchtv.v5+json").unwrap());
-    headers.insert("Authorization", HeaderValue::from_str(&format!("OAuth {}", token)).unwrap());
-    headers.insert("Client-ID", HeaderValue::from_str(&settings.get_str("client_id").unwrap()).unwrap());
-    headers.insert("Content-Type", HeaderValue::from_str("application/x-www-form-urlencoded").unwrap());
-
-    let req = reqwest::Client::builder().http1_title_case_headers().default_headers(headers).build().unwrap();
-    let rsp = req.put(url).body(body).send();
-    return rsp;
-}
-
-pub fn twitch_request_helix_post(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, url: &str, body: Option<String>) -> reqwest::Result<reqwest::Response> {
-    let mut settings = config::Config::default();
-    settings.merge(config::File::with_name("Settings")).unwrap();
-    settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
-    let token: String = con.get(format!("channel:{}:token", channel)).expect("get:token");
-
-    let mut headers = header::HeaderMap::new();
-    headers.insert("Accept", HeaderValue::from_str("application/vnd.twitchtv.v5+json").unwrap());
-    headers.insert("Authorization", HeaderValue::from_str(&format!("Bearer {}", token)).unwrap());
-    headers.insert("Client-ID", HeaderValue::from_str(&settings.get_str("client_id").unwrap()).unwrap());
-    headers.insert("Content-Type", HeaderValue::from_str("application/json").unwrap());
-
-    let req = reqwest::Client::builder().http1_title_case_headers().default_headers(headers).build().unwrap();
-    let rsp = req.post(url).body(body.unwrap_or("".to_owned())).send();
-    return rsp;
-}
-
-pub fn twitch_request_kraken_post(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, url: &str, body: Option<String>) -> reqwest::Result<reqwest::Response> {
-    let mut settings = config::Config::default();
-    settings.merge(config::File::with_name("Settings")).unwrap();
-    settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
-    let token: String = con.get(format!("channel:{}:token", channel)).expect("get:token");
-
-    let mut headers = header::HeaderMap::new();
-    headers.insert("Accept", HeaderValue::from_str("application/vnd.twitchtv.v5+json").unwrap());
-    headers.insert("Authorization", HeaderValue::from_str(&format!("OAuth {}", token)).unwrap());
-    headers.insert("Client-ID", HeaderValue::from_str(&settings.get_str("client_id").unwrap()).unwrap());
-    headers.insert("Content-Type", HeaderValue::from_str("application/json").unwrap());
-
-    let req = reqwest::Client::builder().http1_title_case_headers().default_headers(headers).build().unwrap();
-    let rsp = req.post(url).body(body.unwrap_or("".to_owned())).send();
-    return rsp;
+    match builder.exec() {
+        Err(e) => { error!("{}",e); Err(e.to_string()) }
+        Ok((meta, body)) => {
+            let res = std::str::from_utf8(&body);
+            match res {
+                Err(e) => { error!("{}",e); Err(e.to_string()) },
+                Ok(body) => { Ok((meta, body.to_owned())) }
+            }
+        }
+    }
 }
 
 pub fn parse_message(message: &str, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, irc_message: Option<&Message>, cargs: &Vec<String>) -> String {
@@ -215,10 +238,10 @@ pub fn parse_code(message: &str) -> String {
     let rgx = Regex::new("\\{-(.+?)\\-}").unwrap();
     for captures in rgx.captures_iter(&msg.clone()) {
         if let Some(capture) = captures.get(1) {
-            let rsp = request_post("http://localhost:9412/execute", format!("function() {{ {} }}", capture.as_str()));
-            match rsp {
+            let res = request(CallBuilder::post(format!("function() {{ {} }}", capture.as_str()).as_bytes().to_owned()), "http://localhost:9412/execute");
+            match res {
                 Err(e) => error!("[parse_code] {}", e),
-                Ok(mut rsp) => { msg = rgx.replace(&msg, |_: &Captures| { strip_chars(&rsp.text().unwrap(), "\"") }).to_string(); }
+                Ok((meta,body)) => { msg = rgx.replace(&msg, |_: &Captures| { strip_chars(&body, "\"") }).to_string(); }
             }
         }
     }

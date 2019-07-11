@@ -11,10 +11,10 @@ clap = { version = "2.33", features = ["yaml"] }
 redis = "0.10"
 url = "1.7"
 irc = "0.13"
-reqwest = "=0.9.17"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 itertools = "0.8"
+mio_httpc = { version = "0.8", features = ["rtls"] }
 rocket = { features = ["tls"], git = "https://github.com/SergioBenitez/Rocket", branch = "master" }
 rocket_contrib = { features = ["json", "tera_templates", "redis_pool"], git = "https://github.com/SergioBenitez/Rocket", branch = "master" }
 r2d2_redis = "0.8"

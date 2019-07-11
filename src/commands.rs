@@ -10,6 +10,7 @@ use std::collections::{HashMap, HashSet};
 use std::{thread,time};
 use bcrypt::{DEFAULT_COST, hash};
 use regex::Regex;
+use mio_httpc::CallBuilder;
 use irc::client::prelude::*;
 use chrono::{Utc, DateTime, FixedOffset, Duration};
 use humantime::format_duration;
@@ -72,17 +73,15 @@ fn cmd_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>,
 
 fn uptime_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
     let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
-    let rsp = twitch_request_get(con.clone(), channel, &format!("https://api.twitch.tv/kraken/streams?channel={}", id));
-
-    match rsp {
-        Err(e) => { error!("{}",e);"".to_owned() }
-        Ok(mut rsp) => {
-            let text = rsp.text().unwrap();
-            let json: Result<KrakenStreams,_> = serde_json::from_str(&text);
+    let res = twitch_kraken_request(con.clone(), channel, "", CallBuilder::get(), &format!("https://api.twitch.tv/kraken/streams?channel={}", &id));
+    match res {
+        Err(e) => { error!("{}",e);"".to_owned() },
+        Ok((meta,body)) => {
+            let json: Result<KrakenStreams,_> = serde_json::from_str(&body);
             match json {
                 Err(e) => {
                     error!("{}",e);
-                    error!("[request_body] {}", text);
+                    error!("[request_body] {}", body);
                     "".to_owned()
                 }
                 Ok(json) => {
@@ -151,39 +150,48 @@ fn counterinc_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMan
 
 fn followage_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
     if let Some(message) = message {
-        let rsp = twitch_request_get(con.clone(), channel, &format!("https://api.twitch.tv/kraken/users?login={}", get_nick(message)));
-        match rsp {
-            Err(e) => { "".to_owned() }
-            Ok(mut rsp) => {
-                let json: Result<KrakenUsers,_> = rsp.json();
+        let res = twitch_kraken_request(con.clone(), channel, "", CallBuilder::get(), &format!("https://api.twitch.tv/kraken/users?login={}", &get_nick(message)));
+        match res {
+            Err(e) => { error!("{}",e);"0m".to_owned() },
+            Ok((meta,body)) => {
+                let json: Result<KrakenUsers,_> = serde_json::from_str(&body);
                 match json {
-                    Err(e) => { "".to_owned() }
+                    Err(e) => { "0m".to_owned() }
                     Ok(json) => {
                         if json.total > 0 {
                             let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
-                            let rsp = twitch_request_get(con.clone(), channel, &format!("https://api.twitch.tv/kraken/users/{}/follows/channels/{}", &json.users[0].id, id));
-                            match rsp {
-                                Err(e) => { "".to_owned() }
-                                Ok(mut rsp) => {
-                                    let json: Result<KrakenFollow,_> = rsp.json();
-                                    match json {
-                                        Err(e) => { "0m".to_owned() }
-                                        Ok(json) => {
-                                            let timestamp = DateTime::parse_from_rfc3339(&json.created_at).unwrap();
-                                            let diff = Utc::now().signed_duration_since(timestamp);
-                                            let formatted = format_duration(diff.to_std().unwrap()).to_string();
-                                            let formatted: Vec<&str> = formatted.split_whitespace().collect();
-                                            if formatted.len() == 1 {
-                                                return format!("{}", formatted[0]);
-                                            } else {
-                                                return format!("{} and {}", formatted[0], formatted[1]);
+                            let mut get = CallBuilder::get();
+                            let mut builder = get.timeout_ms(5000).host("api.twitch.tv").path_segms(&["kraken","users",&json.users[0].id,"follows","channels",&id]).query("login", &get_nick(message));
+                            twitch_kraken_headers(con.clone(), channel, "", builder);
+
+                            match builder.exec() {
+                                Err(e) => { error!("{}",e);"0m".to_owned() }
+                                Ok((meta, body)) => {
+                                    let res = std::str::from_utf8(&body);
+                                    match res {
+                                        Err(_) => { "0m".to_owned() },
+                                        Ok(body) => {
+                                            let json: Result<KrakenFollow,_> = serde_json::from_str(&body);
+                                            match json {
+                                                Err(e) => { "0m".to_owned() }
+                                                Ok(json) => {
+                                                    let timestamp = DateTime::parse_from_rfc3339(&json.created_at).unwrap();
+                                                    let diff = Utc::now().signed_duration_since(timestamp);
+                                                    let formatted = format_duration(diff.to_std().unwrap()).to_string();
+                                                    let formatted: Vec<&str> = formatted.split_whitespace().collect();
+                                                    if formatted.len() == 1 {
+                                                        return format!("{}", formatted[0]);
+                                                    } else {
+                                                        return format!("{} and {}", formatted[0], formatted[1]);
+                                                    }
+                                                }
                                             }
                                         }
                                     }
                                 }
                             }
                         } else {
-                            "".to_owned()
+                            "0m".to_owned()
                         }
                     }
                 }
@@ -196,12 +204,11 @@ fn followage_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMana
 
 fn subcount_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
     let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
-    let rsp = twitch_request_get(con.clone(), channel, &format!("https://api.twitch.tv/kraken/channels/{}/subscriptions", id));
-
-    match rsp {
-        Err(e) => { "0".to_owned() }
-        Ok(mut rsp) => {
-            let json: Result<KrakenSubs,_> = rsp.json();
+    let res = twitch_kraken_request(con.clone(), channel, "", CallBuilder::get(), &format!("https://api.twitch.tv/kraken/channels/{}/subscriptions", &id));
+    match res {
+        Err(e) => { error!("{}",e);"0".to_owned() },
+        Ok((meta,body)) => {
+            let json: Result<KrakenSubs,_> = serde_json::from_str(&body);
             match json {
                 Err(e) => { "0".to_owned() }
                 Ok(json) => { json.total.to_string() }
@@ -212,12 +219,11 @@ fn subcount_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManag
 
 fn followcount_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
     let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
-    let rsp = twitch_request_get(con.clone(), channel, &format!("https://api.twitch.tv/kraken/channels/{}/follows", id));
-
-    match rsp {
-        Err(e) => { "0".to_owned() }
-        Ok(mut rsp) => {
-            let json: Result<KrakenFollows,_> = rsp.json();
+    let res = twitch_kraken_request(con.clone(), channel, "", CallBuilder::get(), &format!("https://api.twitch.tv/kraken/channels/{}/follows", &id));
+    match res {
+        Err(e) => { error!("{}",e);"0".to_owned() },
+        Ok((meta,body)) => {
+            let json: Result<KrakenFollows,_> = serde_json::from_str(&body);
             match json {
                 Err(e) => { "0".to_owned() }
                 Ok(json) => { json.total.to_string() }
@@ -384,12 +390,12 @@ fn watchrank_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMana
     }
 }
 
-fn urlfetch_var(_con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
+fn urlfetch_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
     if vargs.len() > 0 {
-        let res = request_get(vargs[0]);
+        let res = request(CallBuilder::get(), vargs[0]);
         match res {
-            Ok(mut rsp) => rsp.text().unwrap(),
-            Err(_) => "".to_owned()
+            Err(e) => { error!("{}",e);"".to_owned() },
+            Ok((meta,body)) => { body }
         }
     } else {
         "".to_owned()
@@ -397,16 +403,15 @@ fn urlfetch_var(_con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMana
 }
 
 fn spotify_playing_title_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
-    let rsp = spotify_request_get(con.clone(), channel, "https://api.spotify.com/v1/me/player/currently-playing");
-    match rsp {
-        Err(e) => { error!("{}", e); "".to_owned() }
-        Ok(mut rsp) => {
-            let text = rsp.text().unwrap();
-            let json: Result<SpotifyPlaying,_> = serde_json::from_str(&text);
+    let res = spotify_request(con.clone(), channel, CallBuilder::get(), "https://api.spotify.com/v1/me/player/currently-playing");
+    match res {
+        Err(e) => { error!("{}",e);"".to_owned() },
+        Ok((meta,body)) => {
+            let json: Result<SpotifyPlaying,_> = serde_json::from_str(&body);
             match json {
                 Err(e) => {
                     error!("{}", e);
-                    error!("[request_body] {}", text);
+                    error!("[request_body] {}", body);
                     return "".to_owned();
                 }
                 Ok(json) => { return json.item.name.to_owned(); }
@@ -416,16 +421,15 @@ fn spotify_playing_title_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisCo
 }
 
 fn spotify_playing_album_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
-    let rsp = spotify_request_get(con.clone(), channel, "https://api.spotify.com/v1/me/player/currently-playing");
-    match rsp {
-        Err(e) => { error!("{}", e); "".to_owned() }
-        Ok(mut rsp) => {
-            let text = rsp.text().unwrap();
-            let json: Result<SpotifyPlaying,_> = serde_json::from_str(&text);
+    let res = spotify_request(con.clone(), channel, CallBuilder::get(), "https://api.spotify.com/v1/me/player/currently-playing");
+    match res {
+        Err(e) => { error!("{}",e);"".to_owned() },
+        Ok((meta,body)) => {
+            let json: Result<SpotifyPlaying,_> = serde_json::from_str(&body);
             match json {
                 Err(e) => {
                     error!("{}", e);
-                    error!("[request_body] {}", text);
+                    error!("[request_body] {}", body);
                     return "".to_owned();
                 }
                 Ok(json) => { return json.item.album.name.to_owned(); }
@@ -435,16 +439,15 @@ fn spotify_playing_album_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisCo
 }
 
 fn spotify_playing_artist_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
-    let rsp = spotify_request_get(con.clone(), channel, "https://api.spotify.com/v1/me/player/currently-playing");
-    match rsp {
-        Err(e) => { error!("{}", e); "".to_owned() }
-        Ok(mut rsp) => {
-            let text = rsp.text().unwrap();
-            let json: Result<SpotifyPlaying,_> = serde_json::from_str(&text);
+    let res = spotify_request(con.clone(), channel, CallBuilder::get(), "https://api.spotify.com/v1/me/player/currently-playing");
+    match res {
+        Err(e) => { error!("{}",e);"".to_owned() },
+        Ok((meta,body)) => {
+            let json: Result<SpotifyPlaying,_> = serde_json::from_str(&body);
             match json {
                 Err(e) => {
                     error!("{}", e);
-                    error!("[request_body] {}", text);
+                    error!("[request_body] {}", body);
                     return "".to_owned();
                 }
                 Ok(json) => { return json.item.artists[0].name.to_owned(); }
@@ -455,17 +458,13 @@ fn spotify_playing_artist_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisC
 
 fn youtube_latest_url_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
     if vargs.len() > 0 {
-        let rsp = request_get(&format!("https://decapi.me/youtube/latest_video?id={}", vargs[0]));
-        match rsp {
-            Err(e) => { error!("{}",e);"".to_owned() }
-            Ok(mut rsp) => {
-                if let Ok(body) = rsp.text() {
-                    let data: Vec<&str> = body.split(" - ").collect();
-                    if data.len() > 1 {
-                        return data[data.len()-1].to_owned();
-                    } else {
-                        "".to_owned()
-                    }
+        let res = request(CallBuilder::get(), &format!("https://decapi.me/youtube/latest_video?id={}", vargs[0]));
+        match res {
+            Err(e) => { error!("{}",e);"".to_owned() },
+            Ok((meta,body)) => {
+                let data: Vec<&str> = body.split(" - ").collect();
+                if data.len() > 1 {
+                    return data[data.len()-1].to_owned();
                 } else {
                     "".to_owned()
                 }
@@ -478,17 +477,13 @@ fn youtube_latest_url_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConne
 
 fn youtube_latest_title_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
     if vargs.len() > 0 {
-        let rsp = request_get(&format!("https://decapi.me/youtube/latest_video?id={}", vargs[0]));
-        match rsp {
-            Err(e) => { error!("{}",e);"".to_owned() }
-            Ok(mut rsp) => {
-                if let Ok(body) = rsp.text() {
-                    let data: Vec<&str> = body.split(" - ").collect();
-                    if data.len() > 1 {
-                        return data[0..data.len()-1].join(" - ");
-                    } else {
-                        "".to_owned()
-                    }
+        let res = request(CallBuilder::get(), &format!("https://decapi.me/youtube/latest_video?id={}", vargs[0]));
+        match res {
+            Err(e) => { error!("{}",e);"".to_owned() },
+            Ok((meta,body)) => {
+                let data: Vec<&str> = body.split(" - ").collect();
+                if data.len() > 1 {
+                    return data[0..data.len()-1].join(" - ");
                 } else {
                     "".to_owned()
                 }
@@ -610,34 +605,30 @@ fn command_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManage
 fn title_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<String>, message: Option<&Message>) {
     let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
     if args.len() == 0 {
-        let rsp = twitch_request_get(con.clone(), channel, &format!("https://api.twitch.tv/kraken/channels/{}", id));
-
-        match rsp {
-            Err(e) => { error!("{}", e) }
-            Ok(mut rsp) => {
-                let text = rsp.text().unwrap();
-                let json: Result<KrakenChannel,_> = serde_json::from_str(&text);
+        let res = twitch_kraken_request(con.clone(), channel, "", CallBuilder::get(), &format!("https://api.twitch.tv/kraken/channels/{}", &id));
+        match res {
+            Err(e) => { error!("{}",e); },
+            Ok((meta,body)) => {
+                let json: Result<KrakenChannel,_> = serde_json::from_str(&body);
                 match json {
                     Err(e) => {
                         error!("{}", e);
-                        error!("[request_body] {}", text);
+                        error!("[request_body] {}", body);
                     }
                     Ok(json) => { let _ = send_message(con.clone(), client, channel, json.status); }
                 }
             }
         }
     } else {
-        let rsp = twitch_request_put(con.clone(), channel, &format!("https://api.twitch.tv/kraken/channels/{}", id), format!("channel[status]={}", args.join(" ")));
-
-        match rsp {
-            Err(e) => { error!("{}", e) }
-            Ok(mut rsp) => {
-                let text = rsp.text().unwrap();
-                let json: Result<KrakenChannel,_> = serde_json::from_str(&text);
+        let res = twitch_kraken_request(con.clone(), channel, "application/x-www-form-urlencoded", CallBuilder::put(format!("channel[status]={}", args.join(" ")).as_bytes().to_owned()), &format!("https://api.twitch.tv/kraken/channels/{}", &id));
+        match res {
+            Err(e) => { error!("{}",e); },
+            Ok((meta,body)) => {
+                let json: Result<KrakenChannel,_> = serde_json::from_str(&body);
                 match json {
                     Err(e) => {
                         error!("{}", e);
-                        error!("[request_body] {}", text);
+                        error!("[request_body] {}", body);
                     }
                     Ok(json) => { send_message(con.clone(), client, channel, format!("Title is now set to: {}", json.status)); }
                 }
@@ -649,51 +640,45 @@ fn title_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>
 fn game_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<String>, message: Option<&Message>) {
     let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
     if args.len() == 0 {
-        let rsp = twitch_request_get(con.clone(), channel, &format!("https://api.twitch.tv/kraken/channels/{}", id));
-
-        match rsp {
-            Err(e) => { error!("{}", e) }
-            Ok(mut rsp) => {
-                let text = rsp.text().unwrap();
-                let json: Result<KrakenChannel,_> = serde_json::from_str(&text);
+        let res = twitch_kraken_request(con.clone(), channel, "", CallBuilder::get(), &format!("https://api.twitch.tv/kraken/channels/{}", &id));
+        match res {
+            Err(e) => { error!("{}",e); },
+            Ok((meta,body)) => {
+                let json: Result<KrakenChannel,_> = serde_json::from_str(&body);
                 match json {
                     Err(e) => {
                         error!("{}", e);
-                        error!("[request_body] {}", text);
+                        error!("[request_body] {}", body);
                     }
                     Ok(json) => { let _ = send_message(con.clone(), client, channel, json.game); }
                 }
             }
         }
     } else {
-        let rsp = twitch_request_get(con.clone(), channel, &format!("https://api.twitch.tv/helix/games?name={}", args.join(" ")));
-
-        match rsp {
-            Err(e) => { error!("{}", e) }
-            Ok(mut rsp) => {
-                let text = rsp.text().unwrap();
-                let json: Result<HelixGames,_> = serde_json::from_str(&text);
+        let res = twitch_helix_request(con.clone(), channel, "", CallBuilder::get(), &format!("https://api.twitch.tv/helix/games?name={}", args.join(" ")));
+        match res {
+            Err(e) => { error!("{}",e); },
+            Ok((meta,body)) => {
+                let json: Result<HelixGames,_> = serde_json::from_str(&body);
                 match json {
                     Err(e) => {
                         error!("{}", e);
-                        error!("[request_body] {}", text);
+                        error!("[request_body] {}", body);
                     }
                     Ok(json) => {
                         if json.data.len() == 0 {
                             send_message(con.clone(), client, channel, format!("Unable to find a game matching: {}", args.join(" ")));
                         } else {
                             let name = &json.data[0].name;
-                            let rsp = twitch_request_put(con.clone(), channel, &format!("https://api.twitch.tv/kraken/channels/{}", id), format!("channel[game]={}", name));
-
-                            match rsp {
-                                Err(e) => { error!("{}", e) }
-                                Ok(mut rsp) => {
-                                    let text = rsp.text().unwrap();
-                                    let json: Result<KrakenChannel,_> = serde_json::from_str(&text);
+                            let res = twitch_kraken_request(con.clone(), channel, "application/x-www-form-urlencoded", CallBuilder::put(format!("channel[game]={}", name).as_bytes().to_owned()), &format!("https://api.twitch.tv/kraken/channels/{}", &id));
+                            match res {
+                                Err(e) => { error!("{}",e); },
+                                Ok((meta,body)) => {
+                                    let json: Result<KrakenChannel,_> = serde_json::from_str(&body);
                                     match json {
                                         Err(e) => {
                                             error!("{}", e);
-                                            error!("[request_body] {}", text);
+                                            error!("[request_body] {}", body);
                                         }
                                         Ok(json) => { send_message(con.clone(), client, channel, format!("Game is now set to: {}", name)); }
                                     }
@@ -818,17 +803,15 @@ fn permit_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager
 
 fn clip_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<String>, message: Option<&Message>) {
     let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
-    let rsp = twitch_request_helix_post(con.clone(), channel, format!("https://api.twitch.tv/helix/clips?broadcaster_id={}", id).as_ref(), None);
-
-    match rsp {
-        Err(e) => { }
-        Ok(mut rsp) => {
-            let text = rsp.text().unwrap();
-            let json: Result<HelixClips,_> = serde_json::from_str(&text);
+    let res = twitch_helix_request(con.clone(), channel, "", CallBuilder::post(Vec::new()), &format!("https://api.twitch.tv/helix/clips?broadcaster_id={}", &id));
+    match res {
+        Err(e) => { error!("{}",e); },
+        Ok((meta,body)) => {
+            let json: Result<HelixClips,_> = serde_json::from_str(&body);
             match json {
                 Err(e) => {
                     error!("{}",e);
-                    error!("[request_body] {}", text);
+                    error!("[request_body] {}", body);
                 }
                 Ok(json) => {
                     if json.data.len() > 0 {
@@ -954,7 +937,8 @@ fn commercials_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMa
                                 let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
                                 let submode: String = con.get(format!("channel:{}:commercials:submode", channel)).unwrap_or("false".to_owned());
                                 let nres: Result<String,_> = con.get(format!("channel:{}:commercials:notice", channel));
-                                let rsp = twitch_request_kraken_post(con.clone(), channel, &format!("https://api.twitch.tv/kraken/channels/{}/commercial", id), Some(format!("{{\"length\": {}}}", num * 30)));
+                                let res = twitch_kraken_request(con.clone(), channel, "application/json", CallBuilder::post(format!("{{\"length\": {}}}", num * 30).as_bytes().to_owned()), &format!("https://api.twitch.tv/kraken/channels/{}/commercial", &id));
+                                println!("{:?}",res);
                                 let length: u16 = con.llen(format!("channel:{}:commercials:recent", channel)).unwrap();
                                 let _: () = con.lpush(format!("channel:{}:commercials:recent", channel), format!("{} {}", Utc::now().to_rfc3339(), num)).unwrap();
                                 if length > 7 {
@@ -1014,11 +998,11 @@ fn songreq_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManage
                 _ => {
                     let rgx = Regex::new("^[a-zA-Z0-9]+$").unwrap();
                     if rgx.is_match(&args[0]) {
-                        let rsp = request_get(&format!("https://www.youtube.com/oembed?format=json&url=https://youtube.com/watch?v={}", args[0]));
-                        match rsp {
-                            Err(e) => { error!("{}",e); }
-                            Ok(mut rsp) => {
-                                if rsp.status().is_success() {
+                        let res = twitch_helix_request(con.clone(), channel, "", CallBuilder::get(), &format!("https://www.youtube.com/oembed?format=json&url=https://youtube.com/watch?v={}", args[0]));
+                        match res {
+                            Err(e) => { error!("{}",e); },
+                            Ok((meta,body)) => {
+                                if meta.status == 200 {
                                     let mut exists = false;
                                     let entries: Vec<String> = con.lrange(format!("channel:{}:songreqs", channel), 0, -1).unwrap();
                                     for key in entries.iter() {
@@ -1031,8 +1015,7 @@ fn songreq_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManage
                                     if exists {
                                         send_message(con.clone(), client, channel, format!("{} already has an entry in the queue", nick));
                                     } else {
-                                        let text = rsp.text().unwrap();
-                                        let json: YoutubeData = serde_json::from_str(&text).unwrap();
+                                        let json: YoutubeData = serde_json::from_str(&body).unwrap();
                                         let key = hash(&args[0], DEFAULT_COST).unwrap();
                                         let _: () = con.rpush(format!("channel:{}:songreqs", channel), format!("{}", key)).unwrap();
                                         let _: () = con.hset(format!("channel:{}:songreqs:{}", channel, key), "src", format!("https://youtube.com/watch?v={}", args[0])).unwrap();

@@ -6,9 +6,7 @@ use std::collections::HashMap;
 use std::time::{SystemTime};
 use bcrypt::{DEFAULT_COST, hash, verify};
 use config;
-use reqwest;
-use reqwest::header;
-use reqwest::header::HeaderValue;
+use mio_httpc::CallBuilder;
 use rocket::{self, Outcome, get, post};
 use rocket::http::{Status,Cookie,Cookies};
 use rocket::request::{self, Request, FromRequest, Form};
@@ -92,16 +90,16 @@ pub fn data(con: RedisConnection, auth: Auth) -> Json<ApiData> {
     let id: String = redis::cmd("GET").arg(format!("channel:{}:id", auth.channel)).query(&*con).unwrap();
     let token: String = redis::cmd("GET").arg(format!("channel:{}:token", auth.channel)).query(&*con).unwrap();
 
-    let mut headers = header::HeaderMap::new();
-    headers.insert("Accept", HeaderValue::from_str("application/vnd.twitchtv.v5+json").unwrap());
-    headers.insert("Authorization", HeaderValue::from_str(&format!("OAuth {}", token)).unwrap());
-    headers.insert("Client-ID", HeaderValue::from_str(&settings.get_str("client_id").unwrap()).unwrap());
+    let mut get = CallBuilder::get();
+    let mut builder = get.timeout_ms(5000).url(&format!("https://api.twitch.tv/kraken/channels/{}", id)).unwrap();
+    builder
+      .header("Authorization", &format!("OAuth {}", token))
+      .header("Accept", "application/vnd.twitchtv.v5+json")
+      .header("Client-ID", &settings.get_str("client_id").unwrap());
 
-    let req = reqwest::Client::builder().http1_title_case_headers().default_headers(headers).build().unwrap();
-    let rsp = req.get(&format!("https://api.twitch.tv/kraken/channels/{}", id)).send();
-
-    match rsp {
-        Err(err) => {
+    match builder.exec() {
+        Err(e) => {
+            error!("{}",e);
             let fields: HashMap<String, String> = HashMap::new();
             let commands: HashMap<String, String> = HashMap::new();
             let notices: HashMap<String, Vec<String>> = HashMap::new();
@@ -111,10 +109,11 @@ pub fn data(con: RedisConnection, auth: Auth) -> Json<ApiData> {
             let json = ApiData { fields: fields, commands: commands, notices: notices, settings: settings, blacklist: blacklist, songreqs: songreqs };
             return Json(json);
         }
-        Ok(mut rsp) => {
-            let json: Result<KrakenChannel,_> = rsp.json();
-            match json {
-                Err(err) => {
+        Ok((meta, body)) => {
+            let res = std::str::from_utf8(&body);
+            match res {
+                Err(e) => {
+                    error!("{}",e);
                     let fields: HashMap<String, String> = HashMap::new();
                     let commands: HashMap<String, String> = HashMap::new();
                     let notices: HashMap<String, Vec<String>> = HashMap::new();
@@ -124,54 +123,69 @@ pub fn data(con: RedisConnection, auth: Auth) -> Json<ApiData> {
                     let json = ApiData { fields: fields, commands: commands, notices: notices, settings: settings, blacklist: blacklist, songreqs: songreqs };
                     return Json(json);
                 }
-                Ok(json) => {
-                    let mut fields: HashMap<String, String> = HashMap::new();
-                    let mut commands: HashMap<String, String> = HashMap::new();
-                    let mut notices: HashMap<String, Vec<String>> = HashMap::new();
-                    let mut blacklist: HashMap<String, HashMap<String,String>> = HashMap::new();
-                    let mut songreqs: Vec<(String,String,String)> = Vec::new();
+                Ok(body) => {
+                    let json: Result<KrakenChannel,_> = serde_json::from_str(body);
+                    match json {
+                        Err(err) => {
+                            let fields: HashMap<String, String> = HashMap::new();
+                            let commands: HashMap<String, String> = HashMap::new();
+                            let notices: HashMap<String, Vec<String>> = HashMap::new();
+                            let settings: HashMap<String, String> = HashMap::new();
+                            let blacklist: HashMap<String, HashMap<String,String>> = HashMap::new();
+                            let songreqs: Vec<(String,String,String)> = Vec::new();
+                            let json = ApiData { fields: fields, commands: commands, notices: notices, settings: settings, blacklist: blacklist, songreqs: songreqs };
+                            return Json(json);
+                        }
+                        Ok(json) => {
+                            let mut fields: HashMap<String, String> = HashMap::new();
+                            let mut commands: HashMap<String, String> = HashMap::new();
+                            let mut notices: HashMap<String, Vec<String>> = HashMap::new();
+                            let mut blacklist: HashMap<String, HashMap<String,String>> = HashMap::new();
+                            let mut songreqs: Vec<(String,String,String)> = Vec::new();
 
-                    fields.insert("status".to_owned(), json.status.to_owned());
-                    fields.insert("game".to_owned(), json.game.to_owned());
+                            fields.insert("status".to_owned(), json.status.to_owned());
+                            fields.insert("game".to_owned(), json.game.to_owned());
 
-                    let settings: HashMap<String,String> = redis::cmd("HGETALL").arg(format!("channel:{}:settings", &auth.channel)).query(&*con).unwrap();
+                            let settings: HashMap<String,String> = redis::cmd("HGETALL").arg(format!("channel:{}:settings", &auth.channel)).query(&*con).unwrap();
 
-                    let keys: Vec<String> = redis::cmd("KEYS").arg(format!("channel:{}:commands:*", &auth.channel)).query(&*con).unwrap();
-                    for key in keys.iter() {
-                        let cmd: Vec<&str> = key.split(":").collect();
-                        let res: Result<String,_> = redis::cmd("HGET").arg(format!("channel:{}:commands:{}", &auth.channel, cmd[3])).arg("message").query(&*con);
-                        if let Ok(message) = res {
-                            commands.insert(cmd[3].to_owned(), message);
+                            let keys: Vec<String> = redis::cmd("KEYS").arg(format!("channel:{}:commands:*", &auth.channel)).query(&*con).unwrap();
+                            for key in keys.iter() {
+                                let cmd: Vec<&str> = key.split(":").collect();
+                                let res: Result<String,_> = redis::cmd("HGET").arg(format!("channel:{}:commands:{}", &auth.channel, cmd[3])).arg("message").query(&*con);
+                                if let Ok(message) = res {
+                                    commands.insert(cmd[3].to_owned(), message);
+                                }
+                            }
+
+                            let keys: Vec<String> = redis::cmd("KEYS").arg(format!("channel:{}:notices:*:commands", &auth.channel)).query(&*con).unwrap();
+                            for key in keys.iter() {
+                                let int: Vec<&str> = key.split(":").collect();
+                                let res: Result<Vec<String>,_> = redis::cmd("LRANGE").arg(format!("channel:{}:notices:{}:commands", &auth.channel, int[3])).arg(0).arg(-1).query(&*con);
+                                if let Ok(commands) = res {
+                                    notices.insert(int[3].to_owned(), commands);
+                                }
+                            }
+
+                            let keys: Vec<String> = redis::cmd("KEYS").arg(format!("channel:{}:moderation:blacklist:*", &auth.channel)).query(&*con).unwrap();
+                            for key in keys {
+                                let key: Vec<&str> = key.split(":").collect();
+                                let data: HashMap<String,String> = redis::cmd("HGETALL").arg(format!("channel:{}:moderation:blacklist:{}", &auth.channel, key[4])).query(&*con).unwrap();
+                                blacklist.insert(key[4].to_owned(), data);
+                            }
+
+                            let keys: Vec<String> = redis::cmd("LRANGE").arg(format!("channel:{}:songreqs", &auth.channel)).arg(0).arg(-1).query(&*con).unwrap();
+                            for key in keys.iter() {
+                                let data: HashMap<String,String> = redis::cmd("HGETALL").arg(format!("channel:{}:songreqs:{}", &auth.channel, key)).query(&*con).unwrap();
+                                let src = data["src"].to_owned();
+                                let title = data["title"].to_owned();
+                                let nick = data["nick"].to_owned();
+                                songreqs.push((src,title,nick));
+                            }
+
+                            let json = ApiData { fields: fields, commands: commands, notices: notices, settings: settings, blacklist: blacklist, songreqs: songreqs };
+                            return Json(json);
                         }
                     }
-
-                    let keys: Vec<String> = redis::cmd("KEYS").arg(format!("channel:{}:notices:*:commands", &auth.channel)).query(&*con).unwrap();
-                    for key in keys.iter() {
-                        let int: Vec<&str> = key.split(":").collect();
-                        let res: Result<Vec<String>,_> = redis::cmd("LRANGE").arg(format!("channel:{}:notices:{}:commands", &auth.channel, int[3])).arg(0).arg(-1).query(&*con);
-                        if let Ok(commands) = res {
-                            notices.insert(int[3].to_owned(), commands);
-                        }
-                    }
-
-                    let keys: Vec<String> = redis::cmd("KEYS").arg(format!("channel:{}:moderation:blacklist:*", &auth.channel)).query(&*con).unwrap();
-                    for key in keys {
-                        let key: Vec<&str> = key.split(":").collect();
-                        let data: HashMap<String,String> = redis::cmd("HGETALL").arg(format!("channel:{}:moderation:blacklist:{}", &auth.channel, key[4])).query(&*con).unwrap();
-                        blacklist.insert(key[4].to_owned(), data);
-                    }
-
-                    let keys: Vec<String> = redis::cmd("LRANGE").arg(format!("channel:{}:songreqs", &auth.channel)).arg(0).arg(-1).query(&*con).unwrap();
-                    for key in keys.iter() {
-                        let data: HashMap<String,String> = redis::cmd("HGETALL").arg(format!("channel:{}:songreqs:{}", &auth.channel, key)).query(&*con).unwrap();
-                        let src = data["src"].to_owned();
-                        let title = data["title"].to_owned();
-                        let nick = data["nick"].to_owned();
-                        songreqs.push((src,title,nick));
-                    }
-
-                    let json = ApiData { fields: fields, commands: commands, notices: notices, settings: settings, blacklist: blacklist, songreqs: songreqs };
-                    return Json(json);
                 }
             }
         }
@@ -255,55 +269,70 @@ pub fn signup(con: RedisConnection, mut cookies: Cookies, data: Form<ApiSignupRe
     settings.merge(config::File::with_name("Settings")).unwrap();
     settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
 
-    let client = reqwest::Client::new();
-    let rsp = client.get("https://api.twitch.tv/helix/users").header(header::AUTHORIZATION, format!("Bearer {}", data.token)).send();
+    let mut get = CallBuilder::get();
+    let mut builder = get.timeout_ms(5000).url("https://api.twitch.tv/helix/users").unwrap();
+    builder
+      .header("Authorization", &format!("Bearer {}", data.token))
+      .header("Accept", "application/vnd.twitchtv.v5+json")
+      .header("Client-ID", &settings.get_str("client_id").unwrap());
 
-    match rsp {
-        Err(_) => {
+    match builder.exec() {
+        Err(e) => {
+            error!("{}",e);
             let json = ApiRsp { success: false, success_value: None, field: Some("token".to_owned()), error_message: Some("invalid access code".to_owned()) };
             return Json(json);
         }
-        Ok(mut rsp) => {
-            let json: Result<HelixUsers,_> = rsp.json();
-            match json {
-                Err(_) => {
+        Ok((meta, body)) => {
+            let res = std::str::from_utf8(&body);
+            match res {
+                Err(e) => {
+                    error!("{}",e);
                     let json = ApiRsp { success: false, success_value: None, field: Some("token".to_owned()), error_message: Some("invalid access code".to_owned()) };
                     return Json(json);
                 }
-                Ok(json) => {
-                    let exists: bool = redis::cmd("SISMEMBER").arg("channels").arg(&json.data[0].login).query(&*con).unwrap();
-                    if exists {
-                        let json = ApiRsp { success: false, success_value: None, field: Some("token".to_owned()), error_message: Some("invalid access code".to_owned()) };
-                        return Json(json);
-                    } else {
-                        let removed: u16 = redis::cmd("LREM").arg("invites").arg(1).arg(&data.invite).query(&*con).unwrap();
-                        if removed == 0 {
-                            let json = ApiRsp { success: false, success_value: None, field: Some("invite".to_owned()), error_message: Some("invalid invite code".to_owned()) };
+                Ok(body) => {
+                    let json: Result<HelixUsers,_> = serde_json::from_str(body);
+                    match json {
+                        Err(_) => {
+                            let json = ApiRsp { success: false, success_value: None, field: Some("token".to_owned()), error_message: Some("invalid access code".to_owned()) };
                             return Json(json);
-                        } else {
-                            let bot_name  = settings.get_str("bot_name").unwrap();
-                            let bot_token = settings.get_str("bot_token").unwrap();
+                        }
+                        Ok(json) => {
+                            let exists: bool = redis::cmd("SISMEMBER").arg("channels").arg(&json.data[0].login).query(&*con).unwrap();
+                            if exists {
+                                let json = ApiRsp { success: false, success_value: None, field: Some("token".to_owned()), error_message: Some("invalid access code".to_owned()) };
+                                return Json(json);
+                            } else {
+                                let removed: u16 = redis::cmd("LREM").arg("invites").arg(1).arg(&data.invite).query(&*con).unwrap();
+                                if removed == 0 {
+                                    let json = ApiRsp { success: false, success_value: None, field: Some("invite".to_owned()), error_message: Some("invalid invite code".to_owned()) };
+                                    return Json(json);
+                                } else {
+                                    let bot_name  = settings.get_str("bot_name").unwrap();
+                                    let bot_token = settings.get_str("bot_token").unwrap();
 
-                            redis::cmd("SADD").arg("bots").arg(&bot_name).execute(&*con);
-                            redis::cmd("SADD").arg("channels").arg(&json.data[0].login).execute(&*con);
-                            redis::cmd("SET").arg(format!("bot:{}:token", &bot_name)).arg(bot_token).execute(&*con);
-                            redis::cmd("SADD").arg(format!("bot:{}:channels", &bot_name)).arg(&json.data[0].login).execute(&*con);
-                            redis::cmd("SET").arg(format!("channel:{}:bot", &json.data[0].login)).arg(&bot_name).execute(&*con);
-                            redis::cmd("SET").arg(format!("channel:{}:token", &json.data[0].login)).arg(&data.token).execute(&*con);
-                            redis::cmd("SET").arg(format!("channel:{}:password", &json.data[0].login)).arg(hash(&data.password, DEFAULT_COST).unwrap()).execute(&*con);
-                            redis::cmd("SET").arg(format!("channel:{}:live", &json.data[0].login)).arg(false).execute(&*con);
-                            redis::cmd("SET").arg(format!("channel:{}:id", &json.data[0].login)).arg(&json.data[0].id).execute(&*con);
-                            redis::cmd("SET").arg(format!("channel:{}:display-name", &json.data[0].login)).arg(&json.data[0].display_name).execute(&*con);
+                                    redis::cmd("SADD").arg("bots").arg(&bot_name).execute(&*con);
+                                    redis::cmd("SADD").arg("channels").arg(&json.data[0].login).execute(&*con);
+                                    redis::cmd("SET").arg(format!("bot:{}:token", &bot_name)).arg(bot_token).execute(&*con);
+                                    redis::cmd("SADD").arg(format!("bot:{}:channels", &bot_name)).arg(&json.data[0].login).execute(&*con);
+                                    redis::cmd("SET").arg(format!("channel:{}:bot", &json.data[0].login)).arg(&bot_name).execute(&*con);
+                                    redis::cmd("SET").arg(format!("channel:{}:token", &json.data[0].login)).arg(&data.token).execute(&*con);
+                                    redis::cmd("SET").arg(format!("channel:{}:password", &json.data[0].login)).arg(hash(&data.password, DEFAULT_COST).unwrap()).execute(&*con);
+                                    redis::cmd("SET").arg(format!("channel:{}:live", &json.data[0].login)).arg(false).execute(&*con);
+                                    redis::cmd("SET").arg(format!("channel:{}:id", &json.data[0].login)).arg(&json.data[0].id).execute(&*con);
+                                    redis::cmd("SET").arg(format!("channel:{}:display-name", &json.data[0].login)).arg(&json.data[0].display_name).execute(&*con);
 
-                            if let Ok(exp) = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
-                                let secret = settings.get_str("secret_key").unwrap();
-                                let auth = Auth { channel: json.data[0].login.to_owned(), exp: exp.as_secs() + 2400000 };
-                                let token = encode(&Header::default(), &auth, secret.as_bytes()).unwrap();
-                                cookies.add_private(Cookie::new("auth", token));
+                                    if let Ok(exp) = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
+                                        let secret = settings.get_str("secret_key").unwrap();
+                                        let auth = Auth { channel: json.data[0].login.to_owned(), exp: exp.as_secs() + 2400000 };
+                                        let token = encode(&Header::default(), &auth, secret.as_bytes()).unwrap();
+                                        cookies.add_private(Cookie::new("auth", token));
+                                    }
+
+                                    let json = ApiRsp { success: true, success_value: None, field: None, error_message: None };
+                                    return Json(json);
+                                }
                             }
-
-                            let json = ApiRsp { success: true, success_value: None, field: None, error_message: None };
-                            return Json(json);
                         }
                     }
                 }
@@ -332,30 +361,40 @@ pub fn title(con: RedisConnection, data: Form<ApiTitleReq>, auth: Auth) -> Json<
     let id: String = redis::cmd("GET").arg(format!("channel:{}:id", auth.channel)).query(&*con).unwrap();
     let token: String = redis::cmd("GET").arg(format!("channel:{}:token", auth.channel)).query(&*con).unwrap();
 
-    let mut headers = header::HeaderMap::new();
-    headers.insert("Accept", HeaderValue::from_str("application/vnd.twitchtv.v5+json").unwrap());
-    headers.insert("Authorization", HeaderValue::from_str(&format!("OAuth {}", token)).unwrap());
-    headers.insert("Client-ID", HeaderValue::from_str(&settings.get_str("client_id").unwrap()).unwrap());
-    headers.insert("Content-Type", HeaderValue::from_str("application/x-www-form-urlencoded").unwrap());
+    let mut put = CallBuilder::put(format!("channel[status]={}", data.title).as_bytes().to_owned());
+    let mut builder = put.timeout_ms(5000).url(&format!("https://api.twitch.tv/kraken/channels/{}", id)).unwrap();
+    builder
+      .header("Authorization", &format!("OAuth {}", token))
+      .header("Accept", "application/vnd.twitchtv.v5+json")
+      .header("Content-Type", "application/x-www-form-urlencoded")
+      .header("Client-ID", &settings.get_str("client_id").unwrap());
 
-    let req = reqwest::Client::builder().http1_title_case_headers().default_headers(headers).build().unwrap();
-    let rsp = req.put(&format!("https://api.twitch.tv/kraken/channels/{}", id)).body(format!("channel[status]={}", data.title)).send();
-
-    match rsp {
-        Err(_) => {
+    match builder.exec() {
+        Err(e) => {
+            error!("{}",e);
             let json = ApiRsp { success: false, success_value: None, field: Some("title-field".to_owned()), error_message: Some("twitch api error".to_owned()) };
             return Json(json);
         }
-        Ok(mut rsp) => {
-            let json: Result<KrakenChannel,_> = rsp.json();
-            match json {
-                Err(_) => {
+        Ok((meta, body)) => {
+            let res = std::str::from_utf8(&body);
+            match res {
+                Err(e) => {
+                    error!("{}",e);
                     let json = ApiRsp { success: false, success_value: None, field: Some("title-field".to_owned()), error_message: Some("twitch api error".to_owned()) };
                     return Json(json);
                 }
-                Ok(_) => {
-                    let json = ApiRsp { success: true, success_value: None, field: None, error_message: None };
-                    return Json(json);
+                Ok(body) => {
+                    let json: Result<KrakenChannel,_> = serde_json::from_str(body);
+                    match json {
+                        Err(_) => {
+                            let json = ApiRsp { success: false, success_value: None, field: Some("title-field".to_owned()), error_message: Some("twitch api error".to_owned()) };
+                            return Json(json);
+                        }
+                        Ok(_) => {
+                            let json = ApiRsp { success: true, success_value: None, field: None, error_message: None };
+                            return Json(json);
+                        }
+                    }
                 }
             }
         }
@@ -370,51 +409,77 @@ pub fn game(con: RedisConnection, data: Form<ApiGameReq>, auth: Auth) -> Json<Ap
     let id: String = redis::cmd("GET").arg(format!("channel:{}:id", auth.channel)).query(&*con).unwrap();
     let token: String = redis::cmd("GET").arg(format!("channel:{}:token", auth.channel)).query(&*con).unwrap();
 
-    let mut headers = header::HeaderMap::new();
-    headers.insert("Accept", HeaderValue::from_str("application/vnd.twitchtv.v5+json").unwrap());
-    headers.insert("Authorization", HeaderValue::from_str(&format!("OAuth {}", token)).unwrap());
-    headers.insert("Client-ID", HeaderValue::from_str(&settings.get_str("client_id").unwrap()).unwrap());
-    headers.insert("Content-Type", HeaderValue::from_str("application/x-www-form-urlencoded").unwrap());
+    let mut get = CallBuilder::get();
+    let mut builder = get.timeout_ms(5000).url(&format!("https://api.twitch.tv/helix/games?name={}", data.game)).unwrap();
+    builder
+      .header("Authorization", &format!("OAuth {}", token))
+      .header("Accept", "application/vnd.twitchtv.v5+json")
+      .header("Content-Type", "application/x-www-form-urlencoded")
+      .header("Client-ID", &settings.get_str("client_id").unwrap());
 
-    let req = reqwest::Client::builder().http1_title_case_headers().default_headers(headers.clone()).build().unwrap();
-    let rsp = req.get(&format!("https://api.twitch.tv/helix/games?name={}", data.game)).send();
-
-    match rsp {
-        Err(_) => {
+    match builder.exec() {
+        Err(e) => {
+            error!("{}",e);
             let json = ApiRsp { success: false, success_value: None, field: Some("game".to_owned()), error_message: Some("game not found".to_owned()) };
             return Json(json);
         }
-        Ok(mut rsp) => {
-            let json: Result<HelixGames,_> = rsp.json();
-            match json {
-                Err(_) => {
+        Ok((meta, body)) => {
+            let res = std::str::from_utf8(&body);
+            match res {
+                Err(e) => {
+                    error!("{}",e);
                     let json = ApiRsp { success: false, success_value: None, field: Some("game".to_owned()), error_message: Some("game not found".to_owned()) };
                     return Json(json);
                 }
-                Ok(json) => {
-                    if json.data.len() == 0 {
-                        let json = ApiRsp { success: false, success_value: None, field: Some("game".to_owned()), error_message: Some("game not found".to_owned()) };
-                        return Json(json);
-                    } else {
-                        let name = &json.data[0].name;
-                        let req = reqwest::Client::builder().http1_title_case_headers().default_headers(headers).build().unwrap();
-                        let rsp = req.put(&format!("https://api.twitch.tv/kraken/channels/{}", id)).body(format!("channel[game]={}", name)).send();
-
-                        match rsp {
-                            Err(_) => {
-                                let json = ApiRsp { success: false, success_value: None, field: Some("game".to_owned()), error_message: Some("twitch api error".to_owned()) };
+                Ok(body) => {
+                    let json: Result<HelixGames,_> = serde_json::from_str(body);
+                    match json {
+                        Err(_) => {
+                            let json = ApiRsp { success: false, success_value: None, field: Some("game".to_owned()), error_message: Some("game not found".to_owned()) };
+                            return Json(json);
+                        }
+                        Ok(json) => {
+                            if json.data.len() == 0 {
+                                let json = ApiRsp { success: false, success_value: None, field: Some("game".to_owned()), error_message: Some("game not found".to_owned()) };
                                 return Json(json);
-                            }
-                            Ok(mut rsp) => {
-                                let json: Result<KrakenChannel,_> = rsp.json();
-                                match json {
-                                    Err(_) => {
-                                        let json = ApiRsp { success: false, success_value: None, field: Some("game".to_owned()), error_message: Some("twitch api error".to_owned()) };
+                            } else {
+                                let name = &json.data[0].name;
+                                let mut put = CallBuilder::put(format!("channel[game]={}", name).as_bytes().to_owned());
+                                let mut builder = put.timeout_ms(5000).url(&format!("https://api.twitch.tv/kraken/channels/{}", id)).unwrap();
+                                builder
+                                  .header("Authorization", &format!("OAuth {}", token))
+                                  .header("Accept", "application/vnd.twitchtv.v5+json")
+                                  .header("Content-Type", "application/x-www-form-urlencoded")
+                                  .header("Client-ID", &settings.get_str("client_id").unwrap());
+
+                                match builder.exec() {
+                                    Err(e) => {
+                                        error!("{}",e);
+                                        let json = ApiRsp { success: false, success_value: None, field: Some("game".to_owned()), error_message: Some("game not found".to_owned()) };
                                         return Json(json);
                                     }
-                                    Ok(_) => {
-                                        let json = ApiRsp { success: true, success_value: Some(name.to_owned()), field: Some("game".to_owned()), error_message: None };
-                                        return Json(json);
+                                    Ok((meta, body)) => {
+                                        let res = std::str::from_utf8(&body);
+                                        match res {
+                                            Err(e) => {
+                                                error!("{}",e);
+                                                let json = ApiRsp { success: false, success_value: None, field: Some("game".to_owned()), error_message: Some("game not found".to_owned()) };
+                                                return Json(json);
+                                            }
+                                            Ok(body) => {
+                                                let json: Result<KrakenChannel,_> = serde_json::from_str(body);
+                                                match json {
+                                                    Err(_) => {
+                                                        let json = ApiRsp { success: false, success_value: None, field: Some("game".to_owned()), error_message: Some("twitch api error".to_owned()) };
+                                                        return Json(json);
+                                                    }
+                                                    Ok(_) => {
+                                                        let json = ApiRsp { success: true, success_value: Some(name.to_owned()), field: Some("game".to_owned()), error_message: None };
+                                                        return Json(json);
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
