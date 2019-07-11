@@ -165,7 +165,7 @@ pub fn pubg_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionM
     let token: String = con.hget(format!("channel:{}:settings", channel), "pubg:token").unwrap_or("".to_owned());
     let mut builder = method.timeout_ms(5000).url(url).unwrap();
     builder
-      .header("Authorization", &format!("Bot {}", token))
+      .header("Authorization", &format!("Bearer {}", token))
       .header("Accept", "application/vnd.api+json");
 
     match builder.exec() {
