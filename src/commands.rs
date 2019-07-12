@@ -937,8 +937,7 @@ fn commercials_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMa
                                 let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
                                 let submode: String = con.get(format!("channel:{}:commercials:submode", channel)).unwrap_or("false".to_owned());
                                 let nres: Result<String,_> = con.get(format!("channel:{}:commercials:notice", channel));
-                                let res = twitch_kraken_request(con.clone(), channel, "application/json", CallBuilder::post(format!("{{\"length\": {}}}", num * 30).as_bytes().to_owned()), &format!("https://api.twitch.tv/kraken/channels/{}/commercial", &id));
-                                println!("{:?}",res);
+                                let _ = twitch_kraken_request(con.clone(), channel, "application/json", CallBuilder::post(format!("{{\"length\": {}}}", num * 30).as_bytes().to_owned()), &format!("https://api.twitch.tv/kraken/channels/{}/commercial", &id));
                                 let length: u16 = con.llen(format!("channel:{}:commercials:recent", channel)).unwrap();
                                 let _: () = con.lpush(format!("channel:{}:commercials:recent", channel), format!("{} {}", Utc::now().to_rfc3339(), num)).unwrap();
                                 if length > 7 {

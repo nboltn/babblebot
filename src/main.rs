@@ -594,6 +594,7 @@ fn update_live(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
                                 for channel in channels {
                                     let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
                                     let live: String = con.get(format!("channel:{}:live", channel)).expect("get:live");
+                                    let stream = json.streams.iter().find(|stream| { return stream.channel.name == channel }).unwrap();
                                     if live_channels.contains(&channel) {
                                         if live == "false" {
                                             let _: () = con.set(format!("channel:{}:live", channel), true).unwrap();
@@ -610,7 +611,7 @@ fn update_live(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
                                             if let (Ok(token), Ok(id)) = (tres, ires) {
                                                 let message: String = con.hget(format!("channel:{}:settings", channel), "discord:live-message").unwrap_or("".to_owned());
                                                 let display: String = con.get(format!("channel:{}:display-name", channel)).expect("get:display-name");
-                                                let body = format!("{{ \"content\": \"{}\", \"embed\": {{ \"author\": {{ \"name\": \"{}\" }}, \"title\": \"{}\", \"url\": \"http://twitch.tv/{}\", \"thumbnail\": {{ \"url\": \"{}\" }}, \"fields\": [{{ \"name\": \"Now Playing\", \"value\": \"{}\" }}] }} }}", &message, &display, &json.streams[0].channel.status, channel, &json.streams[0].channel.logo, &json.streams[0].channel.game);
+                                                let body = format!("{{ \"content\": \"{}\", \"embed\": {{ \"author\": {{ \"name\": \"{}\" }}, \"title\": \"{}\", \"url\": \"http://twitch.tv/{}\", \"thumbnail\": {{ \"url\": \"{}\" }}, \"fields\": [{{ \"name\": \"Now Playing\", \"value\": \"{}\" }}] }} }}", &message, &display, stream.channel.status, channel, stream.channel.logo, stream.channel.game);
                                                 let _ = discord_request(con.clone(), &channel, CallBuilder::post(body.as_bytes().to_owned()), &format!("https://discordapp.com/api/channels/{}/messages", id));
                                             }
                                         }
