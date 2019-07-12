@@ -594,8 +594,8 @@ fn update_live(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
                                 for channel in channels {
                                     let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
                                     let live: String = con.get(format!("channel:{}:live", channel)).expect("get:live");
-                                    let stream = json.streams.iter().find(|stream| { return stream.channel.name == channel }).unwrap();
                                     if live_channels.contains(&channel) {
+                                        let stream = json.streams.iter().find(|stream| { return stream.channel.name == channel }).unwrap();
                                         if live == "false" {
                                             let _: () = con.set(format!("channel:{}:live", channel), true).unwrap();
                                             let _: () = con.del(format!("channel:{}:hosts:recent", channel)).unwrap();
