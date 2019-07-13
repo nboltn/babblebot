@@ -91,11 +91,11 @@ fn main() {
                 bots.insert(bot.to_owned(), (channel_hash.clone(), config));
                 for channel in channel_hash.iter() {
                     discord_handler(pool.clone(), channel.to_owned());
-                    update_watchtime(pool.clone(), channel.to_owned());
-                    update_stats(pool.clone(), channel.to_owned());
                 }
             }
             update_live(pool.clone());
+            update_stats(pool.clone());
+            update_watchtime(pool.clone());
             run_reactor(pool.clone(), bots);
         });
 
@@ -180,8 +180,6 @@ fn new_channel_listener(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
         bots.insert(bot.to_owned(), (channel_hash.clone(), config));
         for channel in channel_hash.iter() {
             discord_handler(pool.clone(), channel.to_owned());
-            update_watchtime(pool.clone(), channel.to_owned());
-            update_stats(pool.clone(), channel.to_owned());
         }
         run_reactor(pool.clone(), bots);
     }
@@ -524,44 +522,48 @@ fn discord_handler(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel
     });
 }
 
-fn update_watchtime(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: String) {
+fn update_watchtime(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
     thread::spawn(move || {
         let con = Arc::new(pool.get().unwrap());
         loop {
-            let live: String = con.get(format!("channel:{}:live", channel)).unwrap_or("false".to_owned());
-            let enabled: String = con.hget(format!("channel:{}:settings", channel), "viewerstats:enabled").unwrap_or("false".to_owned());
-            if live == "true" && enabled != "false" {
-                let res = request(CallBuilder::get(), &format!("http://tmi.twitch.tv/group/user/{}/chatters", channel));
-                match res {
-                    Err(e) => { error!("{}",e) },
-                    Ok((meta,body)) => {
-                        let json: Result<TmiChatters,_> = serde_json::from_str(&body);
-                        match json {
-                            Err(e) => {
-                                error!("[update_watchtime] {}", e);
-                                error!("[request_body] {}", body);
-                            }
-                            Ok(json) => {
-                                let mut nicks: Vec<String> = Vec::new();
-                                let mut moderators = json.chatters.moderators.clone();
-                                let mut viewers = json.chatters.viewers.clone();
-                                let mut vips = json.chatters.vips.clone();
-                                nicks.append(&mut moderators);
-                                nicks.append(&mut viewers);
-                                nicks.append(&mut vips);
-                                for nick in nicks.iter() {
-                                    let res: Result<String,_> = con.hget(format!("channel:{}:watchtimes", channel), nick);
-                                    if let Ok(wt) = res {
-                                        let num: i64 = wt.parse().unwrap();
-                                        let _: () = con.hset(format!("channel:{}:watchtimes", channel), nick, num + 1).unwrap();
-                                    } else {
-                                        let _: () = con.hset(format!("channel:{}:watchtimes", channel), nick, 1).unwrap();
+            let channels: Vec<String> = con.smembers("channels").unwrap_or(Vec::new());
+            for channel in channels {
+                let live: String = con.get(format!("channel:{}:live", &channel)).unwrap_or("false".to_owned());
+                let enabled: String = con.hget(format!("channel:{}:settings", &channel), "viewerstats:enabled").unwrap_or("false".to_owned());
+                if live == "true" && enabled != "false" {
+                    let res = request(CallBuilder::get(), &format!("http://tmi.twitch.tv/group/user/{}/chatters", &channel));
+                    match res {
+                        Err(e) => { error!("{}",e) },
+                        Ok((meta,body)) => {
+                            let json: Result<TmiChatters,_> = serde_json::from_str(&body);
+                            match json {
+                                Err(e) => {
+                                    error!("[update_watchtime] {}", e);
+                                    error!("[request_body] {}", body);
+                                }
+                                Ok(json) => {
+                                    let mut nicks: Vec<String> = Vec::new();
+                                    let mut moderators = json.chatters.moderators.clone();
+                                    let mut viewers = json.chatters.viewers.clone();
+                                    let mut vips = json.chatters.vips.clone();
+                                    nicks.append(&mut moderators);
+                                    nicks.append(&mut viewers);
+                                    nicks.append(&mut vips);
+                                    for nick in nicks.iter() {
+                                        let res: Result<String,_> = con.hget(format!("channel:{}:watchtimes", &channel), nick);
+                                        if let Ok(wt) = res {
+                                            let num: i64 = wt.parse().unwrap();
+                                            let _: () = con.hset(format!("channel:{}:watchtimes", &channel), nick, num + 1).unwrap();
+                                        } else {
+                                            let _: () = con.hset(format!("channel:{}:watchtimes", &channel), nick, 1).unwrap();
+                                        }
                                     }
                                 }
                             }
                         }
                     }
                 }
+                thread::sleep(time::Duration::from_secs(2));
             }
             thread::sleep(time::Duration::from_secs(60));
         }
@@ -638,113 +640,114 @@ fn update_live(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
     });
 }
 
-fn update_stats(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: String) {
+fn update_stats(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
     let con_pubg = pool.get().unwrap();
     let con_fort = pool.get().unwrap();
-    let channel_pubg = channel.clone();
-    let channel_fort = channel.clone();
 
     // pubg
     thread::spawn(move || {
         let con = Arc::new(con_pubg);
         loop {
-            let reset: String = con.hget(format!("channel:{}:stats:pubg", &channel_pubg), "reset").unwrap_or("false".to_owned());
-            let res: Result<String,_> = con.hget(format!("channel:{}:settings", &channel_pubg), "stats:reset");
-            if let Ok(hour) = res {
-                let res: Result<u32,_> = hour.parse();
-                if let Ok(num) = res {
-                    if num == Utc::now().time().hour() && reset == "true" {
-                        let _: () = con.del(format!("channel:{}:stats:pubg", &channel_pubg)).unwrap();
-                    } else if num != Utc::now().time().hour() && reset == "false" {
-                        let _: () = con.hset(format!("channel:{}:stats:pubg", &channel_pubg), "reset", true).unwrap();
+            let channels: Vec<String> = con.smembers("channels").unwrap_or(Vec::new());
+            for channel in channels {
+                let reset: String = con.hget(format!("channel:{}:stats:pubg", &channel), "reset").unwrap_or("false".to_owned());
+                let res: Result<String,_> = con.hget(format!("channel:{}:settings", &channel), "stats:reset");
+                if let Ok(hour) = res {
+                    let res: Result<u32,_> = hour.parse();
+                    if let Ok(num) = res {
+                        if num == Utc::now().time().hour() && reset == "true" {
+                            let _: () = con.del(format!("channel:{}:stats:pubg", &channel)).unwrap();
+                        } else if num != Utc::now().time().hour() && reset == "false" {
+                            let _: () = con.hset(format!("channel:{}:stats:pubg", &channel), "reset", true).unwrap();
+                        }
                     }
                 }
-            }
-            let live: String = con.get(format!("channel:{}:live", &channel_pubg)).expect("get:live");
-            if live == "true" {
-                let res1: Result<String,_> = con.hget(format!("channel:{}:settings", &channel_pubg), "pubg:token");
-                let res2: Result<String,_> = con.hget(format!("channel:{}:settings", &channel_pubg), "pubg:name");
-                if let (Ok(token), Ok(name)) = (res1, res2) {
-                    let platform: String = con.hget(format!("channel:{}:settings", &channel_pubg), "pubg:platform").unwrap_or("steam".to_owned());
-                    let res: Result<String,_> = con.hget(format!("channel:{}:settings", &channel_pubg), "pubg:id");
-                    let mut id: String = "".to_owned();
-                    if let Ok(v) = res {
-                        id = v;
-                    } else {
-                        let res = pubg_request(con.clone(), &channel, CallBuilder::get(), &format!("https://api.pubg.com/shards/{}/players?filter%5BplayerNames%5D={}", platform, name));
-                        match res {
-                            Err(e) => { error!("{}",e); },
-                            Ok((meta,body)) => {
-                                let json: Result<PubgPlayers,_> = serde_json::from_str(&body);
-                                match json {
-                                    Err(e) => {
-                                        error!("[update_pubg] {}", e);
-                                        error!("[request_body] {}", body);
-                                    }
-                                    Ok(json) => {
-                                        if json.data.len() > 0 {
-                                            let _: () = con.hset(format!("channel:{}:settings", &channel_pubg), "pubg:id", &json.data[0].id).unwrap();
-                                            id = json.data[0].id.to_owned();
+                let live: String = con.get(format!("channel:{}:live", &channel)).expect("get:live");
+                if live == "true" {
+                    let res1: Result<String,_> = con.hget(format!("channel:{}:settings", &channel), "pubg:token");
+                    let res2: Result<String,_> = con.hget(format!("channel:{}:settings", &channel), "pubg:name");
+                    if let (Ok(token), Ok(name)) = (res1, res2) {
+                        let platform: String = con.hget(format!("channel:{}:settings", &channel), "pubg:platform").unwrap_or("steam".to_owned());
+                        let res: Result<String,_> = con.hget(format!("channel:{}:settings", &channel), "pubg:id");
+                        let mut id: String = "".to_owned();
+                        if let Ok(v) = res {
+                            id = v;
+                        } else {
+                            let res = pubg_request(con.clone(), &channel, CallBuilder::get(), &format!("https://api.pubg.com/shards/{}/players?filter%5BplayerNames%5D={}", platform, name));
+                            match res {
+                                Err(e) => { error!("{}",e); },
+                                Ok((meta,body)) => {
+                                    let json: Result<PubgPlayers,_> = serde_json::from_str(&body);
+                                    match json {
+                                        Err(e) => {
+                                            error!("[update_pubg] {}", e);
+                                            error!("[request_body] {}", body);
+                                        }
+                                        Ok(json) => {
+                                            if json.data.len() > 0 {
+                                                let _: () = con.hset(format!("channel:{}:settings", &channel), "pubg:id", &json.data[0].id).unwrap();
+                                                id = json.data[0].id.to_owned();
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
-                    }
-                    if !id.is_empty() {
-                        let mut cursor: String = con.hget(format!("channel:{}:stats:pubg", &channel_pubg), "cursor").unwrap_or("".to_owned());
-                        let res = pubg_request(con.clone(), &channel, CallBuilder::get(), &format!("https://api.pubg.com/shards/{}/players/{}", platform, id));
-                        match res {
-                            Err(e) => { error!("{}",e); },
-                            Ok((meta,body)) => {
-                                let json: Result<PubgPlayer,_> = serde_json::from_str(&body);
-                                match json {
-                                    Err(e) => {
-                                        error!("[update_pubg] {}", e);
-                                        error!("[request_body] {}", body);
-                                    }
-                                    Ok(json) => {
-                                        if json.data.relationships.matches.data.len() > 0 {
-                                            if cursor == "" { cursor = json.data.relationships.matches.data[0].id.to_owned() }
-                                            let _: () = con.hset(format!("channel:{}:stats:pubg", &channel_pubg), "cursor", &json.data.relationships.matches.data[0].id).unwrap();
-                                            for match_ in json.data.relationships.matches.data.iter() {
-                                                if match_.id == cursor { break }
-                                                else {
-                                                    let res = pubg_request(con.clone(), &channel, CallBuilder::get(), &format!("https://api.pubg.com/shards/pc-na/matches/{}", &match_.id));
-                                                    match res {
-                                                        Err(e) => { error!("{}",e); },
-                                                        Ok((meta,body)) => {
-                                                            let json: Result<PubgMatch,_> = serde_json::from_str(&body);
-                                                            match json {
-                                                                Err(e) => {
-                                                                    error!("[update_pubg] {}", e);
-                                                                    error!("[request_body] {}", body);
-                                                                }
-                                                                Ok(json) => {
-                                                                    for p in json.included.iter().filter(|i| i.type_ == "participant") {
-                                                                        if p.attributes["stats"]["playerId"] == id {
-                                                                            for stat in ["winPlace", "kills", "headshotKills", "roadKills", "teamKills", "damageDealt", "vehicleDestroys"].iter() {
-                                                                                if let Number(num) = &p.attributes["stats"][stat] {
-                                                                                    if let Some(num) = num.as_f64() {
-                                                                                        let mut statname: String = (*stat).to_owned();
-                                                                                        if *stat == "winPlace" { statname = "wins".to_owned() }
-                                                                                        let res: Result<String,_> = con.hget(format!("channel:{}:stats:pubg", &channel_pubg), &statname);
-                                                                                        if let Ok(old) = res {
-                                                                                            let n: u64 = old.parse().unwrap();
-                                                                                            if *stat == "winPlace" {
-                                                                                                if num as u64 == 1 {
-                                                                                                    let _: () = con.hset(format!("channel:{}:stats:pubg", &channel_pubg), &statname, n + 1).unwrap();
+                        if !id.is_empty() {
+                            let mut cursor: String = con.hget(format!("channel:{}:stats:pubg", &channel), "cursor").unwrap_or("".to_owned());
+                            let res = pubg_request(con.clone(), &channel, CallBuilder::get(), &format!("https://api.pubg.com/shards/{}/players/{}", platform, id));
+                            match res {
+                                Err(e) => { error!("{}",e); },
+                                Ok((meta,body)) => {
+                                    let json: Result<PubgPlayer,_> = serde_json::from_str(&body);
+                                    match json {
+                                        Err(e) => {
+                                            error!("[update_pubg] {}", e);
+                                            error!("[request_body] {}", body);
+                                        }
+                                        Ok(json) => {
+                                            if json.data.relationships.matches.data.len() > 0 {
+                                                if cursor == "" { cursor = json.data.relationships.matches.data[0].id.to_owned() }
+                                                let _: () = con.hset(format!("channel:{}:stats:pubg", &channel), "cursor", &json.data.relationships.matches.data[0].id).unwrap();
+                                                for match_ in json.data.relationships.matches.data.iter() {
+                                                    if match_.id == cursor { break }
+                                                    else {
+                                                        let res = pubg_request(con.clone(), &channel, CallBuilder::get(), &format!("https://api.pubg.com/shards/pc-na/matches/{}", &match_.id));
+                                                        match res {
+                                                            Err(e) => { error!("{}",e); },
+                                                            Ok((meta,body)) => {
+                                                                let json: Result<PubgMatch,_> = serde_json::from_str(&body);
+                                                                match json {
+                                                                    Err(e) => {
+                                                                        error!("[update_pubg] {}", e);
+                                                                        error!("[request_body] {}", body);
+                                                                    }
+                                                                    Ok(json) => {
+                                                                        for p in json.included.iter().filter(|i| i.type_ == "participant") {
+                                                                            if p.attributes["stats"]["playerId"] == id {
+                                                                                for stat in ["winPlace", "kills", "headshotKills", "roadKills", "teamKills", "damageDealt", "vehicleDestroys"].iter() {
+                                                                                    if let Number(num) = &p.attributes["stats"][stat] {
+                                                                                        if let Some(num) = num.as_f64() {
+                                                                                            let mut statname: String = (*stat).to_owned();
+                                                                                            if *stat == "winPlace" { statname = "wins".to_owned() }
+                                                                                            let res: Result<String,_> = con.hget(format!("channel:{}:stats:pubg", &channel), &statname);
+                                                                                            if let Ok(old) = res {
+                                                                                                let n: u64 = old.parse().unwrap();
+                                                                                                if *stat == "winPlace" {
+                                                                                                    if num as u64 == 1 {
+                                                                                                        let _: () = con.hset(format!("channel:{}:stats:pubg", &channel), &statname, n + 1).unwrap();
+                                                                                                    }
+                                                                                                } else {
+                                                                                                    let _: () = con.hset(format!("channel:{}:stats:pubg", &channel), &statname, n + (num as u64)).unwrap();
                                                                                                 }
                                                                                             } else {
-                                                                                                let _: () = con.hset(format!("channel:{}:stats:pubg", &channel_pubg), &statname, n + (num as u64)).unwrap();
-                                                                                            }
-                                                                                        } else {
-                                                                                            if *stat == "winPlace" {
-                                                                                                if num as u64 == 1 {
-                                                                                                    let _: () = con.hset(format!("channel:{}:stats:pubg", &channel_pubg), &statname, 1).unwrap();
+                                                                                                if *stat == "winPlace" {
+                                                                                                    if num as u64 == 1 {
+                                                                                                        let _: () = con.hset(format!("channel:{}:stats:pubg", &channel), &statname, 1).unwrap();
+                                                                                                    }
+                                                                                                } else {
+                                                                                                    let _: () = con.hset(format!("channel:{}:stats:pubg", &channel), &statname, num as u64).unwrap();
                                                                                                 }
-                                                                                            } else {
-                                                                                                let _: () = con.hset(format!("channel:{}:stats:pubg", &channel_pubg), &statname, num as u64).unwrap();
                                                                                             }
                                                                                         }
                                                                                     }
@@ -765,6 +768,7 @@ fn update_stats(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: S
                         }
                     }
                 }
+                thread::sleep(time::Duration::from_secs(2));
             }
             thread::sleep(time::Duration::from_secs(60));
         }
@@ -774,56 +778,59 @@ fn update_stats(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: S
     thread::spawn(move || {
         let con = Arc::new(con_fort);
         loop {
-            let reset: String = con.hget(format!("channel:{}:stats:fortnite", &channel_fort), "reset").unwrap_or("false".to_owned());
-            let res: Result<String,_> = con.hget(format!("channel:{}:settings", &channel_fort), "stats:reset");
-            if let Ok(hour) = res {
-                let num: Result<u32,_> = hour.parse();
-                if let Ok(hour) = num {
-                    if hour == Utc::now().time().hour() && reset == "true" {
-                        let _: () = con.del(format!("channel:{}:stats:fortnite", &channel_fort)).unwrap();
-                    } else if hour != Utc::now().time().hour() && reset == "false" {
-                        let _: () = con.hset(format!("channel:{}:stats:fortnite", &channel_fort), "reset", true).unwrap();
+            let channels: Vec<String> = con.smembers("channels").unwrap_or(Vec::new());
+            for channel in channels {
+                let reset: String = con.hget(format!("channel:{}:stats:fortnite", &channel), "reset").unwrap_or("false".to_owned());
+                let res: Result<String,_> = con.hget(format!("channel:{}:settings", &channel), "stats:reset");
+                if let Ok(hour) = res {
+                    let num: Result<u32,_> = hour.parse();
+                    if let Ok(hour) = num {
+                        if hour == Utc::now().time().hour() && reset == "true" {
+                            let _: () = con.del(format!("channel:{}:stats:fortnite", &channel)).unwrap();
+                        } else if hour != Utc::now().time().hour() && reset == "false" {
+                            let _: () = con.hset(format!("channel:{}:stats:fortnite", &channel), "reset", true).unwrap();
+                        }
                     }
                 }
-            }
-            let live: String = con.get(format!("channel:{}:live", &channel_fort)).expect("get:live");
-            if live == "true" {
-                let res1: Result<String,_> = con.hget(format!("channel:{}:settings", &channel_fort), "fortnite:token");
-                let res2: Result<String,_> = con.hget(format!("channel:{}:settings", &channel_fort), "fortnite:name");
-                if let (Ok(token), Ok(name)) = (res1, res2) {
-                    let platform: String = con.hget(format!("channel:{}:settings", &channel_fort), "pubg:platform").unwrap_or("pc".to_owned());
-                    let mut cursor: String = con.hget(format!("channel:{}:stats:fortnite", &channel_fort), "cursor").unwrap_or("".to_owned());
-                    let res = fortnite_request(con.clone(), &channel_fort, CallBuilder::get(), &format!("https://api.fortnitetracker.com/v1/profile/{}/{}", platform, name));
-                    match res {
-                        Err(e) => { error!("{}",e); },
-                        Ok((meta,body)) => {
-                            let json: Result<FortniteApi,_> = serde_json::from_str(&body);
-                            match json {
-                                Err(e) => {
-                                    error!("[update_fortnite] {}", e);
-                                    error!("[request_body] {}", body);
-                                }
-                                Ok(json) => {
-                                    if json.recentMatches.len() > 0 {
-                                        if cursor == "" { cursor = json.recentMatches[0].id.to_string() }
-                                        let _: () = con.hset(format!("channel:{}:stats:fortnite", &channel_fort), "cursor", &json.recentMatches[0].id.to_string()).unwrap();
-                                        for match_ in json.recentMatches.iter() {
-                                            if match_.id.to_string() == cursor { break }
-                                            else {
-                                                let res: Result<String,_> = con.hget(format!("channel:{}:stats:fortnite", &channel_fort), "wins");
-                                                if let Ok(old) = res {
-                                                    let n: u64 = old.parse().unwrap();
-                                                    let _: () = con.hset(format!("channel:{}:stats:fortnite", &channel_fort), "wins", n + (match_.top1 as u64)).unwrap();
-                                                } else {
-                                                    let _: () = con.hset(format!("channel:{}:stats:fortnite", &channel_fort), "wins", match_.top1 as u64).unwrap();
-                                                }
+                let live: String = con.get(format!("channel:{}:live", &channel)).expect("get:live");
+                if live == "true" {
+                    let res1: Result<String,_> = con.hget(format!("channel:{}:settings", &channel), "fortnite:token");
+                    let res2: Result<String,_> = con.hget(format!("channel:{}:settings", &channel), "fortnite:name");
+                    if let (Ok(token), Ok(name)) = (res1, res2) {
+                        let platform: String = con.hget(format!("channel:{}:settings", &channel), "pubg:platform").unwrap_or("pc".to_owned());
+                        let mut cursor: String = con.hget(format!("channel:{}:stats:fortnite", &channel), "cursor").unwrap_or("".to_owned());
+                        let res = fortnite_request(con.clone(), &channel, CallBuilder::get(), &format!("https://api.fortnitetracker.com/v1/profile/{}/{}", platform, name));
+                        match res {
+                            Err(e) => { error!("{}",e); },
+                            Ok((meta,body)) => {
+                                let json: Result<FortniteApi,_> = serde_json::from_str(&body);
+                                match json {
+                                    Err(e) => {
+                                        error!("[update_fortnite] {}", e);
+                                        error!("[request_body] {}", body);
+                                    }
+                                    Ok(json) => {
+                                        if json.recentMatches.len() > 0 {
+                                            if cursor == "" { cursor = json.recentMatches[0].id.to_string() }
+                                            let _: () = con.hset(format!("channel:{}:stats:fortnite", &channel), "cursor", &json.recentMatches[0].id.to_string()).unwrap();
+                                            for match_ in json.recentMatches.iter() {
+                                                if match_.id.to_string() == cursor { break }
+                                                else {
+                                                    let res: Result<String,_> = con.hget(format!("channel:{}:stats:fortnite", &channel), "wins");
+                                                    if let Ok(old) = res {
+                                                        let n: u64 = old.parse().unwrap();
+                                                        let _: () = con.hset(format!("channel:{}:stats:fortnite", &channel), "wins", n + (match_.top1 as u64)).unwrap();
+                                                    } else {
+                                                        let _: () = con.hset(format!("channel:{}:stats:fortnite", &channel), "wins", match_.top1 as u64).unwrap();
+                                                    }
 
-                                                let res: Result<String,_> = con.hget(format!("channel:{}:stats:fortnite", &channel_fort), "kills");
-                                                if let Ok(old) = res {
-                                                    let n: u64 = old.parse().unwrap();
-                                                    let _: () = con.hset(format!("channel:{}:stats:fortnite", &channel_fort), "kills", n + (match_.kills as u64)).unwrap();
-                                                } else {
-                                                    let _: () = con.hset(format!("channel:{}:stats:fortnite", &channel_fort), "kills", match_.kills as u64).unwrap();
+                                                    let res: Result<String,_> = con.hget(format!("channel:{}:stats:fortnite", &channel), "kills");
+                                                    if let Ok(old) = res {
+                                                        let n: u64 = old.parse().unwrap();
+                                                        let _: () = con.hset(format!("channel:{}:stats:fortnite", &channel), "kills", n + (match_.kills as u64)).unwrap();
+                                                    } else {
+                                                        let _: () = con.hset(format!("channel:{}:stats:fortnite", &channel), "kills", match_.kills as u64).unwrap();
+                                                    }
                                                 }
                                             }
                                         }
@@ -833,6 +840,7 @@ fn update_stats(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: S
                         }
                     }
                 }
+                thread::sleep(time::Duration::from_secs(2));
             }
             thread::sleep(time::Duration::from_secs(60));
         }
