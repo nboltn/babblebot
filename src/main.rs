@@ -106,14 +106,12 @@ fn main() {
 fn run_reactor(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, bots: HashMap<String, (HashSet<String>, Config)>) {
     let con = Arc::new(pool.get().unwrap());
     loop {
-        let mut success = true;
-        let mut reactor = IrcReactor::new().unwrap();
         let mut senders: HashMap<String, Vec<Sender<ThreadAction>>> = HashMap::new();
-        bots.iter().for_each(|(_bot, channels)| {
-            let client = reactor.prepare_client_and_connect(&channels.1);
-            match client {
-                Err(_) => { success = false },
-                Ok(client) => {
+        let mut success = true;
+        if let Ok(mut reactor) = IrcReactor::new() {
+            bots.iter().for_each(|(_bot, channels)| {
+                let client = reactor.prepare_client_and_connect(&channels.1);
+                if let Ok(client) = client {
                     let client = Arc::new(client);
                     let _ = client.identify();
                     let _ = client.send("CAP REQ :twitch.tv/tags");
@@ -130,26 +128,27 @@ fn run_reactor(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, bots: HashM
                         command_listener(pool.clone(), client.clone(), channel.to_owned(), receiver4);
                     }
                 }
-            }
-        });
-        if success {
-            let res = reactor.run();
-            match res {
-                Ok(_) => break,
-                Err(e) => {
-                    error!("[run_reactor] {}", e);
-                    bots.iter().for_each(|(_bot, channels)| {
-                        for channel in channels.0.iter() {
-                            if let Some(senders) = senders.get(channel) {
-                                for sender in senders {
-                                    let _ = sender.send(ThreadAction::Kill);
+            });
+            if success {
+                let res = reactor.run();
+                match res {
+                    Ok(_) => break,
+                    Err(e) => {
+                        error!("[run_reactor] {}", e);
+                        bots.iter().for_each(|(_bot, channels)| {
+                            for channel in channels.0.iter() {
+                                if let Some(senders) = senders.get(channel) {
+                                    for sender in senders {
+                                        let _ = sender.send(ThreadAction::Kill);
+                                    }
                                 }
                             }
-                        }
-                    });
+                        });
+                    }
                 }
             }
         }
+        time::Duration::from_secs(20);
     }
 }
 
