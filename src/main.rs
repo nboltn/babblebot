@@ -159,6 +159,7 @@ fn new_channel_listener(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
     ps.subscribe("new_channels").unwrap();
 
     loop {
+        let clone = pool.clone();
         let msg = ps.get_message().unwrap();
         let channel: String = msg.get_payload().unwrap();
         let mut bots: HashMap<String, (HashSet<String>, Config)> = HashMap::new();
@@ -180,7 +181,7 @@ fn new_channel_listener(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
         for channel in channel_hash.iter() {
             discord_handler(pool.clone(), channel.to_owned());
         }
-        run_reactor(pool.clone(), bots);
+        thread::spawn(move || { run_reactor(clone, bots); });
     }
 }
 
@@ -191,54 +192,57 @@ fn rename_channel_listener(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>,
         let mut ps = conn.as_pubsub();
         ps.subscribe(format!("channel:{}:signals:rename", channel)).unwrap();
 
-        let msg = ps.get_message().unwrap();
-        let token: String = msg.get_payload().unwrap();
+        loop {
+            let clone = pool.clone();
+            let msg = ps.get_message().unwrap();
+            let token: String = msg.get_payload().unwrap();
 
-        let mut get = CallBuilder::get();
-        let mut builder = get.timeout_ms(5000).url("https://api.twitch.tv/helix/users").unwrap().header("Authorization", &format!("Bearer {}", &token));
-        match builder.exec() {
-            Err(e) => { error!("{}",e); }
-            Ok((meta, body)) => {
-                let res = std::str::from_utf8(&body);
-                match res {
-                    Err(e) => { error!("{}",e); },
-                    Ok(body) => {
-                        let json: Result<HelixUsers,_> = serde_json::from_str(&body);
-                        match json {
-                            Err(e) => {
-                                error!("[rename_channel_listener] {}", e);
-                                error!("[request_body] {}", body);
-                            }
-                            Ok(json) => {
-                                if let Some(senders) = senders.get(&channel) {
-                                    for sender in senders {
-                                        let _ = sender.send(ThreadAction::Kill);
-                                    }
+            let mut get = CallBuilder::get();
+            let mut builder = get.timeout_ms(5000).url("https://api.twitch.tv/helix/users").unwrap().header("Authorization", &format!("Bearer {}", &token));
+            match builder.exec() {
+                Err(e) => { error!("{}",e); }
+                Ok((meta, body)) => {
+                    let res = std::str::from_utf8(&body);
+                    match res {
+                        Err(e) => { error!("{}",e); },
+                        Ok(body) => {
+                            let json: Result<HelixUsers,_> = serde_json::from_str(&body);
+                            match json {
+                                Err(e) => {
+                                    error!("[rename_channel_listener] {}", e);
+                                    error!("[request_body] {}", body);
                                 }
-                                let _ = client.send_quit("");
+                                Ok(json) => {
+                                    if let Some(senders) = senders.get(&channel) {
+                                        for sender in senders {
+                                            let _ = sender.send(ThreadAction::Kill);
+                                        }
+                                    }
+                                    let _ = client.send_quit("");
 
-                                let bot: String = con.get(format!("channel:{}:bot", &channel)).expect("get:bot");
-                                let _: () = con.srem(format!("bot:{}:channels", &bot), &channel).unwrap();
-                                let _: () = con.sadd("bots", &json.data[0].login).unwrap();
-                                let _: () = con.sadd(format!("bot:{}:channels", &json.data[0].login), &channel).unwrap();
-                                let _: () = con.set(format!("bot:{}:token", &json.data[0].login), &token).unwrap();
-                                let _: () = con.set(format!("channel:{}:bot", &channel), &json.data[0].login).unwrap();
+                                    let bot: String = con.get(format!("channel:{}:bot", &channel)).expect("get:bot");
+                                    let _: () = con.srem(format!("bot:{}:channels", &bot), &channel).unwrap();
+                                    let _: () = con.sadd("bots", &json.data[0].login).unwrap();
+                                    let _: () = con.sadd(format!("bot:{}:channels", &json.data[0].login), &channel).unwrap();
+                                    let _: () = con.set(format!("bot:{}:token", &json.data[0].login), &token).unwrap();
+                                    let _: () = con.set(format!("channel:{}:bot", &channel), &json.data[0].login).unwrap();
 
-                                let mut bots: HashMap<String, (HashSet<String>, Config)> = HashMap::new();
-                                let mut channel_hash: HashSet<String> = HashSet::new();
-                                let mut channels: Vec<String> = Vec::new();
-                                channel_hash.insert(channel.to_owned());
-                                channels.extend(channel_hash.iter().cloned().map(|chan| { format!("#{}", chan) }));
-                                let config = Config {
-                                    server: Some("irc.chat.twitch.tv".to_owned()),
-                                    use_ssl: Some(true),
-                                    nickname: Some(bot.to_owned()),
-                                    password: Some(format!("oauth:{}", token)),
-                                    channels: Some(channels),
-                                    ..Default::default()
-                                };
-                                bots.insert(bot.to_owned(), (channel_hash.clone(), config));
-                                run_reactor(pool.clone(), bots);
+                                    let mut bots: HashMap<String, (HashSet<String>, Config)> = HashMap::new();
+                                    let mut channel_hash: HashSet<String> = HashSet::new();
+                                    let mut channels: Vec<String> = Vec::new();
+                                    channel_hash.insert(channel.to_owned());
+                                    channels.extend(channel_hash.iter().cloned().map(|chan| { format!("#{}", chan) }));
+                                    let config = Config {
+                                        server: Some("irc.chat.twitch.tv".to_owned()),
+                                        use_ssl: Some(true),
+                                        nickname: Some(bot.to_owned()),
+                                        password: Some(format!("oauth:{}", token)),
+                                        channels: Some(channels),
+                                        ..Default::default()
+                                    };
+                                    bots.insert(bot.to_owned(), (channel_hash.clone(), config));
+                                    thread::spawn(move || { run_reactor(clone, bots); });
+                                }
                             }
                         }
                     }
@@ -848,17 +852,51 @@ fn update_stats(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
 
 fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: String, receivers: Vec<Receiver<ThreadAction>>) {
     let notice_con = pool.get().unwrap();
+    let snotice_con = pool.get().unwrap();
     let so_con = pool.get().unwrap();
     let comm_con = pool.get().unwrap();
     let notice_client = client.clone();
+    let snotice_client = client.clone();
     let so_client = client.clone();
     let comm_client = client.clone();
     let notice_channel = channel.clone();
+    let snotice_channel = channel.clone();
     let so_channel = channel.clone();
     let comm_channel = channel.clone();
     let notice_receiver = receivers[0].clone();
-    let so_receiver = receivers[1].clone();
-    let comm_receiver = receivers[2].clone();
+    let snotice_receiver = receivers[1].clone();
+    let so_receiver = receivers[2].clone();
+    let comm_receiver = receivers[3].clone();
+
+    // scheduled notices
+    thread::spawn(move || {
+        let con = Arc::new(snotice_con);
+        loop {
+            let rsp = snotice_receiver.recv_timeout(time::Duration::from_secs(60));
+            match rsp {
+                Ok(action) => {
+                    match action {
+                        ThreadAction::Kill => break
+                    }
+                }
+                Err(err) => {
+                    match err {
+                        RecvTimeoutError::Disconnected => break,
+                        RecvTimeoutError::Timeout => {}
+                    }
+                }
+            }
+
+            let live: String = con.get(format!("channel:{}:live", snotice_channel)).expect("get:live");
+            if live == "true" {
+                let keys: Vec<String> = con.keys(format!("channel:{}:snotices:*", snotice_channel)).unwrap();
+                keys.iter().for_each(|key| {
+                    // Utc::now().time().hour()
+                    // send_parsed_message(con.clone(), &notice_client, &notice_channel, message, &Vec::new(), None);
+                });
+            }
+        }
+    });
 
     // notices
     thread::spawn(move || {
