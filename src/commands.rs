@@ -995,7 +995,7 @@ fn songreq_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManage
                     }
                 }
                 _ => {
-                    let rgx = Regex::new("^[a-zA-Z0-9]+$").unwrap();
+                    let rgx = Regex::new("^[\-_a-zA-Z0-9]+$").unwrap();
                     if rgx.is_match(&args[0]) {
                         let res = twitch_helix_request(con.clone(), channel, "", CallBuilder::get(), &format!("https://www.youtube.com/oembed?format=json&url=https://youtube.com/watch?v={}", args[0]));
                         match res {
