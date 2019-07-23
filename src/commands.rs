@@ -1003,7 +1003,7 @@ fn songreq_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManage
                             Ok((meta,body)) => {
                                 if meta.status == 200 {
                                     let mut exists = false;
-                                    let entries: Vec<String> = con.lrange(format!("channel:{}:songreqs", channel), 0, -1).unwrap();
+                                    let entries: Vec<String> = con.lrange(format!("channel:{}:songreqs", channel), 1, -1).unwrap();
                                     for key in entries.iter() {
                                         let entry: String = con.hget(format!("channel:{}:songreqs:{}", channel, key), "nick").expect("hget:nick");
                                         if entry == nick {
