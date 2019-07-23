@@ -122,10 +122,11 @@ fn run_reactor(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, bots: HashM
                         let (sender2, receiver2) = unbounded();
                         let (sender3, receiver3) = unbounded();
                         let (sender4, receiver4) = unbounded();
+                        let (sender5, receiver5) = unbounded();
                         senders.insert(channel.to_owned(), [sender1,sender2,sender3,sender4].to_vec());
                         spawn_timers(client.clone(), pool.clone(), channel.to_owned(), [receiver1,receiver2,receiver3,receiver4].to_vec());
                         rename_channel_listener(pool.clone(), client.clone(), channel.to_owned(), senders.clone());
-                        command_listener(pool.clone(), client.clone(), channel.to_owned(), receiver4);
+                        command_listener(pool.clone(), client.clone(), channel.to_owned(), receiver5);
                     }
                 }
             });
