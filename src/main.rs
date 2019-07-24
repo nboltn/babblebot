@@ -889,11 +889,17 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
             }
 
             let live: String = con.get(format!("channel:{}:live", snotice_channel)).expect("get:live");
-            if live == "true" {
+            if live == "false" {
                 let keys: Vec<String> = con.keys(format!("channel:{}:snotices:*", snotice_channel)).unwrap();
                 keys.iter().for_each(|key| {
-                    // Utc::now().time().hour()
-                    // send_parsed_message(con.clone(), &notice_client, &notice_channel, message, &Vec::new(), None);
+                    let time: String = con.hget(key, "time").expect("hget:time");
+                    let message: String = con.hget(key, "message").expect("hget:message");
+                    let dt = DateTime::parse_from_str(&format!("2000-01-01T{}", time), "%Y-%m-%dT%H:%M%z").unwrap();
+                    let hour = dt.naive_utc().hour();
+                    let min = dt.naive_utc().minute();
+                    if hour == Utc::now().time().hour() && min == Utc::now().time().minute() {
+                        send_parsed_message(con.clone(), &snotice_client, &snotice_channel, message, &Vec::new(), None);
+                    }
                 });
             }
         }
