@@ -156,35 +156,26 @@ fn followage_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMana
             Ok((meta,body)) => {
                 let json: Result<KrakenUsers,_> = serde_json::from_str(&body);
                 match json {
-                    Err(e) => { "0m".to_owned() }
+                    Err(e) => { error!("{}",e);"0m".to_owned() }
                     Ok(json) => {
                         if json.total > 0 {
                             let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
-                            let mut get = CallBuilder::get();
-                            let mut builder = get.timeout_ms(5000).host("api.twitch.tv").path_segms(&["kraken","users",&json.users[0].id,"follows","channels",&id]).query("login", &get_nick(message));
-                            twitch_kraken_headers(con.clone(), channel, "", builder);
-
-                            match builder.exec() {
+                            let res = twitch_kraken_request(con.clone(), channel, "", CallBuilder::get(), &format!("https://api.twitch.tv/kraken/users/{}/follows/channels/{}", &json.users[0].id, &id));
+                            match res {
                                 Err(e) => { error!("{}",e);"0m".to_owned() }
                                 Ok((meta, body)) => {
-                                    let res = std::str::from_utf8(&body);
-                                    match res {
-                                        Err(_) => { "0m".to_owned() },
-                                        Ok(body) => {
-                                            let json: Result<KrakenFollow,_> = serde_json::from_str(&body);
-                                            match json {
-                                                Err(e) => { "0m".to_owned() }
-                                                Ok(json) => {
-                                                    let timestamp = DateTime::parse_from_rfc3339(&json.created_at).unwrap();
-                                                    let diff = Utc::now().signed_duration_since(timestamp);
-                                                    let formatted = format_duration(diff.to_std().unwrap()).to_string();
-                                                    let formatted: Vec<&str> = formatted.split_whitespace().collect();
-                                                    if formatted.len() == 1 {
-                                                        return format!("{}", formatted[0]);
-                                                    } else {
-                                                        return format!("{} and {}", formatted[0], formatted[1]);
-                                                    }
-                                                }
+                                    let json: Result<KrakenFollow,_> = serde_json::from_str(&body);
+                                    match json {
+                                        Err(e) => { error!("{}",e);"0m".to_owned() }
+                                        Ok(json) => {
+                                            let timestamp = DateTime::parse_from_rfc3339(&json.created_at).unwrap();
+                                            let diff = Utc::now().signed_duration_since(timestamp);
+                                            let formatted = format_duration(diff.to_std().unwrap()).to_string();
+                                            let formatted: Vec<&str> = formatted.split_whitespace().collect();
+                                            if formatted.len() == 1 {
+                                                return format!("{}", formatted[0]);
+                                            } else {
+                                                return format!("{} and {}", formatted[0], formatted[1]);
                                             }
                                         }
                                     }
