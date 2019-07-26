@@ -32,7 +32,7 @@ pub fn send_parsed_message(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConn
 }
 
 pub fn request(mut method: CallBuilder, url: &str) -> Result<(mio_httpc::Response, String), String> {
-    let mut builder = method.timeout_ms(10000).url(url).unwrap();
+    let mut builder = method.url(url).unwrap();
 
     match builder.exec() {
         Err(e) => { error!("[{}] {}",url,e); Err(e.to_string()) }
@@ -47,7 +47,7 @@ pub fn request(mut method: CallBuilder, url: &str) -> Result<(mio_httpc::Respons
 }
 
 pub fn twitch_kraken_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, content: &str, mut method: CallBuilder, url: &str) -> Result<(mio_httpc::Response, String), String> {
-    let mut builder = method.timeout_ms(10000).url(url).unwrap();
+    let mut builder = method.url(url).unwrap();
     twitch_kraken_headers(con.clone(), channel, content, builder);
 
     match builder.exec() {
@@ -63,7 +63,7 @@ pub fn twitch_kraken_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisCo
 }
 
 pub fn twitch_helix_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, content: &str, mut method: CallBuilder, url: &str) -> Result<(mio_httpc::Response, String), String> {
-    let mut builder = method.timeout_ms(10000).url(url).unwrap();
+    let mut builder = method.url(url).unwrap();
     twitch_helix_headers(con.clone(), channel, content, builder);
 
     match builder.exec() {
@@ -106,7 +106,7 @@ pub fn twitch_helix_headers(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisCon
 
 pub fn spotify_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, mut method: CallBuilder, url: &str) -> Result<(mio_httpc::Response, String), String> {
     let token: String = con.hget(format!("channel:{}:settings", channel), "spotify:token").unwrap_or("".to_owned());
-    let mut builder = method.timeout_ms(10000).url(url).unwrap();
+    let mut builder = method.url(url).unwrap();
     builder
       .header("Accept", "application/vnd.api+json")
       .header("Authorization", &format!("Bearer {}", token));
@@ -125,7 +125,7 @@ pub fn spotify_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnecti
 
 pub fn discord_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, mut method: CallBuilder, url: &str) -> Result<(mio_httpc::Response, String), String> {
     let token: String = con.hget(format!("channel:{}:settings", channel), "discord:token").unwrap_or("".to_owned());
-    let mut builder = method.timeout_ms(10000).url(url).unwrap();
+    let mut builder = method.url(url).unwrap();
     builder.header("Authorization", &format!("Bot {}", token))
       .header("User-Agent", "Babblebot (https://gitlab.com/toovs/babblebot, 0.1")
       .header("Content-Type", "application/json");
@@ -144,7 +144,7 @@ pub fn discord_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnecti
 
 pub fn fortnite_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, mut method: CallBuilder, url: &str) -> Result<(mio_httpc::Response, String), String> {
     let token: String = con.hget(format!("channel:{}:settings", channel), "fortnite:token").unwrap_or("".to_owned());
-    let mut builder = method.timeout_ms(10000).url(url).unwrap();
+    let mut builder = method.url(url).unwrap();
     builder
       .header("Accept", "application/vnd.api+json")
       .header("TRN-Api-Key", &token);
@@ -163,7 +163,7 @@ pub fn fortnite_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnect
 
 pub fn pubg_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, mut method: CallBuilder, url: &str) -> Result<(mio_httpc::Response, String), String> {
     let token: String = con.hget(format!("channel:{}:settings", channel), "pubg:token").unwrap_or("".to_owned());
-    let mut builder = method.timeout_ms(10000).url(url).unwrap();
+    let mut builder = method.url(url).unwrap();
     builder
       .header("Authorization", &format!("Bearer {}", token))
       .header("Accept", "application/vnd.api+json");
