@@ -31,7 +31,7 @@ pub fn send_parsed_message(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConn
     let _ = client.send_privmsg(format!("#{}", channel), message);
 }
 
-pub fn request(method: &str, body: Vec<u8>, url: &str) -> Result<(mio_httpc::Response, String), String> {
+pub fn request(method: &str, body: Vec<u8>, url: &str, retry: u8) -> Result<(mio_httpc::Response, String), String> {
     let bod = body.clone();
     let mut builder = CallBuilder::new();
     let res = builder.method(method).body(body).timeout_ms(5000).url(url);
@@ -39,7 +39,13 @@ pub fn request(method: &str, body: Vec<u8>, url: &str) -> Result<(mio_httpc::Res
         match builder.exec() {
             Err(e) => {
                 match e {
-                    mio_httpc::Error::TimeOut => { request(method, bod, url) }
+                    mio_httpc::Error::TimeOut => {
+                        if retry < 5 {
+                            request(method, bod, url, retry+1)
+                        } else {
+                            error!("[{}] {}",url,"too many retries"); Err("too many retries".to_owned())
+                        }
+                    }
                     _ => { error!("[{}] {}",url,e); Err(e.to_string()) }
                 }
             }
@@ -54,7 +60,7 @@ pub fn request(method: &str, body: Vec<u8>, url: &str) -> Result<(mio_httpc::Res
     } else { error!("[{}] {}",url,"cannot unwrap url"); Err("cannot unwrap url".to_owned()) }
 }
 
-pub fn twitch_kraken_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, content: &str, method: &str, body: Vec<u8>, url: &str) -> Result<(mio_httpc::Response, String), String> {
+pub fn twitch_kraken_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, content: &str, method: &str, body: Vec<u8>, url: &str, retry: u8) -> Result<(mio_httpc::Response, String), String> {
     let bod = body.clone();
     let mut builder = CallBuilder::new();
     let res = builder.method(method).body(body).timeout_ms(5000).url(url);
@@ -64,7 +70,13 @@ pub fn twitch_kraken_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisCo
         match builder.exec() {
             Err(e) => {
                 match e {
-                    mio_httpc::Error::TimeOut => { twitch_kraken_request(con.clone(), channel, content, method, bod, url) }
+                    mio_httpc::Error::TimeOut => {
+                        if retry < 5 {
+                            twitch_kraken_request(con.clone(), channel, content, method, bod, url, retry+1)
+                        } else {
+                            error!("[{}] {}",url,"too many retries"); Err("too many retries".to_owned())
+                        }
+                    }
                     _ => { error!("[{}] {}",url,e); Err(e.to_string()) }
                 }
             }
@@ -79,7 +91,7 @@ pub fn twitch_kraken_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisCo
     } else { error!("[{}] {}",url,"cannot unwrap url"); Err("cannot unwrap url".to_owned()) }
 }
 
-pub fn twitch_helix_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, content: &str, method: &str, body: Vec<u8>, url: &str) -> Result<(mio_httpc::Response, String), String> {
+pub fn twitch_helix_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, content: &str, method: &str, body: Vec<u8>, url: &str, retry: u8) -> Result<(mio_httpc::Response, String), String> {
     let bod = body.clone();
     let mut builder = CallBuilder::new();
     let res = builder.method(method).body(body).timeout_ms(5000).url(url);
@@ -89,7 +101,13 @@ pub fn twitch_helix_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisCon
         match builder.exec() {
             Err(e) => {
                 match e {
-                    mio_httpc::Error::TimeOut => { twitch_helix_request(con.clone(), channel, content, method, bod, url) }
+                    mio_httpc::Error::TimeOut => {
+                        if retry < 5 {
+                            twitch_helix_request(con.clone(), channel, content, method, bod, url, retry+1)
+                        } else {
+                            error!("[{}] {}",url,"too many retries"); Err("too many retries".to_owned())
+                        }
+                    }
                     _ => { error!("[{}] {}",url,e); Err(e.to_string()) }
                 }
             }
@@ -130,7 +148,7 @@ pub fn twitch_helix_headers(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisCon
       .header("Content-Type", content);
 }
 
-pub fn spotify_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, method: &str, body: Vec<u8>, url: &str) -> Result<(mio_httpc::Response, String), String> {
+pub fn spotify_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, method: &str, body: Vec<u8>, url: &str, retry: u8) -> Result<(mio_httpc::Response, String), String> {
     let token: String = con.hget(format!("channel:{}:settings", channel), "spotify:token").unwrap_or("".to_owned());
     let bod = body.clone();
     let mut builder = CallBuilder::new();
@@ -143,7 +161,13 @@ pub fn spotify_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnecti
         match builder.exec() {
             Err(e) => {
                 match e {
-                    mio_httpc::Error::TimeOut => { spotify_request(con, channel, method, bod, url) }
+                    mio_httpc::Error::TimeOut => {
+                        if retry < 5 {
+                            spotify_request(con, channel, method, bod, url, retry+1)
+                        } else {
+                            error!("[{}] {}",url,"too many retries"); Err("too many retries".to_owned())
+                        }
+                    }
                     _ => { error!("[{}] {}",url,e); Err(e.to_string()) }
                 }
             }
@@ -158,7 +182,7 @@ pub fn spotify_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnecti
     } else { error!("[{}] {}",url,"cannot unwrap url"); Err("cannot unwrap url".to_owned()) }
 }
 
-pub fn discord_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, method: &str, body: Vec<u8>, url: &str) -> Result<(mio_httpc::Response, String), String> {
+pub fn discord_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, method: &str, body: Vec<u8>, url: &str, retry: u8) -> Result<(mio_httpc::Response, String), String> {
     let token: String = con.hget(format!("channel:{}:settings", channel), "discord:token").unwrap_or("".to_owned());
     let bod = body.clone();
     let mut builder = CallBuilder::new();
@@ -171,7 +195,13 @@ pub fn discord_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnecti
         match builder.exec() {
             Err(e) => {
                 match e {
-                    mio_httpc::Error::TimeOut => { discord_request(con, channel, method, bod, url) }
+                    mio_httpc::Error::TimeOut => {
+                        if retry < 5 {
+                            discord_request(con, channel, method, bod, url, retry+1)
+                        } else {
+                            error!("[{}] {}",url,"too many retries"); Err("too many retries".to_owned())
+                        }
+                    }
                     _ => { error!("[{}] {}",url,e); Err(e.to_string()) }
                 }
             }
@@ -186,7 +216,7 @@ pub fn discord_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnecti
     } else { error!("[{}] {}",url,"cannot unwrap url"); Err("cannot unwrap url".to_owned()) }
 }
 
-pub fn fortnite_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, method: &str, body: Vec<u8>, url: &str) -> Result<(mio_httpc::Response, String), String> {
+pub fn fortnite_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, method: &str, body: Vec<u8>, url: &str, retry: u8) -> Result<(mio_httpc::Response, String), String> {
     let token: String = con.hget(format!("channel:{}:settings", channel), "fortnite:token").unwrap_or("".to_owned());
     let bod = body.clone();
     let mut builder = CallBuilder::new();
@@ -199,7 +229,13 @@ pub fn fortnite_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnect
         match builder.exec() {
             Err(e) => {
               match e {
-                  mio_httpc::Error::TimeOut => { fortnite_request(con, channel, method, bod, url) }
+                  mio_httpc::Error::TimeOut => {
+                      if retry < 5 {
+                          fortnite_request(con, channel, method, bod, url, retry+1)
+                      } else {
+                          error!("[{}] {}",url,"too many retries"); Err("too many retries".to_owned())
+                      }
+                  }
                   _ => { error!("[{}] {}",url,e); Err(e.to_string()) }
               }
             }
@@ -214,7 +250,7 @@ pub fn fortnite_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnect
     } else { error!("[{}] {}",url,"cannot unwrap url"); Err("cannot unwrap url".to_owned()) }
 }
 
-pub fn pubg_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, method: &str, body: Vec<u8>, url: &str) -> Result<(mio_httpc::Response, String), String> {
+pub fn pubg_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, method: &str, body: Vec<u8>, url: &str, retry: u8) -> Result<(mio_httpc::Response, String), String> {
     let token: String = con.hget(format!("channel:{}:settings", channel), "pubg:token").unwrap_or("".to_owned());
     let bod = body.clone();
     let mut builder = CallBuilder::new();
@@ -227,7 +263,13 @@ pub fn pubg_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionM
         match builder.exec() {
             Err(e) => {
                 match e {
-                    mio_httpc::Error::TimeOut => { pubg_request(con, channel, method, bod, url) }
+                    mio_httpc::Error::TimeOut => {
+                        if retry < 5 {
+                            pubg_request(con, channel, method, bod, url, retry+1)
+                        } else {
+                            error!("[{}] {}",url,"too many retries"); Err("too many retries".to_owned())
+                        }
+                    }
                     _ => { error!("[{}] {}",url,e); Err(e.to_string()) }
                 }
             }
@@ -300,7 +342,7 @@ pub fn parse_code(message: &str) -> String {
     let rgx = Regex::new("\\{-(.+?)\\-}").unwrap();
     for captures in rgx.captures_iter(&msg.clone()) {
         if let Some(capture) = captures.get(1) {
-            let res = request("POST", format!("function() {{ {} }}", capture.as_str()).as_bytes().to_owned(), "http://localhost:9412/execute");
+            let res = request("POST", format!("function() {{ {} }}", capture.as_str()).as_bytes().to_owned(), "http://localhost:9412/execute", 0);
             match res {
                 Err(e) => error!("[parse_code] {}", e),
                 Ok((meta,body)) => { msg = rgx.replace(&msg, |_: &Captures| { strip_chars(&body, "\"") }).to_string(); }

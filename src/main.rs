@@ -535,7 +535,7 @@ fn update_watchtime(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
                 let live: String = con.get(format!("channel:{}:live", &channel)).unwrap_or("false".to_owned());
                 let enabled: String = con.hget(format!("channel:{}:settings", &channel), "viewerstats:enabled").unwrap_or("false".to_owned());
                 if live == "true" && enabled != "false" {
-                    let res = request("GET", Vec::new(), &format!("http://tmi.twitch.tv/group/user/{}/chatters", &channel));
+                    let res = request("GET", Vec::new(), &format!("http://tmi.twitch.tv/group/user/{}/chatters", &channel), 0);
                     match res {
                         Err(e) => { error!("{}",e) },
                         Ok((meta,body)) => {
@@ -587,7 +587,7 @@ fn update_live(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
                         let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
                         ids.push(id);
                     }
-                    let res = twitch_kraken_request(con.clone(), &channels[0], "", "GET", Vec::new(), &format!("https://api.twitch.tv/kraken/streams?channel={}", ids.join(",")));
+                    let res = twitch_kraken_request(con.clone(), &channels[0], "", "GET", Vec::new(), &format!("https://api.twitch.tv/kraken/streams?channel={}", ids.join(",")), 0);
                     match res {
                         Err(e) => { error!("{}",e); },
                         Ok((meta,body)) => {
@@ -620,7 +620,7 @@ fn update_live(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
                                                     let message: String = con.hget(format!("channel:{}:settings", channel), "discord:live-message").unwrap_or("".to_owned());
                                                     let display: String = con.get(format!("channel:{}:display-name", channel)).expect("get:display-name");
                                                     let body = format!("{{ \"content\": \"{}\", \"embed\": {{ \"author\": {{ \"name\": \"{}\" }}, \"title\": \"{}\", \"url\": \"http://twitch.tv/{}\", \"thumbnail\": {{ \"url\": \"{}\" }}, \"fields\": [{{ \"name\": \"Now Playing\", \"value\": \"{}\" }}] }} }}", &message, &display, stream.channel.status, channel, stream.channel.logo, stream.channel.game);
-                                                    let _ = discord_request(con.clone(), &channel, "POST", body.as_bytes().to_owned(), &format!("https://discordapp.com/api/channels/{}/messages", id));
+                                                    let _ = discord_request(con.clone(), &channel, "POST", body.as_bytes().to_owned(), &format!("https://discordapp.com/api/channels/{}/messages", id), 0);
                                                 }
                                             }
                                         } else {
@@ -680,7 +680,7 @@ fn update_stats(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
                         if let Ok(v) = res {
                             id = v;
                         } else {
-                            let res = pubg_request(con.clone(), &channel, "GET", Vec::new(), &format!("https://api.pubg.com/shards/{}/players?filter%5BplayerNames%5D={}", platform, name));
+                            let res = pubg_request(con.clone(), &channel, "GET", Vec::new(), &format!("https://api.pubg.com/shards/{}/players?filter%5BplayerNames%5D={}", platform, name), 0);
                             match res {
                                 Err(e) => { error!("{}",e); },
                                 Ok((meta,body)) => {
@@ -702,7 +702,7 @@ fn update_stats(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
                         }
                         if !id.is_empty() {
                             let mut cursor: String = con.hget(format!("channel:{}:stats:pubg", &channel), "cursor").unwrap_or("".to_owned());
-                            let res = pubg_request(con.clone(), &channel, "GET", Vec::new(), &format!("https://api.pubg.com/shards/{}/players/{}", platform, id));
+                            let res = pubg_request(con.clone(), &channel, "GET", Vec::new(), &format!("https://api.pubg.com/shards/{}/players/{}", platform, id), 0);
                             match res {
                                 Err(e) => { error!("{}",e); },
                                 Ok((meta,body)) => {
@@ -719,7 +719,7 @@ fn update_stats(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
                                                 for match_ in json.data.relationships.matches.data.iter() {
                                                     if match_.id == cursor { break }
                                                     else {
-                                                        let res = pubg_request(con.clone(), &channel, "GET", Vec::new(), &format!("https://api.pubg.com/shards/pc-na/matches/{}", &match_.id));
+                                                        let res = pubg_request(con.clone(), &channel, "GET", Vec::new(), &format!("https://api.pubg.com/shards/pc-na/matches/{}", &match_.id), 0);
                                                         match res {
                                                             Err(e) => { error!("{}",e); },
                                                             Ok((meta,body)) => {
@@ -806,7 +806,7 @@ fn update_stats(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
                     if let (Ok(token), Ok(name)) = (res1, res2) {
                         let platform: String = con.hget(format!("channel:{}:settings", &channel), "pubg:platform").unwrap_or("pc".to_owned());
                         let mut cursor: String = con.hget(format!("channel:{}:stats:fortnite", &channel), "cursor").unwrap_or("".to_owned());
-                        let res = fortnite_request(con.clone(), &channel, "GET", Vec::new(), &format!("https://api.fortnitetracker.com/v1/profile/{}/{}", platform, name));
+                        let res = fortnite_request(con.clone(), &channel, "GET", Vec::new(), &format!("https://api.fortnitetracker.com/v1/profile/{}/{}", platform, name), 0);
                         match res {
                             Err(e) => { error!("{}",e); },
                             Ok((meta,body)) => {
@@ -971,7 +971,7 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
             if live == "true" && (!hostm.is_empty() || !autom.is_empty()) {
                 let id: String = con.get(format!("channel:{}:id", &so_channel)).unwrap();
                 let recent: Vec<String> = con.smembers(format!("channel:{}:hosts:recent", &so_channel)).unwrap_or(Vec::new());
-                let res = twitch_kraken_request(con.clone(), &so_channel, "", "GET", Vec::new(), &format!("https://api.twitch.tv/kraken/channels/{}/hosts", &id));
+                let res = twitch_kraken_request(con.clone(), &so_channel, "", "GET", Vec::new(), &format!("https://api.twitch.tv/kraken/channels/{}/hosts", &id), 0);
                 match res {
                     Err(e) => { error!("{}",e); },
                     Ok((meta,body)) => {
@@ -988,7 +988,7 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                                 for host in json.hosts {
                                     if !recent.contains(&host.host_id) {
                                         let _: () = con.sadd(format!("channel:{}:hosts:recent", &so_channel), &host.host_id).unwrap();
-                                        let res = twitch_kraken_request(con.clone(), &so_channel, "", "GET", Vec::new(), &format!("https://api.twitch.tv/kraken/streams?channel={}", &host.host_id));
+                                        let res = twitch_kraken_request(con.clone(), &so_channel, "", "GET", Vec::new(), &format!("https://api.twitch.tv/kraken/streams?channel={}", &host.host_id), 0);
                                         match res {
                                             Err(e) => { error!("{}",e); },
                                             Ok((meta,body)) => {
@@ -1011,7 +1011,7 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                                                                 }
                                                             } else {
                                                                 if !autom.is_empty() {
-                                                                    let res = twitch_kraken_request(con.clone(), &so_channel, "", "GET", Vec::new(), &format!("https://api.twitch.tv/kraken/channels/{}", &host.host_id));
+                                                                    let res = twitch_kraken_request(con.clone(), &so_channel, "", "GET", Vec::new(), &format!("https://api.twitch.tv/kraken/channels/{}", &host.host_id), 0);
                                                                     match res {
                                                                         Err(e) => { error!("{}",e); },
                                                                         Ok((meta,body)) => {
@@ -1108,7 +1108,7 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                     let id: String = con.get(format!("channel:{}:id", comm_channel)).unwrap();
                     let submode: String = con.get(format!("channel:{}:commercials:submode", comm_channel)).unwrap_or("false".to_owned());
                     let nres: Result<String,_> = con.get(format!("channel:{}:commercials:notice", comm_channel));
-                    let _ = twitch_kraken_request(con.clone(), &comm_channel, "application/json", "POST", format!("{{\"length\": {}}}", num * 30).as_bytes().to_owned(), &format!("https://api.twitch.tv/kraken/channels/{}/commercial", &id));
+                    let _ = twitch_kraken_request(con.clone(), &comm_channel, "application/json", "POST", format!("{{\"length\": {}}}", num * 30).as_bytes().to_owned(), &format!("https://api.twitch.tv/kraken/channels/{}/commercial", &id), 0);
                     let length: u16 = con.llen(format!("channel:{}:commercials:recent", comm_channel)).unwrap();
                     let _: () = con.lpush(format!("channel:{}:commercials:recent", comm_channel), format!("{} {}", Utc::now().to_rfc3339(), num)).unwrap();
                     if length > 7 {
