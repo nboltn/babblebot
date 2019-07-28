@@ -31,35 +31,40 @@ pub fn send_parsed_message(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConn
     let _ = client.send_privmsg(format!("#{}", channel), message);
 }
 
-pub fn request(mut method: CallBuilder, url: &str) -> Result<(mio_httpc::Response, String), String> {
-    let mut builder = method.timeout_ms(5000).url(url).unwrap();
-
-    match builder.exec() {
-        Err(e) => {
-            match e {
-                mio_httpc::Error::TimeOut => { request(method, url) }
-                _ => { error!("[{}] {}",url,e); Err(e.to_string()) }
+pub fn request(method: &str, body: Vec<u8>, url: &str) -> Result<(mio_httpc::Response, String), String> {
+    let bod = body.clone();
+    let mut builder = CallBuilder::new();
+    let res = builder.method(method).body(body).timeout_ms(5000).url(url);
+    if let Ok(mut builder) = res {
+        match builder.exec() {
+            Err(e) => {
+                match e {
+                    mio_httpc::Error::TimeOut => { request(method, bod, url) }
+                    _ => { error!("[{}] {}",url,e); Err(e.to_string()) }
+                }
+            }
+            Ok((meta, body)) => {
+                let res = std::str::from_utf8(&body);
+                match res {
+                    Err(e) => { error!("[{}] {}",url,e); Err(e.to_string()) }
+                    Ok(body) => { Ok((meta, body.to_owned())) }
+                }
             }
         }
-        Ok((meta, body)) => {
-            let res = std::str::from_utf8(&body);
-            match res {
-                Err(e) => { error!("[{}] {}",url,e); Err(e.to_string()) }
-                Ok(body) => { Ok((meta, body.to_owned())) }
-            }
-        }
-    }
+    } else { error!("[{}] {}",url,"cannot unwrap url"); Err("cannot unwrap url".to_owned()) }
 }
 
-pub fn twitch_kraken_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, content: &str, mut method: CallBuilder, url: &str) -> Result<(mio_httpc::Response, String), String> {
-    let mut builder = method.timeout_ms(5000).url(url);
-    if let Ok(mut builder) = builder {
+pub fn twitch_kraken_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, content: &str, method: &str, body: Vec<u8>, url: &str) -> Result<(mio_httpc::Response, String), String> {
+    let bod = body.clone();
+    let mut builder = CallBuilder::new();
+    let res = builder.method(method).body(body).timeout_ms(5000).url(url);
+    if let Ok(mut builder) = res {
         twitch_kraken_headers(con.clone(), channel, content, builder);
 
         match builder.exec() {
             Err(e) => {
                 match e {
-                    mio_httpc::Error::TimeOut => { twitch_kraken_request(con.clone(), channel, content, method, url) }
+                    mio_httpc::Error::TimeOut => { twitch_kraken_request(con.clone(), channel, content, method, bod, url) }
                     _ => { error!("[{}] {}",url,e); Err(e.to_string()) }
                 }
             }
@@ -71,18 +76,20 @@ pub fn twitch_kraken_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisCo
                 }
             }
         }
-    } else { twitch_kraken_request(con.clone(), channel, content, method, url) }
+    } else { error!("[{}] {}",url,"cannot unwrap url"); Err("cannot unwrap url".to_owned()) }
 }
 
-pub fn twitch_helix_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, content: &str, mut method: CallBuilder, url: &str) -> Result<(mio_httpc::Response, String), String> {
-    let mut builder = method.timeout_ms(5000).url(url);
-    if let Ok(mut builder) = builder {
+pub fn twitch_helix_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, content: &str, method: &str, body: Vec<u8>, url: &str) -> Result<(mio_httpc::Response, String), String> {
+    let bod = body.clone();
+    let mut builder = CallBuilder::new();
+    let res = builder.method(method).body(body).timeout_ms(5000).url(url);
+    if let Ok(mut builder) = res {
         twitch_helix_headers(con.clone(), channel, content, builder);
 
         match builder.exec() {
             Err(e) => {
                 match e {
-                    mio_httpc::Error::TimeOut => { twitch_helix_request(con.clone(), channel, content, method, url) }
+                    mio_httpc::Error::TimeOut => { twitch_helix_request(con.clone(), channel, content, method, bod, url) }
                     _ => { error!("[{}] {}",url,e); Err(e.to_string()) }
                 }
             }
@@ -94,7 +101,7 @@ pub fn twitch_helix_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisCon
                 }
             }
         }
-    } else { twitch_helix_request(con.clone(), channel, content, method, url) }
+    } else { error!("[{}] {}",url,"cannot unwrap url"); Err("cannot unwrap url".to_owned()) }
 }
 
 pub fn twitch_kraken_headers(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, content: &str, builder: &mut CallBuilder) {
@@ -123,100 +130,116 @@ pub fn twitch_helix_headers(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisCon
       .header("Content-Type", content);
 }
 
-pub fn spotify_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, mut method: CallBuilder, url: &str) -> Result<(mio_httpc::Response, String), String> {
+pub fn spotify_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, method: &str, body: Vec<u8>, url: &str) -> Result<(mio_httpc::Response, String), String> {
     let token: String = con.hget(format!("channel:{}:settings", channel), "spotify:token").unwrap_or("".to_owned());
-    let mut builder = method.timeout_ms(5000).url(url).unwrap();
-    builder
-      .header("Accept", "application/vnd.api+json")
-      .header("Authorization", &format!("Bearer {}", token));
+    let bod = body.clone();
+    let mut builder = CallBuilder::new();
+    let res = builder.method(method).body(body).timeout_ms(5000).url(url);
+    if let Ok(mut builder) = res {
+        builder
+          .header("Accept", "application/vnd.api+json")
+          .header("Authorization", &format!("Bearer {}", token));
 
-    match builder.exec() {
-        Err(e) => {
-            match e {
-                mio_httpc::Error::TimeOut => { spotify_request(con, channel, method, url) }
-                _ => { error!("[{}] {}",url,e); Err(e.to_string()) }
+        match builder.exec() {
+            Err(e) => {
+                match e {
+                    mio_httpc::Error::TimeOut => { spotify_request(con, channel, method, bod, url) }
+                    _ => { error!("[{}] {}",url,e); Err(e.to_string()) }
+                }
             }
-        }
-      Ok((meta, body)) => {
-          let res = std::str::from_utf8(&body);
-          match res {
-              Err(e) => { error!("[{}] {}",url,e); Err(e.to_string()) }
-              Ok(body) => { Ok((meta, body.to_owned())) }
-          }
-      }
-    }
-}
-
-pub fn discord_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, mut method: CallBuilder, url: &str) -> Result<(mio_httpc::Response, String), String> {
-    let token: String = con.hget(format!("channel:{}:settings", channel), "discord:token").unwrap_or("".to_owned());
-    let mut builder = method.timeout_ms(5000).url(url).unwrap();
-    builder.header("Authorization", &format!("Bot {}", token))
-      .header("User-Agent", "Babblebot (https://gitlab.com/toovs/babblebot, 0.1")
-      .header("Content-Type", "application/json");
-
-      match builder.exec() {
-        Err(e) => {
-            match e {
-                mio_httpc::Error::TimeOut => { discord_request(con, channel, method, url) }
-                _ => { error!("[{}] {}",url,e); Err(e.to_string()) }
-            }
-        }
-        Ok((meta, body)) => {
-            let res = std::str::from_utf8(&body);
-            match res {
-                Err(e) => { error!("[{}] {}",url,e); Err(e.to_string()) }
-                Ok(body) => { Ok((meta, body.to_owned())) }
-            }
-        }
-      }
-}
-
-pub fn fortnite_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, mut method: CallBuilder, url: &str) -> Result<(mio_httpc::Response, String), String> {
-    let token: String = con.hget(format!("channel:{}:settings", channel), "fortnite:token").unwrap_or("".to_owned());
-    let mut builder = method.timeout_ms(5000).url(url).unwrap();
-    builder
-      .header("Accept", "application/vnd.api+json")
-      .header("TRN-Api-Key", &token);
-
-      match builder.exec() {
-          Err(e) => {
-              match e {
-                  mio_httpc::Error::TimeOut => { fortnite_request(con, channel, method, url) }
-                  _ => { error!("[{}] {}",url,e); Err(e.to_string()) }
-              }
-          }
-          Ok((meta, body)) => {
+            Ok((meta, body)) => {
               let res = std::str::from_utf8(&body);
               match res {
                   Err(e) => { error!("[{}] {}",url,e); Err(e.to_string()) }
                   Ok(body) => { Ok((meta, body.to_owned())) }
               }
-          }
-      }
+            }
+        }
+    } else { error!("[{}] {}",url,"cannot unwrap url"); Err("cannot unwrap url".to_owned()) }
 }
 
-pub fn pubg_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, mut method: CallBuilder, url: &str) -> Result<(mio_httpc::Response, String), String> {
-    let token: String = con.hget(format!("channel:{}:settings", channel), "pubg:token").unwrap_or("".to_owned());
-    let mut builder = method.timeout_ms(5000).url(url).unwrap();
-    builder
-      .header("Authorization", &format!("Bearer {}", token))
-      .header("Accept", "application/vnd.api+json");
+pub fn discord_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, method: &str, body: Vec<u8>, url: &str) -> Result<(mio_httpc::Response, String), String> {
+    let token: String = con.hget(format!("channel:{}:settings", channel), "discord:token").unwrap_or("".to_owned());
+    let bod = body.clone();
+    let mut builder = CallBuilder::new();
+    let res = builder.method(method).body(body).timeout_ms(5000).url(url);
+    if let Ok(mut builder) = res {
+        builder.header("Authorization", &format!("Bot {}", token))
+          .header("User-Agent", "Babblebot (https://gitlab.com/toovs/babblebot, 0.1")
+          .header("Content-Type", "application/json");
 
-    match builder.exec() {
-        Err(e) => {
-            match e {
-                mio_httpc::Error::TimeOut => { pubg_request(con, channel, method, url) }
-                _ => { error!("[{}] {}",url,e); Err(e.to_string()) }
+        match builder.exec() {
+            Err(e) => {
+                match e {
+                    mio_httpc::Error::TimeOut => { discord_request(con, channel, method, bod, url) }
+                    _ => { error!("[{}] {}",url,e); Err(e.to_string()) }
+                }
+            }
+            Ok((meta, body)) => {
+                let res = std::str::from_utf8(&body);
+                match res {
+                    Err(e) => { error!("[{}] {}",url,e); Err(e.to_string()) }
+                    Ok(body) => { Ok((meta, body.to_owned())) }
+                }
             }
         }
-        Ok((meta, body)) => {
-            let res = std::str::from_utf8(&body);
-            match res {
-                Err(e) => { error!("[{}] {}",url,e); Err(e.to_string()) }
-                Ok(body) => { Ok((meta, body.to_owned())) }
+    } else { error!("[{}] {}",url,"cannot unwrap url"); Err("cannot unwrap url".to_owned()) }
+}
+
+pub fn fortnite_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, method: &str, body: Vec<u8>, url: &str) -> Result<(mio_httpc::Response, String), String> {
+    let token: String = con.hget(format!("channel:{}:settings", channel), "fortnite:token").unwrap_or("".to_owned());
+    let bod = body.clone();
+    let mut builder = CallBuilder::new();
+    let res = builder.method(method).body(body).timeout_ms(5000).url(url);
+    if let Ok(mut builder) = res {
+        builder
+          .header("Accept", "application/vnd.api+json")
+          .header("TRN-Api-Key", &token);
+
+        match builder.exec() {
+            Err(e) => {
+              match e {
+                  mio_httpc::Error::TimeOut => { fortnite_request(con, channel, method, bod, url) }
+                  _ => { error!("[{}] {}",url,e); Err(e.to_string()) }
+              }
+            }
+            Ok((meta, body)) => {
+              let res = std::str::from_utf8(&body);
+              match res {
+                  Err(e) => { error!("[{}] {}",url,e); Err(e.to_string()) }
+                  Ok(body) => { Ok((meta, body.to_owned())) }
+              }
             }
         }
-    }
+    } else { error!("[{}] {}",url,"cannot unwrap url"); Err("cannot unwrap url".to_owned()) }
+}
+
+pub fn pubg_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, method: &str, body: Vec<u8>, url: &str) -> Result<(mio_httpc::Response, String), String> {
+    let token: String = con.hget(format!("channel:{}:settings", channel), "pubg:token").unwrap_or("".to_owned());
+    let bod = body.clone();
+    let mut builder = CallBuilder::new();
+    let res = builder.method(method).body(body).timeout_ms(5000).url(url);
+    if let Ok(mut builder) = res {
+        builder
+          .header("Authorization", &format!("Bearer {}", token))
+          .header("Accept", "application/vnd.api+json");
+
+        match builder.exec() {
+            Err(e) => {
+                match e {
+                    mio_httpc::Error::TimeOut => { pubg_request(con, channel, method, bod, url) }
+                    _ => { error!("[{}] {}",url,e); Err(e.to_string()) }
+                }
+            }
+            Ok((meta, body)) => {
+                let res = std::str::from_utf8(&body);
+                match res {
+                    Err(e) => { error!("[{}] {}",url,e); Err(e.to_string()) }
+                    Ok(body) => { Ok((meta, body.to_owned())) }
+                }
+            }
+        }
+    } else { error!("[{}] {}",url,"cannot unwrap url"); Err("cannot unwrap url".to_owned()) }
 }
 
 pub fn parse_message(message: &str, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, irc_message: Option<&Message>, cargs: &Vec<String>) -> String {
@@ -277,7 +300,7 @@ pub fn parse_code(message: &str) -> String {
     let rgx = Regex::new("\\{-(.+?)\\-}").unwrap();
     for captures in rgx.captures_iter(&msg.clone()) {
         if let Some(capture) = captures.get(1) {
-            let res = request(CallBuilder::post(format!("function() {{ {} }}", capture.as_str()).as_bytes().to_owned()), "http://localhost:9412/execute");
+            let res = request("POST", format!("function() {{ {} }}", capture.as_str()).as_bytes().to_owned(), "http://localhost:9412/execute");
             match res {
                 Err(e) => error!("[parse_code] {}", e),
                 Ok((meta,body)) => { msg = rgx.replace(&msg, |_: &Captures| { strip_chars(&body, "\"") }).to_string(); }

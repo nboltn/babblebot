@@ -73,7 +73,7 @@ fn cmd_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>,
 
 fn uptime_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
     let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
-    let res = twitch_kraken_request(con.clone(), channel, "", CallBuilder::get(), &format!("https://api.twitch.tv/kraken/streams?channel={}", &id));
+    let res = twitch_kraken_request(con.clone(), channel, "", "GET", Vec::new(), &format!("https://api.twitch.tv/kraken/streams?channel={}", &id));
     match res {
         Err(e) => { error!("{}",e);"".to_owned() },
         Ok((meta,body)) => {
@@ -150,7 +150,7 @@ fn counterinc_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMan
 
 fn followage_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
     if let Some(message) = message {
-        let res = twitch_kraken_request(con.clone(), channel, "", CallBuilder::get(), &format!("https://api.twitch.tv/kraken/users?login={}", &get_nick(message)));
+        let res = twitch_kraken_request(con.clone(), channel, "", "GET", Vec::new(), &format!("https://api.twitch.tv/kraken/users?login={}", &get_nick(message)));
         match res {
             Err(e) => { error!("{}",e);"0m".to_owned() },
             Ok((meta,body)) => {
@@ -160,7 +160,7 @@ fn followage_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMana
                     Ok(json) => {
                         if json.total > 0 {
                             let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
-                            let res = twitch_kraken_request(con.clone(), channel, "", CallBuilder::get(), &format!("https://api.twitch.tv/kraken/users/{}/follows/channels/{}", &json.users[0].id, &id));
+                            let res = twitch_kraken_request(con.clone(), channel, "", "GET", Vec::new(), &format!("https://api.twitch.tv/kraken/users/{}/follows/channels/{}", &json.users[0].id, &id));
                             match res {
                                 Err(e) => { error!("{}",e);"0m".to_owned() }
                                 Ok((meta, body)) => {
@@ -195,7 +195,7 @@ fn followage_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMana
 
 fn subcount_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
     let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
-    let res = twitch_kraken_request(con.clone(), channel, "", CallBuilder::get(), &format!("https://api.twitch.tv/kraken/channels/{}/subscriptions", &id));
+    let res = twitch_kraken_request(con.clone(), channel, "", "GET", Vec::new(), &format!("https://api.twitch.tv/kraken/channels/{}/subscriptions", &id));
     match res {
         Err(e) => { error!("{}",e);"0".to_owned() },
         Ok((meta,body)) => {
@@ -210,7 +210,7 @@ fn subcount_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManag
 
 fn followcount_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
     let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
-    let res = twitch_kraken_request(con.clone(), channel, "", CallBuilder::get(), &format!("https://api.twitch.tv/kraken/channels/{}/follows", &id));
+    let res = twitch_kraken_request(con.clone(), channel, "", "GET", Vec::new(), &format!("https://api.twitch.tv/kraken/channels/{}/follows", &id));
     match res {
         Err(e) => { error!("{}",e);"0".to_owned() },
         Ok((meta,body)) => {
@@ -383,7 +383,7 @@ fn watchrank_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMana
 
 fn urlfetch_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
     if vargs.len() > 0 {
-        let res = request(CallBuilder::get(), vargs[0]);
+        let res = request("GET", Vec::new(), vargs[0]);
         match res {
             Err(e) => { error!("{}",e);"".to_owned() },
             Ok((meta,body)) => { body }
@@ -394,7 +394,7 @@ fn urlfetch_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManag
 }
 
 fn spotify_playing_title_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
-    let res = spotify_request(con.clone(), channel, CallBuilder::get(), "https://api.spotify.com/v1/me/player/currently-playing");
+    let res = spotify_request(con.clone(), channel, "GET", Vec::new(), "https://api.spotify.com/v1/me/player/currently-playing");
     match res {
         Err(e) => { error!("{}",e);"".to_owned() },
         Ok((meta,body)) => {
@@ -412,7 +412,7 @@ fn spotify_playing_title_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisCo
 }
 
 fn spotify_playing_album_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
-    let res = spotify_request(con.clone(), channel, CallBuilder::get(), "https://api.spotify.com/v1/me/player/currently-playing");
+    let res = spotify_request(con.clone(), channel, "GET", Vec::new(), "https://api.spotify.com/v1/me/player/currently-playing");
     match res {
         Err(e) => { error!("{}",e);"".to_owned() },
         Ok((meta,body)) => {
@@ -430,7 +430,7 @@ fn spotify_playing_album_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisCo
 }
 
 fn spotify_playing_artist_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
-    let res = spotify_request(con.clone(), channel, CallBuilder::get(), "https://api.spotify.com/v1/me/player/currently-playing");
+    let res = spotify_request(con.clone(), channel, "GET", Vec::new(), "https://api.spotify.com/v1/me/player/currently-playing");
     match res {
         Err(e) => { error!("{}",e);"".to_owned() },
         Ok((meta,body)) => {
@@ -449,7 +449,7 @@ fn spotify_playing_artist_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisC
 
 fn youtube_latest_url_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
     if vargs.len() > 0 {
-        let res = request(CallBuilder::get(), &format!("https://decapi.me/youtube/latest_video?id={}", vargs[0]));
+        let res = request("GET", Vec::new(), &format!("https://decapi.me/youtube/latest_video?id={}", vargs[0]));
         match res {
             Err(e) => { error!("{}",e);"".to_owned() },
             Ok((meta,body)) => {
@@ -468,7 +468,7 @@ fn youtube_latest_url_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConne
 
 fn youtube_latest_title_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
     if vargs.len() > 0 {
-        let res = request(CallBuilder::get(), &format!("https://decapi.me/youtube/latest_video?id={}", vargs[0]));
+        let res = request("GET", Vec::new(), &format!("https://decapi.me/youtube/latest_video?id={}", vargs[0]));
         match res {
             Err(e) => { error!("{}",e);"".to_owned() },
             Ok((meta,body)) => {
@@ -596,7 +596,7 @@ fn command_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManage
 fn title_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<String>, message: Option<&Message>) {
     let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
     if args.len() == 0 {
-        let res = twitch_kraken_request(con.clone(), channel, "", CallBuilder::get(), &format!("https://api.twitch.tv/kraken/channels/{}", &id));
+        let res = twitch_kraken_request(con.clone(), channel, "", "GET", Vec::new(), &format!("https://api.twitch.tv/kraken/channels/{}", &id));
         match res {
             Err(e) => { error!("{}",e); },
             Ok((meta,body)) => {
@@ -611,7 +611,7 @@ fn title_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>
             }
         }
     } else {
-        let res = twitch_kraken_request(con.clone(), channel, "application/x-www-form-urlencoded", CallBuilder::put(format!("channel[status]={}", args.join(" ")).as_bytes().to_owned()), &format!("https://api.twitch.tv/kraken/channels/{}", &id));
+        let res = twitch_kraken_request(con.clone(), channel, "application/x-www-form-urlencoded", "PUT", format!("channel[status]={}", args.join(" ")).as_bytes().to_owned(), &format!("https://api.twitch.tv/kraken/channels/{}", &id));
         match res {
             Err(e) => { error!("{}",e); },
             Ok((meta,body)) => {
@@ -631,7 +631,7 @@ fn title_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>
 fn game_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<String>, message: Option<&Message>) {
     let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
     if args.len() == 0 {
-        let res = twitch_kraken_request(con.clone(), channel, "", CallBuilder::get(), &format!("https://api.twitch.tv/kraken/channels/{}", &id));
+        let res = twitch_kraken_request(con.clone(), channel, "", "GET", Vec::new(), &format!("https://api.twitch.tv/kraken/channels/{}", &id));
         match res {
             Err(e) => { error!("{}",e); },
             Ok((meta,body)) => {
@@ -646,7 +646,7 @@ fn game_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>
             }
         }
     } else {
-        let res = twitch_helix_request(con.clone(), channel, "", CallBuilder::get(), &format!("https://api.twitch.tv/helix/games?name={}", args.join(" ")));
+        let res = twitch_helix_request(con.clone(), channel, "", "GET", Vec::new(), &format!("https://api.twitch.tv/helix/games?name={}", args.join(" ")));
         match res {
             Err(e) => { error!("{}",e); },
             Ok((meta,body)) => {
@@ -661,7 +661,7 @@ fn game_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>
                             send_message(con.clone(), client, channel, format!("Unable to find a game matching: {}", args.join(" ")));
                         } else {
                             let name = &json.data[0].name;
-                            let res = twitch_kraken_request(con.clone(), channel, "application/x-www-form-urlencoded", CallBuilder::put(format!("channel[game]={}", name).as_bytes().to_owned()), &format!("https://api.twitch.tv/kraken/channels/{}", &id));
+                            let res = twitch_kraken_request(con.clone(), channel, "application/x-www-form-urlencoded", "PUT", format!("channel[game]={}", name).as_bytes().to_owned(), &format!("https://api.twitch.tv/kraken/channels/{}", &id));
                             match res {
                                 Err(e) => { error!("{}",e); },
                                 Ok((meta,body)) => {
@@ -794,7 +794,7 @@ fn permit_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager
 
 fn clip_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<String>, message: Option<&Message>) {
     let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
-    let res = twitch_helix_request(con.clone(), channel, "", CallBuilder::post(Vec::new()), &format!("https://api.twitch.tv/helix/clips?broadcaster_id={}", &id));
+    let res = twitch_helix_request(con.clone(), channel, "", "POST", Vec::new(), &format!("https://api.twitch.tv/helix/clips?broadcaster_id={}", &id));
     match res {
         Err(e) => { error!("{}",e); },
         Ok((meta,body)) => {
@@ -928,7 +928,7 @@ fn commercials_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMa
                                 let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
                                 let submode: String = con.get(format!("channel:{}:commercials:submode", channel)).unwrap_or("false".to_owned());
                                 let nres: Result<String,_> = con.get(format!("channel:{}:commercials:notice", channel));
-                                let _ = twitch_kraken_request(con.clone(), channel, "application/json", CallBuilder::post(format!("{{\"length\": {}}}", num * 30).as_bytes().to_owned()), &format!("https://api.twitch.tv/kraken/channels/{}/commercial", &id));
+                                let _ = twitch_kraken_request(con.clone(), channel, "application/json", "POST", format!("{{\"length\": {}}}", num * 30).as_bytes().to_owned(), &format!("https://api.twitch.tv/kraken/channels/{}/commercial", &id));
                                 let length: u16 = con.llen(format!("channel:{}:commercials:recent", channel)).unwrap();
                                 let _: () = con.lpush(format!("channel:{}:commercials:recent", channel), format!("{} {}", Utc::now().to_rfc3339(), num)).unwrap();
                                 if length > 7 {
@@ -988,7 +988,7 @@ fn songreq_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManage
                 _ => {
                     let rgx = Regex::new(r"^[\-_a-zA-Z0-9]+$").unwrap();
                     if rgx.is_match(&args[0]) {
-                        let res = twitch_helix_request(con.clone(), channel, "", CallBuilder::get(), &format!("https://www.youtube.com/oembed?format=json&url=https://youtube.com/watch?v={}", args[0]));
+                        let res = twitch_helix_request(con.clone(), channel, "", "GET", Vec::new(), &format!("https://www.youtube.com/oembed?format=json&url=https://youtube.com/watch?v={}", args[0]));
                         match res {
                             Err(e) => { error!("{}",e); },
                             Ok((meta,body)) => {
