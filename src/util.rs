@@ -52,45 +52,49 @@ pub fn request(mut method: CallBuilder, url: &str) -> Result<(mio_httpc::Respons
 }
 
 pub fn twitch_kraken_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, content: &str, mut method: CallBuilder, url: &str) -> Result<(mio_httpc::Response, String), String> {
-    let mut builder = method.timeout_ms(5000).url(url).unwrap();
-    twitch_kraken_headers(con.clone(), channel, content, builder);
+    let mut builder = method.timeout_ms(5000).url(url);
+    if let Ok(mut builder) = builder {
+        twitch_kraken_headers(con.clone(), channel, content, builder);
 
-    match builder.exec() {
-        Err(e) => {
-            match e {
-                mio_httpc::Error::TimeOut => { twitch_kraken_request(con, channel, content, method, url) }
-                _ => { error!("[{}] {}",url,e); Err(e.to_string()) }
+        match builder.exec() {
+            Err(e) => {
+                match e {
+                    mio_httpc::Error::TimeOut => { twitch_kraken_request(con.clone(), channel, content, method, url) }
+                    _ => { error!("[{}] {}",url,e); Err(e.to_string()) }
+                }
+            }
+            Ok((meta, body)) => {
+                let res = std::str::from_utf8(&body);
+                match res {
+                    Err(e) => { error!("[{}] {}",url,e); Err(e.to_string()) }
+                    Ok(body) => { Ok((meta, body.to_owned())) }
+                }
             }
         }
-        Ok((meta, body)) => {
-            let res = std::str::from_utf8(&body);
-            match res {
-                Err(e) => { error!("[{}] {}",url,e); Err(e.to_string()) }
-                Ok(body) => { Ok((meta, body.to_owned())) }
-            }
-        }
-    }
+    } else { twitch_kraken_request(con.clone(), channel, content, method, url) }
 }
 
 pub fn twitch_helix_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, content: &str, mut method: CallBuilder, url: &str) -> Result<(mio_httpc::Response, String), String> {
-    let mut builder = method.timeout_ms(5000).url(url).unwrap();
-    twitch_helix_headers(con.clone(), channel, content, builder);
+    let mut builder = method.timeout_ms(5000).url(url);
+    if let Ok(mut builder) = builder {
+        twitch_helix_headers(con.clone(), channel, content, builder);
 
-    match builder.exec() {
-        Err(e) => {
-            match e {
-                mio_httpc::Error::TimeOut => { twitch_helix_request(con, channel, content, method, url) }
-                _ => { error!("[{}] {}",url,e); Err(e.to_string()) }
+        match builder.exec() {
+            Err(e) => {
+                match e {
+                    mio_httpc::Error::TimeOut => { twitch_helix_request(con.clone(), channel, content, method, url) }
+                    _ => { error!("[{}] {}",url,e); Err(e.to_string()) }
+                }
+            }
+            Ok((meta, body)) => {
+                let res = std::str::from_utf8(&body);
+                match res {
+                    Err(e) => { error!("[{}] {}",url,e); Err(e.to_string()) }
+                    Ok(body) => { Ok((meta, body.to_owned())) }
+                }
             }
         }
-        Ok((meta, body)) => {
-            let res = std::str::from_utf8(&body);
-            match res {
-                Err(e) => { error!("[{}] {}",url,e); Err(e.to_string()) }
-                Ok(body) => { Ok((meta, body.to_owned())) }
-            }
-        }
-    }
+    } else { twitch_helix_request(con.clone(), channel, content, method, url) }
 }
 
 pub fn twitch_kraken_headers(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, content: &str, builder: &mut CallBuilder) {

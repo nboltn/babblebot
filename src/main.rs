@@ -603,26 +603,24 @@ fn update_live(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
                                         let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
                                         let live: String = con.get(format!("channel:{}:live", channel)).expect("get:live");
                                         if live_channels.contains(&channel) {
-                                            let stream = json.streams.iter().find(|stream| { return stream.channel.name == channel });
-                                            if let Some(stream) = stream {
-                                                if live == "false" {
-                                                    let _: () = con.set(format!("channel:{}:live", channel), true).unwrap();
-                                                    let _: () = con.del(format!("channel:{}:hosts:recent", channel)).unwrap();
-                                                    // reset notice timers
-                                                    let keys: Vec<String> = con.keys(format!("channel:{}:notices:*:messages", channel)).unwrap();
-                                                    for key in keys.iter() {
-                                                        let int: Vec<&str> = key.split(":").collect();
-                                                        let _: () = con.set(format!("channel:{}:notices:{}:countdown", channel, int[3]), int[3].clone()).unwrap();
-                                                    }
-                                                    // send discord announcements
-                                                    let tres: Result<String,_> = con.hget(format!("channel:{}:settings", channel), "discord:token");
-                                                    let ires: Result<String,_> = con.hget(format!("channel:{}:settings", channel), "discord:channel-id");
-                                                    if let (Ok(token), Ok(id)) = (tres, ires) {
-                                                        let message: String = con.hget(format!("channel:{}:settings", channel), "discord:live-message").unwrap_or("".to_owned());
-                                                        let display: String = con.get(format!("channel:{}:display-name", channel)).expect("get:display-name");
-                                                        let body = format!("{{ \"content\": \"{}\", \"embed\": {{ \"author\": {{ \"name\": \"{}\" }}, \"title\": \"{}\", \"url\": \"http://twitch.tv/{}\", \"thumbnail\": {{ \"url\": \"{}\" }}, \"fields\": [{{ \"name\": \"Now Playing\", \"value\": \"{}\" }}] }} }}", &message, &display, stream.channel.status, channel, stream.channel.logo, stream.channel.game);
-                                                        let _ = discord_request(con.clone(), &channel, CallBuilder::post(body.as_bytes().to_owned()), &format!("https://discordapp.com/api/channels/{}/messages", id));
-                                                    }
+                                            let stream = json.streams.iter().find(|stream| { return stream.channel.name == channel }).unwrap();
+                                            if live == "false" {
+                                                let _: () = con.set(format!("channel:{}:live", channel), true).unwrap();
+                                                let _: () = con.del(format!("channel:{}:hosts:recent", channel)).unwrap();
+                                                // reset notice timers
+                                                let keys: Vec<String> = con.keys(format!("channel:{}:notices:*:messages", channel)).unwrap();
+                                                for key in keys.iter() {
+                                                    let int: Vec<&str> = key.split(":").collect();
+                                                    let _: () = con.set(format!("channel:{}:notices:{}:countdown", channel, int[3]), int[3].clone()).unwrap();
+                                                }
+                                                // send discord announcements
+                                                let tres: Result<String,_> = con.hget(format!("channel:{}:settings", channel), "discord:token");
+                                                let ires: Result<String,_> = con.hget(format!("channel:{}:settings", channel), "discord:channel-id");
+                                                if let (Ok(token), Ok(id)) = (tres, ires) {
+                                                    let message: String = con.hget(format!("channel:{}:settings", channel), "discord:live-message").unwrap_or("".to_owned());
+                                                    let display: String = con.get(format!("channel:{}:display-name", channel)).expect("get:display-name");
+                                                    let body = format!("{{ \"content\": \"{}\", \"embed\": {{ \"author\": {{ \"name\": \"{}\" }}, \"title\": \"{}\", \"url\": \"http://twitch.tv/{}\", \"thumbnail\": {{ \"url\": \"{}\" }}, \"fields\": [{{ \"name\": \"Now Playing\", \"value\": \"{}\" }}] }} }}", &message, &display, stream.channel.status, channel, stream.channel.logo, stream.channel.game);
+                                                    let _ = discord_request(con.clone(), &channel, CallBuilder::post(body.as_bytes().to_owned()), &format!("https://discordapp.com/api/channels/{}/messages", id));
                                                 }
                                             }
                                         } else {
