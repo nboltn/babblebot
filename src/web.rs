@@ -324,6 +324,8 @@ pub fn signup(con: RedisConnection, mut cookies: Cookies, data: Form<ApiSignupRe
                                     cookies.add_private(Cookie::new("auth", token));
                                 }
 
+                                redis::cmd("PUBLISH").arg("new_channels").arg(&json.data[0].login).execute(&*con);
+
                                 let json = ApiRsp { success: true, success_value: None, field: None, error_message: None };
                                 return Json(json);
                             }
