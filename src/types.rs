@@ -335,8 +335,7 @@ pub struct ApiLoginReq {
 #[derive(FromForm)]
 pub struct ApiSignupReq {
     pub token: String,
-    pub password: String,
-    pub invite: String
+    pub password: String
 }
 
 #[derive(FromForm)]
