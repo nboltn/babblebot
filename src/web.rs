@@ -300,38 +300,32 @@ pub fn signup(con: RedisConnection, mut cookies: Cookies, data: Form<ApiSignupRe
                         Ok(json) => {
                             let exists: bool = redis::cmd("SISMEMBER").arg("channels").arg(&json.data[0].login).query(&*con).unwrap();
                             if exists {
-                                let json = ApiRsp { success: false, success_value: None, field: Some("token".to_owned()), error_message: Some("invalid access code".to_owned()) };
+                                let json = ApiRsp { success: false, success_value: None, field: Some("token".to_owned()), error_message: Some("channel is already signed up".to_owned()) };
                                 return Json(json);
                             } else {
-                                let removed: u16 = redis::cmd("LREM").arg("invites").arg(1).arg(&data.invite).query(&*con).unwrap();
-                                if removed == 0 {
-                                    let json = ApiRsp { success: false, success_value: None, field: Some("invite".to_owned()), error_message: Some("invalid invite code".to_owned()) };
-                                    return Json(json);
-                                } else {
-                                    let bot_name  = settings.get_str("bot_name").unwrap();
-                                    let bot_token = settings.get_str("bot_token").unwrap();
+                                let bot_name  = settings.get_str("bot_name").unwrap();
+                                let bot_token = settings.get_str("bot_token").unwrap();
 
-                                    redis::cmd("SADD").arg("bots").arg(&bot_name).execute(&*con);
-                                    redis::cmd("SADD").arg("channels").arg(&json.data[0].login).execute(&*con);
-                                    redis::cmd("SET").arg(format!("bot:{}:token", &bot_name)).arg(bot_token).execute(&*con);
-                                    redis::cmd("SADD").arg(format!("bot:{}:channels", &bot_name)).arg(&json.data[0].login).execute(&*con);
-                                    redis::cmd("SET").arg(format!("channel:{}:bot", &json.data[0].login)).arg(&bot_name).execute(&*con);
-                                    redis::cmd("SET").arg(format!("channel:{}:token", &json.data[0].login)).arg(&data.token).execute(&*con);
-                                    redis::cmd("SET").arg(format!("channel:{}:password", &json.data[0].login)).arg(hash(&data.password, DEFAULT_COST).unwrap()).execute(&*con);
-                                    redis::cmd("SET").arg(format!("channel:{}:live", &json.data[0].login)).arg(false).execute(&*con);
-                                    redis::cmd("SET").arg(format!("channel:{}:id", &json.data[0].login)).arg(&json.data[0].id).execute(&*con);
-                                    redis::cmd("SET").arg(format!("channel:{}:display-name", &json.data[0].login)).arg(&json.data[0].display_name).execute(&*con);
+                                redis::cmd("SADD").arg("bots").arg(&bot_name).execute(&*con);
+                                redis::cmd("SADD").arg("channels").arg(&json.data[0].login).execute(&*con);
+                                redis::cmd("SET").arg(format!("bot:{}:token", &bot_name)).arg(bot_token).execute(&*con);
+                                redis::cmd("SADD").arg(format!("bot:{}:channels", &bot_name)).arg(&json.data[0].login).execute(&*con);
+                                redis::cmd("SET").arg(format!("channel:{}:bot", &json.data[0].login)).arg(&bot_name).execute(&*con);
+                                redis::cmd("SET").arg(format!("channel:{}:token", &json.data[0].login)).arg(&data.token).execute(&*con);
+                                redis::cmd("SET").arg(format!("channel:{}:password", &json.data[0].login)).arg(hash(&data.password, DEFAULT_COST).unwrap()).execute(&*con);
+                                redis::cmd("SET").arg(format!("channel:{}:live", &json.data[0].login)).arg(false).execute(&*con);
+                                redis::cmd("SET").arg(format!("channel:{}:id", &json.data[0].login)).arg(&json.data[0].id).execute(&*con);
+                                redis::cmd("SET").arg(format!("channel:{}:display-name", &json.data[0].login)).arg(&json.data[0].display_name).execute(&*con);
 
-                                    if let Ok(exp) = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
-                                        let secret = settings.get_str("secret_key").unwrap();
-                                        let auth = Auth { channel: json.data[0].login.to_owned(), exp: exp.as_secs() + 2400000 };
-                                        let token = encode(&Header::default(), &auth, secret.as_bytes()).unwrap();
-                                        cookies.add_private(Cookie::new("auth", token));
-                                    }
-
-                                    let json = ApiRsp { success: true, success_value: None, field: None, error_message: None };
-                                    return Json(json);
+                                if let Ok(exp) = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
+                                    let secret = settings.get_str("secret_key").unwrap();
+                                    let auth = Auth { channel: json.data[0].login.to_owned(), exp: exp.as_secs() + 2400000 };
+                                    let token = encode(&Header::default(), &auth, secret.as_bytes()).unwrap();
+                                    cookies.add_private(Cookie::new("auth", token));
                                 }
+
+                                let json = ApiRsp { success: true, success_value: None, field: None, error_message: None };
+                                return Json(json);
                             }
                         }
                     }

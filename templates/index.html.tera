@@ -23,7 +23,7 @@
       <div class='feature'>> custom bot name</div>
       <div class='feature'>> priority feature requests</div>
       <br><br>
-      <div id='signup'><a href='javascript:void(0)'>sign up with an invite code now</a></div>
+      <div id='signup'><a href='javascript:void(0)'>sign up</a></div>
     </div>
   </div>
 </div>
@@ -93,16 +93,6 @@
           <div class='control'>
             <input class='input' type='password' name='password' placeholder='password'>
           </div>
-        </div>
-        <div class='field invite'>
-          <label class='label'>invite code</label>
-          <div class='control has-icons-right'>
-            <input class='input' type='text' name='invite' placeholder='invite code'>
-            <span class='icon is-small is-right hidden'>
-              <i class='fas fa-exclamation-triangle'></i>
-            </span>
-          </div>
-          <p class='help is-danger hidden'></p>
         </div>
       </form>
     </section>
