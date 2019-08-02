@@ -1,0 +1,8 @@
+[global.databases.redis]
+url = "redis://localhost"
+
+[production]
+port = 10000
+template_dir = "templates"
+secret_key = "bW6K8Ghkgb+9bPXQ+opuIO8UB0ddgqfFBowntVF4o1E="
+log = "off"
