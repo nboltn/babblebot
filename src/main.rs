@@ -20,7 +20,7 @@ use config;
 use clap::load_yaml;
 use clap::{App, ArgMatches};
 use bcrypt::{DEFAULT_COST, hash};
-use flexi_logger::{Cleanup,Duplicate,Logger};
+use flexi_logger::{Criterion,Naming,Cleanup,Duplicate,Logger};
 use crossbeam_channel::{unbounded,Sender,Receiver,RecvTimeoutError,TryRecvError};
 use irc::error;
 use irc::client::prelude::*;
@@ -56,7 +56,7 @@ fn main() {
         .log_to_file()
         .directory("logs")
         .append()
-        .rotate(1000000, Cleanup::Never)
+        .rotate(Criterion::Size(1000000), Naming::Numbers, Cleanup::Never)
         .duplicate_to_stderr(Duplicate::Warn)
         .start()
         .unwrap_or_else(|e| panic!("Logger initialization failed with {}", e));
@@ -955,7 +955,7 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
 
                 for int in ints.iter() {
                     let num: u16 = con.get(format!("channel:{}:notices:{}:countdown", notice_channel, int)).unwrap();
-                    if num > 0 { redis::cmd("DECRBY").arg(format!("channel:{}:notices:{}:countdown", notice_channel, int)).arg(60).execute((*con).deref()) }
+                    if num > 0 { let _: () = con.incr(format!("channel:{}:notices:{}:countdown", notice_channel, int), -60).unwrap(); }
                 };
 
                 let int = ints.iter().filter(|int| {

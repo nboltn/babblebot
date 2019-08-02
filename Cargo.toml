@@ -5,11 +5,11 @@ authors = ["toovs <toovs@tutamail.com>"]
 edition = "2018"
 
 [dependencies]
-bcrypt = "0.4"
+bcrypt = "0.5"
 config = "0.9"
 clap = { version = "2.33", features = ["yaml"] }
 redis = "0.10"
-url = "1.7"
+url = "2.0"
 irc = "0.13"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -20,12 +20,12 @@ rocket = { features = ["tls"], git = "https://github.com/SergioBenitez/Rocket", 
 rocket_contrib = { features = ["json", "tera_templates", "redis_pool"], git = "https://github.com/SergioBenitez/Rocket", branch = "master" }
 r2d2_redis = "0.8"
 jsonwebtoken = "6.0"
-regex = "1.1"
+regex = "1.2"
 chrono = "0.4"
 crossbeam-channel = "0.3"
 humantime = "1.2"
 serenity = "0.6"
-flexi_logger = "0.11"
+flexi_logger = "0.14"
 log = "0.4"
 tokio = "0.1"
 tokio-core = "0.1"
