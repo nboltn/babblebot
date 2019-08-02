@@ -384,7 +384,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, pool: r2d2::Poo
                                 for word in msg.split_whitespace() {
                                     if url_regex().is_match(word) {
                                         let mut url: String = word.to_owned();
-                                        if url.len() > 7 && &url[..7] != "http://" && &url[..8] != "https://" { url = format!("http://{}", url) }
+                                        if url.len() > 7 && url.is_char_boundary(7) && &url[..7] != "http://" && &url[..8] != "https://" { url = format!("http://{}", url) }
                                         match Url::parse(&url) {
                                             Err(_) => {}
                                             Ok(url) => {
