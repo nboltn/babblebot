@@ -34,7 +34,8 @@ impl EventHandler for DiscordHandler {
                 let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", self.channel, word), "message");
                 if let Ok(message) = res {
                     let mut message = message;
-                    message = parse_message(&message, con.clone(), None, &self.channel, None, &args);
+                    // TODO: reimplement
+                    // message = parse_message(&message, self.pool.clone(), con.clone(), None, &self.channel, None, args);
                     let _ = msg.channel_id.say(&ctx.http, message);
                 }
             }

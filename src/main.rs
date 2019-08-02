@@ -14,7 +14,7 @@ use crate::util::*;
 use std::collections::{HashMap, HashSet};
 use std::ops::Deref;
 use std::sync::{Arc,Mutex};
-use std::{thread,time};
+use std::{thread,time,mem};
 
 use config;
 use clap::load_yaml;
@@ -28,7 +28,9 @@ use url::Url;
 use regex::{Regex,RegexBuilder};
 use serde_json::value::Value::Number;
 use chrono::{Utc, DateTime, FixedOffset, Duration, Timelike};
-use mio_httpc::CallBuilder;
+use http::header::{self,HeaderValue};
+use reqwest::{Method,Error};
+use reqwest::r#async::{RequestBuilder,Chunk,Decoder};
 use serenity;
 use serenity::framework::standard::StandardFramework;
 use rocket::routes;
@@ -116,7 +118,7 @@ fn run_reactor(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, bots: HashM
                     let _ = client.identify();
                     let _ = client.send("CAP REQ :twitch.tv/tags");
                     let _ = client.send("CAP REQ :twitch.tv/commands");
-                    register_handler((*client).clone(), &mut reactor, con.clone());
+                    register_handler((*client).clone(), &mut reactor, pool.clone(), con.clone());
                     for channel in channels.0.iter() {
                         let (sender1, receiver1) = unbounded();
                         let (sender2, receiver2) = unbounded();
@@ -198,53 +200,48 @@ fn rename_channel_listener(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>,
             let msg = ps.get_message().unwrap();
             let token: String = msg.get_payload().unwrap();
 
-            let mut get = CallBuilder::get();
-            let mut builder = get.timeout_ms(5000).url("https://api.twitch.tv/helix/users").unwrap().header("Authorization", &format!("Bearer {}", &token));
-            match builder.exec() {
-                Err(e) => { error!("{}",e); }
-                Ok((meta, body)) => {
-                    let res = std::str::from_utf8(&body);
-                    match res {
-                        Err(e) => { error!("{}",e); },
-                        Ok(body) => {
-                            let json: Result<HelixUsers,_> = serde_json::from_str(&body);
-                            match json {
-                                Err(e) => {
-                                    error!("[rename_channel_listener] {}", e);
-                                    error!("[request_body] {}", body);
-                                }
-                                Ok(json) => {
-                                    if let Some(senders) = senders.get(&channel) {
-                                        for sender in senders {
-                                            let _ = sender.send(ThreadAction::Kill);
-                                        }
-                                    }
-                                    let _ = client.send_quit("");
-
-                                    let bot: String = con.get(format!("channel:{}:bot", &channel)).expect("get:bot");
-                                    let _: () = con.srem(format!("bot:{}:channels", &bot), &channel).unwrap();
-                                    let _: () = con.sadd("bots", &json.data[0].login).unwrap();
-                                    let _: () = con.sadd(format!("bot:{}:channels", &json.data[0].login), &channel).unwrap();
-                                    let _: () = con.set(format!("bot:{}:token", &json.data[0].login), &token).unwrap();
-                                    let _: () = con.set(format!("channel:{}:bot", &channel), &json.data[0].login).unwrap();
-
-                                    let mut bots: HashMap<String, (HashSet<String>, Config)> = HashMap::new();
-                                    let mut channel_hash: HashSet<String> = HashSet::new();
-                                    let mut channels: Vec<String> = Vec::new();
-                                    channel_hash.insert(channel.to_owned());
-                                    channels.extend(channel_hash.iter().cloned().map(|chan| { format!("#{}", chan) }));
-                                    let config = Config {
-                                        server: Some("irc.chat.twitch.tv".to_owned()),
-                                        use_ssl: Some(true),
-                                        nickname: Some(bot.to_owned()),
-                                        password: Some(format!("oauth:{}", token)),
-                                        channels: Some(channels),
-                                        ..Default::default()
-                                    };
-                                    bots.insert(bot.to_owned(), (channel_hash.clone(), config));
-                                    thread::spawn(move || { run_reactor(clone, bots); });
+            let req = reqwest::Client::new();
+            let rsp = req.get("https://api.twitch.tv/helix/users").header(header::AUTHORIZATION, format!("Bearer {}", &token)).send();
+            match rsp {
+                Err(e) => { error!("[rename_channel_listener] {}", e) }
+                Ok(mut rsp) => {
+                    let text = rsp.text().unwrap();
+                    let json: Result<HelixUsers,_> = serde_json::from_str(&text);
+                    match json {
+                        Err(e) => {
+                            error!("[rename_channel_listener] {}", e);
+                            error!("[request_body] {}", text);
+                        }
+                        Ok(json) => {
+                            if let Some(senders) = senders.get(&channel) {
+                                for sender in senders {
+                                    let _ = sender.send(ThreadAction::Kill);
                                 }
                             }
+                            let _ = client.send_quit("");
+
+                            let bot: String = con.get(format!("channel:{}:bot", &channel)).expect("get:bot");
+                            let _: () = con.srem(format!("bot:{}:channels", &bot), &channel).unwrap();
+                            let _: () = con.sadd("bots", &json.data[0].login).unwrap();
+                            let _: () = con.sadd(format!("bot:{}:channels", &json.data[0].login), &channel).unwrap();
+                            let _: () = con.set(format!("bot:{}:token", &json.data[0].login), &token).unwrap();
+                            let _: () = con.set(format!("channel:{}:bot", &channel), &json.data[0].login).unwrap();
+
+                            let mut bots: HashMap<String, (HashSet<String>, Config)> = HashMap::new();
+                            let mut channel_hash: HashSet<String> = HashSet::new();
+                            let mut channels: Vec<String> = Vec::new();
+                            channel_hash.insert(channel.to_owned());
+                            channels.extend(channel_hash.iter().cloned().map(|chan| { format!("#{}", chan) }));
+                            let config = Config {
+                                server: Some("irc.chat.twitch.tv".to_owned()),
+                                use_ssl: Some(true),
+                                nickname: Some(bot.to_owned()),
+                                password: Some(format!("oauth:{}", token)),
+                                channels: Some(channels),
+                                ..Default::default()
+                            };
+                            bots.insert(bot.to_owned(), (channel_hash.clone(), config));
+                            thread::spawn(move || { run_reactor(clone, bots); });
                         }
                     }
                 }
@@ -301,7 +298,7 @@ fn command_listener(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, client
                                         // parse native commands
                                         for cmd in commands::native_commands.iter() {
                                             if format!("{}{}", prefix, cmd.0) == word {
-                                                (cmd.1)(con.clone(), &client, &channel, &args, None);
+                                                (cmd.1)(pool.clone(), con.clone(), client.clone(), channel.clone(), args.clone(), None);
                                                 break;
                                             }
                                         }
@@ -309,7 +306,7 @@ fn command_listener(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, client
                                         // parse custom commands
                                         let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", channel, word), "message");
                                         if let Ok(message) = res {
-                                            send_parsed_message(con.clone(), &client, &channel, message.to_owned(), &args, None);
+                                            send_parsed_message(pool.clone(), con.clone(), client.clone(), channel.clone(), message.to_owned(), args, None);
                                         }
                                     }
                                 }
@@ -322,7 +319,9 @@ fn command_listener(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, client
     });
 }
 
-fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>) {
+fn register_handler(client: IrcClient, reactor: &mut IrcReactor, pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>) {
+    let clientA = Arc::new(client);
+    let clientC = clientA.clone();
     let msg_handler = move |client: &IrcClient, irc_message: Message| -> error::Result<()> {
         match &irc_message.command {
             Command::PING(_,_) => { let _ = client.send_pong(":tmi.twitch.tv"); }
@@ -355,7 +354,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                         let bkeys: Vec<String> = con.keys(format!("channel:{}:moderation:blacklist:*", channel)).unwrap();
                         if colors == "true" && msg.len() > 6 && msg.as_bytes()[0] == 1 && &msg[1..7] == "ACTION" {
                             let _ = client.send_privmsg(chan, format!("/timeout {} 1", nick));
-                            if display == "true" { send_message(con.clone(), &client, channel, format!("@{} you've been timed out for posting colors", nick)); }
+                            if display == "true" { send_message(con.clone(), clientC.clone(), channel.to_owned(), format!("@{} you've been timed out for posting colors", nick)); }
                         }
                         if caps == "true" {
                             let limit: String = con.get(format!("channel:{}:moderation:caps:limit", channel)).expect("get:limit");
@@ -371,7 +370,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                                     if ratio >= (limit / 100.0) {
                                         if !subscriber || subscriber && subs != "true" {
                                             let _ = client.send_privmsg(chan, format!("/timeout {} 1", nick));
-                                            if display == "true" { send_message(con.clone(), &client, channel, format!("@{} you've been timed out for posting too many caps", nick)); }
+                                            if display == "true" { send_message(con.clone(), clientC.clone(), channel.to_owned(), format!("@{} you've been timed out for posting too many caps", nick)); }
                                         }
                                     }
                                 }
@@ -408,7 +407,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                                                 }
                                                 if !whitelisted {
                                                     let _ = client.send_privmsg(chan, format!("/timeout {} 1", nick));
-                                                    if display == "true" { send_message(con.clone(), &client, channel, format!("@{} you've been timed out for posting links", nick)); }
+                                                    if display == "true" { send_message(con.clone(), clientC.clone(), channel.to_owned(), format!("@{} you've been timed out for posting links", nick)); }
                                                 }
                                             }
                                         }
@@ -425,7 +424,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                                 Ok(rgx) => {
                                     if rgx.is_match(&msg) {
                                         let _ = client.send_privmsg(chan, format!("/timeout {} {}", nick, length));
-                                        if display == "true" { send_message(con.clone(), &client, channel, format!("@{} you've been timed out for posting a blacklisted phrase", nick)); }
+                                        if display == "true" { send_message(con.clone(), clientC.clone(), channel.to_owned(), format!("@{} you've been timed out for posting a blacklisted phrase", nick)); }
                                         break;
                                     }
                                 }
@@ -450,18 +449,18 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                     for cmd in commands::native_commands.iter() {
                         if format!("{}{}", prefix, cmd.0) == word {
                             if args.len() == 0 {
-                                if !cmd.2 || auth { (cmd.1)(con.clone(), &client, channel, &args, Some(&irc_message)) }
+                                if !cmd.2 || auth { (cmd.1)(pool.clone(), con.clone(), clientC.clone(), channel.to_owned(), args.clone(), Some(irc_message.clone())) }
                             } else {
-                                if !cmd.3 || auth { (cmd.1)(con.clone(), &client, channel, &args, Some(&irc_message)) }
+                                if !cmd.3 || auth { (cmd.1)(pool.clone(), con.clone(), clientC.clone(), channel.to_owned(), args.clone(), Some(irc_message.clone())) }
                             }
                             break;
                         }
                     }
 
                     // parse custom commands
-                    let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", channel, word), "message");
+                    let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", channel.to_owned(), word), "message");
                     if let Ok(message) = res {
-                        let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", channel, word), "lastrun");
+                        let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", channel.to_owned(), word), "lastrun");
                         let mut within5 = false;
                         if let Ok(lastrun) = res {
                             let timestamp = DateTime::parse_from_rfc3339(&lastrun).unwrap();
@@ -474,7 +473,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                             let protected: String = con.hget(format!("channel:{}:commands:{}", channel, word), format!("{}_protected", protected)).expect("hget:protected");
                             if protected == "false" || auth {
                                 let _: () = con.hset(format!("channel:{}:commands:{}", channel, word), "lastrun", Utc::now().to_rfc3339()).unwrap();
-                                send_parsed_message(con.clone(), &client, channel, message.to_owned(), &args, Some(&irc_message));
+                                send_parsed_message(pool.clone(), con.clone(), clientC.clone(), channel.to_owned(), message.to_owned(), args.clone(), Some(irc_message.clone()));
                             }
                         }
                     }
@@ -492,7 +491,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
                                 let diff = Utc::now().signed_duration_since(timestamp);
                                 if diff.num_hours() < hours { break }
                             }
-                            send_parsed_message(con.clone(), &client, channel, msg, &Vec::new(), None);
+                            send_parsed_message(pool.clone(), con.clone(), clientC.clone(), channel.to_owned(), msg, Vec::new(), None);
                             break;
                         }
                     }
@@ -505,7 +504,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<r2d2::
         Ok(())
     };
 
-    reactor.register_client_with_handler(client, msg_handler);
+    reactor.register_client_with_handler((*clientA).clone(), msg_handler);
 }
 
 fn discord_handler(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: String) {
@@ -532,13 +531,16 @@ fn update_watchtime(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
         loop {
             let channels: Vec<String> = con.smembers("channels").unwrap_or(Vec::new());
             for channel in channels {
+                let pool = pool.clone();
                 let live: String = con.get(format!("channel:{}:live", &channel)).unwrap_or("false".to_owned());
                 let enabled: String = con.hget(format!("channel:{}:settings", &channel), "viewerstats:enabled").unwrap_or("false".to_owned());
                 if live == "true" && enabled != "false" {
-                    let res = request("GET", Vec::new(), &format!("http://tmi.twitch.tv/group/user/{}/chatters", &channel), 0);
-                    match res {
-                        Err(e) => { error!("{}",e) },
-                        Ok((meta,body)) => {
+                    let future = request(Method::GET, None, &format!("http://tmi.twitch.tv/group/user/{}/chatters", &channel)).send()
+                        .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
+                        .map_err(|e| println!("request error: {}", e))
+                        .map(move |body| {
+                            let con = Arc::new(pool.get().unwrap());
+                            let body = std::str::from_utf8(&body).unwrap();
                             let json: Result<TmiChatters,_> = serde_json::from_str(&body);
                             match json {
                                 Err(e) => {
@@ -564,10 +566,9 @@ fn update_watchtime(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
                                     }
                                 }
                             }
-                        }
-                    }
+                        });
+                    thread::spawn(move || { tokio::run(future) });
                 }
-                thread::sleep(time::Duration::from_secs(2));
             }
             thread::sleep(time::Duration::from_secs(60));
         }
@@ -576,87 +577,92 @@ fn update_watchtime(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
 
 fn update_live(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
     thread::spawn(move || {
-        let pool = pool.get();
-        if let Ok(pool) = pool {
-            let con = Arc::new(pool);
-            loop {
-                let channels: Vec<String> = con.smembers("channels").unwrap_or(Vec::new());
-                if channels.len() > 0 {
-                    let mut ids = Vec::new();
-                    for channel in channels.clone() {
-                        let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
-                        ids.push(id);
-                    }
-                    let res = twitch_kraken_request(con.clone(), &channels[0], "", "GET", Vec::new(), &format!("https://api.twitch.tv/kraken/streams?channel={}", ids.join(",")), 0);
-                    match res {
-                        Err(e) => { error!("{}",e); },
-                        Ok((meta,body)) => {
-                            let json: Result<KrakenStreams,_> = serde_json::from_str(&body);
-                            match json {
-                                Err(e) => {
-                                    error!("[update_live] {}", e);
-                                    error!("[request_body] {}", body);
-                                }
-                                Ok(json) => {
-                                    let live_channels: Vec<String> = json.streams.iter().map(|stream| stream.channel.name.to_owned()).collect();
-                                    for channel in channels {
-                                        let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
-                                        let live: String = con.get(format!("channel:{}:live", channel)).expect("get:live");
-                                        if live_channels.contains(&channel) {
-                                            let stream = json.streams.iter().find(|stream| { return stream.channel.name == channel }).unwrap();
-                                            if live == "false" {
-                                                let _: () = con.set(format!("channel:{}:live", channel), true).unwrap();
-                                                let _: () = con.del(format!("channel:{}:hosts:recent", channel)).unwrap();
-                                                // reset notice timers
-                                                let keys: Vec<String> = con.keys(format!("channel:{}:notices:*:messages", channel)).unwrap();
-                                                for key in keys.iter() {
-                                                    let int: Vec<&str> = key.split(":").collect();
-                                                    let _: () = con.set(format!("channel:{}:notices:{}:countdown", channel, int[3]), int[3].clone()).unwrap();
-                                                }
-                                                // send discord announcements
-                                                let tres: Result<String,_> = con.hget(format!("channel:{}:settings", channel), "discord:token");
-                                                let ires: Result<String,_> = con.hget(format!("channel:{}:settings", channel), "discord:channel-id");
-                                                if let (Ok(token), Ok(id)) = (tres, ires) {
-                                                    let message: String = con.hget(format!("channel:{}:settings", channel), "discord:live-message").unwrap_or("".to_owned());
-                                                    let display: String = con.get(format!("channel:{}:display-name", channel)).expect("get:display-name");
-                                                    let body = format!("{{ \"content\": \"{}\", \"embed\": {{ \"author\": {{ \"name\": \"{}\" }}, \"title\": \"{}\", \"url\": \"http://twitch.tv/{}\", \"thumbnail\": {{ \"url\": \"{}\" }}, \"fields\": [{{ \"name\": \"Now Playing\", \"value\": \"{}\" }}] }} }}", &message, &display, stream.channel.status, channel, stream.channel.logo, stream.channel.game);
-                                                    let _ = discord_request(con.clone(), &channel, "POST", body.as_bytes().to_owned(), &format!("https://discordapp.com/api/channels/{}/messages", id), 0);
-                                                }
+        let con = Arc::new(pool.get().unwrap());
+        loop {
+            let pool = pool.clone();
+            let channels: Vec<String> = con.smembers("channels").unwrap_or(Vec::new());
+            if channels.len() > 0 {
+                let mut ids = Vec::new();
+                for channel in channels.clone() {
+                    let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
+                    ids.push(id);
+                }
+                // TODO: should channels[0] be used here?
+                let future = twitch_kraken_request(con.clone(), &channels[0], None, None, Method::GET, &format!("https://api.twitch.tv/kraken/streams?channel={}", ids.join(","))).send()
+                    .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
+                    .map_err(|e| println!("request error: {}", e))
+                    .map(move |body| {
+                        let con = Arc::new(pool.get().unwrap());
+                        let body = std::str::from_utf8(&body).unwrap();
+                        let json: Result<KrakenStreams,_> = serde_json::from_str(&body);
+                        match json {
+                            Err(e) => {
+                                error!("[update_live] {}", e);
+                                error!("[request_body] {}", body);
+                            }
+                            Ok(json) => {
+                                let live_channels: Vec<String> = json.streams.iter().map(|stream| stream.channel.name.to_owned()).collect();
+                                for channel in channels {
+                                    let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
+                                    let live: String = con.get(format!("channel:{}:live", channel)).expect("get:live");
+                                    if live_channels.contains(&channel) {
+                                        let stream = json.streams.iter().find(|stream| { return stream.channel.name == channel }).unwrap();
+                                        if live == "false" {
+                                            let _: () = con.set(format!("channel:{}:live", channel), true).unwrap();
+                                            let _: () = con.del(format!("channel:{}:hosts:recent", channel)).unwrap();
+                                            // reset notice timers
+                                            let keys: Vec<String> = con.keys(format!("channel:{}:notices:*:messages", channel)).unwrap();
+                                            for key in keys.iter() {
+                                                let int: Vec<&str> = key.split(":").collect();
+                                                let _: () = con.set(format!("channel:{}:notices:{}:countdown", channel, int[3]), int[3].clone()).unwrap();
                                             }
-                                        } else {
-                                            if live == "true" {
-                                                let _: () = con.set(format!("channel:{}:live", channel), false).unwrap();
-                                                // reset stats
-                                                let res: Result<String,_> = con.hget(format!("channel:{}:settings", channel), "stats:reset");
-                                                if let Err(e) = res {
-                                                    let _: () = con.del(format!("channel:{}:stats:pubg", channel)).unwrap();
-                                                    let _: () = con.del(format!("channel:{}:stats:fortnite", channel)).unwrap();
-                                                }
+                                            // send discord announcements
+                                            let tres: Result<String,_> = con.hget(format!("channel:{}:settings", channel), "discord:token");
+                                            let ires: Result<String,_> = con.hget(format!("channel:{}:settings", channel), "discord:channel-id");
+                                            if let (Ok(token), Ok(id)) = (tres, ires) {
+                                                let message: String = con.hget(format!("channel:{}:settings", channel), "discord:live-message").unwrap_or("".to_owned());
+                                                let display: String = con.get(format!("channel:{}:display-name", channel)).expect("get:display-name");
+                                                let body = format!("{{ \"content\": \"{}\", \"embed\": {{ \"author\": {{ \"name\": \"{}\" }}, \"title\": \"{}\", \"url\": \"http://twitch.tv/{}\", \"thumbnail\": {{ \"url\": \"{}\" }}, \"fields\": [{{ \"name\": \"Now Playing\", \"value\": \"{}\" }}] }} }}", &message, &display, stream.channel.status, channel, stream.channel.logo, stream.channel.game);
+                                                let future = discord_request(con.clone(), &channel, Some(body.as_bytes().to_owned()), Method::POST, &format!("https://discordapp.com/api/channels/{}/messages", id)).send().and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() }).map_err(|e| println!("request error: {}", e)).map(move |body| {});
+                                                thread::spawn(move || { tokio::run(future) });
+                                            }
+                                        }
+                                    } else {
+                                        if live == "true" {
+                                            let _: () = con.set(format!("channel:{}:live", channel), false).unwrap();
+                                            // reset stats
+                                            let res: Result<String,_> = con.hget(format!("channel:{}:settings", channel), "stats:reset");
+                                            if let Err(e) = res {
+                                                let _: () = con.del(format!("channel:{}:stats:pubg", channel)).unwrap();
+                                                let _: () = con.del(format!("channel:{}:stats:fortnite", channel)).unwrap();
                                             }
                                         }
                                     }
                                 }
                             }
                         }
-                    }
-                }
-
-                thread::sleep(time::Duration::from_secs(60));
+                    });
+                thread::spawn(move || { tokio::run(future) });
             }
+
+            thread::sleep(time::Duration::from_secs(60));
         }
     });
 }
 
 fn update_stats(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
-    let con_pubg = pool.get().unwrap();
-    let con_fort = pool.get().unwrap();
+    let pool_pubg = pool.clone();
+    let pool_fort = pool.clone();
 
     // pubg
     thread::spawn(move || {
-        let con = Arc::new(con_pubg);
+        let con = Arc::new(pool_pubg.get().unwrap());
         loop {
             let channels: Vec<String> = con.smembers("channels").unwrap_or(Vec::new());
             for channel in channels {
+                let pool1 = pool_pubg.clone();
+                let pool2 = pool_pubg.clone();
+                let pool3 = pool_pubg.clone();
                 let reset: String = con.hget(format!("channel:{}:stats:pubg", &channel), "reset").unwrap_or("false".to_owned());
                 let res: Result<String,_> = con.hget(format!("channel:{}:settings", &channel), "stats:reset");
                 if let Ok(hour) = res {
@@ -676,36 +682,14 @@ fn update_stats(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
                     if let (Ok(token), Ok(name)) = (res1, res2) {
                         let platform: String = con.hget(format!("channel:{}:settings", &channel), "pubg:platform").unwrap_or("steam".to_owned());
                         let res: Result<String,_> = con.hget(format!("channel:{}:settings", &channel), "pubg:id");
-                        let mut id: String = "".to_owned();
-                        if let Ok(v) = res {
-                            id = v;
-                        } else {
-                            let res = pubg_request(con.clone(), &channel, "GET", Vec::new(), &format!("https://api.pubg.com/shards/{}/players?filter%5BplayerNames%5D={}", platform, name), 0);
-                            match res {
-                                Err(e) => { error!("{}",e); },
-                                Ok((meta,body)) => {
-                                    let json: Result<PubgPlayers,_> = serde_json::from_str(&body);
-                                    match json {
-                                        Err(e) => {
-                                            error!("[update_pubg] {}", e);
-                                            error!("[request_body] {}", body);
-                                        }
-                                        Ok(json) => {
-                                            if json.data.len() > 0 {
-                                                let _: () = con.hset(format!("channel:{}:settings", &channel), "pubg:id", &json.data[0].id).unwrap();
-                                                id = json.data[0].id.to_owned();
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        if !id.is_empty() {
+                        if let Ok(id) = res {
                             let mut cursor: String = con.hget(format!("channel:{}:stats:pubg", &channel), "cursor").unwrap_or("".to_owned());
-                            let res = pubg_request(con.clone(), &channel, "GET", Vec::new(), &format!("https://api.pubg.com/shards/{}/players/{}", platform, id), 0);
-                            match res {
-                                Err(e) => { error!("{}",e); },
-                                Ok((meta,body)) => {
+                            let future = pubg_request(con.clone(), &channel, &format!("https://api.pubg.com/shards/{}/players/{}", platform, id)).send()
+                                .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
+                                .map_err(|e| println!("request error: {}", e))
+                                .map(move |body| {
+                                    let con = Arc::new(pool2.get().unwrap());
+                                    let body = std::str::from_utf8(&body).unwrap();
                                     let json: Result<PubgPlayer,_> = serde_json::from_str(&body);
                                     match json {
                                         Err(e) => {
@@ -717,12 +701,17 @@ fn update_stats(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
                                                 if cursor == "" { cursor = json.data.relationships.matches.data[0].id.to_owned() }
                                                 let _: () = con.hset(format!("channel:{}:stats:pubg", &channel), "cursor", &json.data.relationships.matches.data[0].id).unwrap();
                                                 for match_ in json.data.relationships.matches.data.iter() {
+                                                    let idC = id.clone();
+                                                    let poolC = pool3.clone();
+                                                    let channelC = channel.clone();
                                                     if match_.id == cursor { break }
                                                     else {
-                                                        let res = pubg_request(con.clone(), &channel, "GET", Vec::new(), &format!("https://api.pubg.com/shards/pc-na/matches/{}", &match_.id), 0);
-                                                        match res {
-                                                            Err(e) => { error!("{}",e); },
-                                                            Ok((meta,body)) => {
+                                                        let future = pubg_request(con.clone(), &channel, &format!("https://api.pubg.com/shards/pc-na/matches/{}", &match_.id)).send()
+                                                            .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
+                                                            .map_err(|e| println!("request error: {}", e))
+                                                            .map(move |body| {
+                                                                let con = Arc::new(poolC.get().unwrap());
+                                                                let body = std::str::from_utf8(&body).unwrap();
                                                                 let json: Result<PubgMatch,_> = serde_json::from_str(&body);
                                                                 match json {
                                                                     Err(e) => {
@@ -731,29 +720,29 @@ fn update_stats(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
                                                                     }
                                                                     Ok(json) => {
                                                                         for p in json.included.iter().filter(|i| i.type_ == "participant") {
-                                                                            if p.attributes["stats"]["playerId"] == id {
+                                                                            if p.attributes["stats"]["playerId"] == idC {
                                                                                 for stat in ["winPlace", "kills", "headshotKills", "roadKills", "teamKills", "damageDealt", "vehicleDestroys"].iter() {
                                                                                     if let Number(num) = &p.attributes["stats"][stat] {
                                                                                         if let Some(num) = num.as_f64() {
                                                                                             let mut statname: String = (*stat).to_owned();
                                                                                             if *stat == "winPlace" { statname = "wins".to_owned() }
-                                                                                            let res: Result<String,_> = con.hget(format!("channel:{}:stats:pubg", &channel), &statname);
+                                                                                            let res: Result<String,_> = con.hget(format!("channel:{}:stats:pubg", &channelC), &statname);
                                                                                             if let Ok(old) = res {
                                                                                                 let n: u64 = old.parse().unwrap();
                                                                                                 if *stat == "winPlace" {
                                                                                                     if num as u64 == 1 {
-                                                                                                        let _: () = con.hset(format!("channel:{}:stats:pubg", &channel), &statname, n + 1).unwrap();
+                                                                                                        let _: () = con.hset(format!("channel:{}:stats:pubg", &channelC), &statname, n + 1).unwrap();
                                                                                                     }
                                                                                                 } else {
-                                                                                                    let _: () = con.hset(format!("channel:{}:stats:pubg", &channel), &statname, n + (num as u64)).unwrap();
+                                                                                                    let _: () = con.hset(format!("channel:{}:stats:pubg", &channelC), &statname, n + (num as u64)).unwrap();
                                                                                                 }
                                                                                             } else {
                                                                                                 if *stat == "winPlace" {
                                                                                                     if num as u64 == 1 {
-                                                                                                        let _: () = con.hset(format!("channel:{}:stats:pubg", &channel), &statname, 1).unwrap();
+                                                                                                        let _: () = con.hset(format!("channel:{}:stats:pubg", &channelC), &statname, 1).unwrap();
                                                                                                     }
                                                                                                 } else {
-                                                                                                    let _: () = con.hset(format!("channel:{}:stats:pubg", &channel), &statname, num as u64).unwrap();
+                                                                                                    let _: () = con.hset(format!("channel:{}:stats:pubg", &channelC), &statname, num as u64).unwrap();
                                                                                                 }
                                                                                             }
                                                                                         }
@@ -763,19 +752,39 @@ fn update_stats(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
                                                                         }
                                                                     }
                                                                 }
-                                                            }
-                                                        }
+                                                            });
+                                                        tokio::run(future);
                                                     }
                                                 }
                                             }
                                         }
                                     }
-                                }
-                            }
+                                });
+                            thread::spawn(move || { tokio::run(future) });
+                        } else {
+                            let future = pubg_request(con.clone(), &channel, &format!("https://api.pubg.com/shards/{}/players?filter%5BplayerNames%5D={}", platform, name)).send()
+                                .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
+                                .map_err(|e| println!("request error: {}", e))
+                                .map(move |body| {
+                                    let con = Arc::new(pool1.get().unwrap());
+                                    let body = std::str::from_utf8(&body).unwrap();
+                                    let json: Result<PubgPlayers,_> = serde_json::from_str(&body);
+                                    match json {
+                                        Err(e) => {
+                                            error!("[update_pubg] {}", e);
+                                            error!("[request_body] {}", body);
+                                        }
+                                        Ok(json) => {
+                                            if json.data.len() > 0 {
+                                                let _: () = con.hset(format!("channel:{}:settings", &channel), "pubg:id", &json.data[0].id).unwrap();
+                                            }
+                                        }
+                                    }
+                                });
+                            thread::spawn(move || { tokio::run(future) });
                         }
                     }
                 }
-                thread::sleep(time::Duration::from_secs(2));
             }
             thread::sleep(time::Duration::from_secs(60));
         }
@@ -783,10 +792,11 @@ fn update_stats(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
 
     // fortnite
     thread::spawn(move || {
-        let con = Arc::new(con_fort);
+        let con = Arc::new(pool_fort.get().unwrap());
         loop {
             let channels: Vec<String> = con.smembers("channels").unwrap_or(Vec::new());
             for channel in channels {
+                let poolC = pool_fort.clone();
                 let reset: String = con.hget(format!("channel:{}:stats:fortnite", &channel), "reset").unwrap_or("false".to_owned());
                 let res: Result<String,_> = con.hget(format!("channel:{}:settings", &channel), "stats:reset");
                 if let Ok(hour) = res {
@@ -806,10 +816,12 @@ fn update_stats(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
                     if let (Ok(token), Ok(name)) = (res1, res2) {
                         let platform: String = con.hget(format!("channel:{}:settings", &channel), "pubg:platform").unwrap_or("pc".to_owned());
                         let mut cursor: String = con.hget(format!("channel:{}:stats:fortnite", &channel), "cursor").unwrap_or("".to_owned());
-                        let res = fortnite_request(con.clone(), &channel, "GET", Vec::new(), &format!("https://api.fortnitetracker.com/v1/profile/{}/{}", platform, name), 0);
-                        match res {
-                            Err(e) => { error!("{}",e); },
-                            Ok((meta,body)) => {
+                        let future = fortnite_request(con.clone(), &channel, &format!("https://api.fortnitetracker.com/v1/profile/{}/{}", platform, name)).send()
+                            .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
+                            .map_err(|e| println!("request error: {}", e))
+                            .map(move |body| {
+                                let con = Arc::new(poolC.get().unwrap());
+                                let body = std::str::from_utf8(&body).unwrap();
                                 let json: Result<FortniteApi,_> = serde_json::from_str(&body);
                                 match json {
                                     Err(e) => {
@@ -843,11 +855,10 @@ fn update_stats(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
                                         }
                                     }
                                 }
-                            }
-                        }
+                            });
+                        thread::spawn(move || { tokio::run(future) });
                     }
                 }
-                thread::sleep(time::Duration::from_secs(2));
             }
             thread::sleep(time::Duration::from_secs(60));
         }
@@ -855,6 +866,10 @@ fn update_stats(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
 }
 
 fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: String, receivers: Vec<Receiver<ThreadAction>>) {
+    let notice_pool = pool.clone();
+    let snotice_pool = pool.clone();
+    let so_pool = pool.clone();
+    let comm_pool = pool.clone();
     let notice_con = pool.get().unwrap();
     let snotice_con = pool.get().unwrap();
     let so_con = pool.get().unwrap();
@@ -903,7 +918,7 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                     if hour == Utc::now().time().hour() && min == Utc::now().time().minute() {
                         let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", channel, cmd), "message");
                         if let Ok(message) = res {
-                            send_parsed_message(con.clone(), &snotice_client, &snotice_channel, message.to_owned(), &Vec::new(), None);
+                            send_parsed_message(snotice_pool.clone(), con.clone(), snotice_client.clone(), snotice_channel.clone(), message.to_owned(), Vec::new(), None);
                         }
                     }
                 });
@@ -932,7 +947,7 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
 
             let live: String = con.get(format!("channel:{}:live", notice_channel)).expect("get:live");
             if live == "true" {
-                let keys: Vec<String> = con.keys(format!("channel:{}:notices:*:commands", notice_channel)).unwrap();
+                let keys: Vec<String> = con.keys(format!("channel:{}:notices:*:commands", notice_channel.clone())).unwrap();
                 let ints: Vec<&str> = keys.iter().map(|str| {
                     let int: Vec<&str> = str.split(":").collect();
                     return int[3];
@@ -957,15 +972,16 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                     let _: () = con.rpush(format!("channel:{}:notices:{}:commands", notice_channel, int), cmd.clone()).unwrap();
                     let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", notice_channel, cmd), "message");
                     if let Ok(mut message) = res {
-                        send_parsed_message(con.clone(), &notice_client, &notice_channel, message, &Vec::new(), None);
+                        send_parsed_message(notice_pool.clone(), con.clone(), notice_client.clone(), notice_channel.clone(), message, Vec::new(), None);
                     }
                 }
             }
         }
     });
 
+    // TODO: reimplement
     // shoutouts
-    thread::spawn(move || {
+    /*thread::spawn(move || {
         let con = Arc::new(so_con);
         loop {
             let live: String = con.get(format!("channel:{}:live", &so_channel)).unwrap_or("false".to_owned());
@@ -1010,7 +1026,7 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                                                                     message = replace_var("name", &json.streams[0].channel.display_name, &message);
                                                                     message = replace_var("game", &json.streams[0].channel.game, &message);
                                                                     message = replace_var("viewers", &json.streams[0].viewers.to_string(), &message);
-                                                                    send_message(con.clone(), &so_client, &so_channel, message);
+                                                                    send_message(con.clone(), so_client.clone(), so_channel.clone(), message);
                                                                 }
                                                             } else {
                                                                 if !autom.is_empty() {
@@ -1029,7 +1045,7 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                                                                                     message = replace_var("url", &json.url, &message);
                                                                                     message = replace_var("name", &json.display_name, &message);
                                                                                     message = replace_var("game", &json.game, &message);
-                                                                                    send_message(con.clone(), &so_client, &so_channel, message);
+                                                                                    send_message(con.clone(), so_client.clone(), so_channel.clone(), message);
                                                                                 }
                                                                             }
                                                                         }
@@ -1063,7 +1079,7 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                 }
             }
         }
-    });
+    });*/
 
     // commercials
     thread::spawn(move || {
@@ -1111,7 +1127,6 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                     let id: String = con.get(format!("channel:{}:id", comm_channel)).unwrap();
                     let submode: String = con.get(format!("channel:{}:commercials:submode", comm_channel)).unwrap_or("false".to_owned());
                     let nres: Result<String,_> = con.get(format!("channel:{}:commercials:notice", comm_channel));
-                    let _ = twitch_kraken_request(con.clone(), &comm_channel, "application/json", "POST", format!("{{\"length\": {}}}", num * 30).as_bytes().to_owned(), &format!("https://api.twitch.tv/kraken/channels/{}/commercial", &id), 0);
                     let length: u16 = con.llen(format!("channel:{}:commercials:recent", comm_channel)).unwrap();
                     let _: () = con.lpush(format!("channel:{}:commercials:recent", comm_channel), format!("{} {}", Utc::now().to_rfc3339(), num)).unwrap();
                     if length > 7 {
@@ -1129,10 +1144,12 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                     if let Ok(notice) = nres {
                         let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", comm_channel, notice), "message");
                         if let Ok(message) = res {
-                            send_parsed_message(con.clone(), &client, &comm_channel, message, &Vec::new(), None);
+                            send_parsed_message(comm_pool.clone(), con.clone(), comm_client.clone(), comm_channel.clone(), message, Vec::new(), None);
                         }
                     }
-                    send_message(con.clone(), &client, &comm_channel, format!("{} commercials have been run", num));
+                    send_message(con.clone(), comm_client.clone(), comm_channel.clone(), format!("{} commercials have been run", num));
+                    let future = twitch_kraken_request(con.clone(), &comm_channel, Some("application/json"), Some(format!("{{\"length\": {}}}", num * 30).as_bytes().to_owned()), Method::POST, &format!("https://api.twitch.tv/kraken/channels/{}/commercial", &id)).send().and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() }).map_err(|e| println!("request error: {}", e)).map(move |body| {});
+                    thread::spawn(move || { tokio::run(future) });
                 }
 
                 let rsp = comm_receiver.recv_timeout(time::Duration::from_secs(3600));

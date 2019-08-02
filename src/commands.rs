@@ -10,21 +10,27 @@ use std::collections::{HashMap, HashSet};
 use std::{thread,time};
 use bcrypt::{DEFAULT_COST, hash};
 use regex::Regex;
-use mio_httpc::CallBuilder;
+use reqwest::{Method,Error};
+use reqwest::r#async::{RequestBuilder,Chunk,Decoder};
+use futures::future::Map;
 use irc::client::prelude::*;
 use chrono::{Utc, DateTime, FixedOffset, Duration};
 use humantime::format_duration;
 use itertools::Itertools;
 use r2d2_redis::r2d2;
 use r2d2_redis::redis::Commands;
+use tokio;
+use std::mem;
 
-pub const native_commands: [(&str, fn(Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, &IrcClient, &str, &Vec<String>, Option<&Message>), bool, bool); 15] = [("echo", echo_cmd, true, true), ("set", set_cmd, true, true), ("unset", unset_cmd, true, true), ("command", command_cmd, true, true), ("title", title_cmd, false, true), ("game", game_cmd, false, true), ("notices", notices_cmd, true, true), ("moderation", moderation_cmd, true, true), ("permit", permit_cmd, true, true), ("multi", multi_cmd, false, true), ("clip", clip_cmd, true, true), ("counters", counters_cmd, true, true), ("phrases", phrases_cmd, true, true), ("commercials", commercials_cmd, true, true), ("songreq", songreq_cmd, false, false)];
+pub const native_commands: [(&str, fn(r2d2::Pool<r2d2_redis::RedisConnectionManager>, Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, Arc<IrcClient>, String, Vec<String>, Option<Message>), bool, bool); 15] = [("echo", echo_cmd, true, true), ("set", set_cmd, true, true), ("unset", unset_cmd, true, true), ("command", command_cmd, true, true), ("title", title_cmd, false, true), ("game", game_cmd, false, true), ("notices", notices_cmd, true, true), ("moderation", moderation_cmd, true, true), ("permit", permit_cmd, true, true), ("multi", multi_cmd, false, true), ("clip", clip_cmd, true, true), ("counters", counters_cmd, true, true), ("phrases", phrases_cmd, true, true), ("commercials", commercials_cmd, true, true), ("songreq", songreq_cmd, false, false)];
 
-pub const command_vars: [(&str, fn(Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, Option<&IrcClient>, &str, Option<&Message>, Vec<&str>, &Vec<String>) -> String); 31] = [("args", args_var), ("uptime", uptime_var), ("user", user_var), ("channel", channel_var), ("cmd", cmd_var), ("counterinc", counterinc_var), ("followage", followage_var), ("subcount", subcount_var), ("followcount", followcount_var), ("counter", counter_var), ("phrase", phrase_var), ("countdown", countdown_var), ("date", date_var), ("dateinc", dateinc_var), ("watchtime", watchtime_var), ("watchrank", watchrank_var), ("urlfetch", urlfetch_var), ("spotify:playing-title", spotify_playing_title_var), ("spotify:playing-album", spotify_playing_album_var), ("spotify:playing-artist", spotify_playing_artist_var), ("youtube:latest-url", youtube_latest_url_var), ("youtube:latest-title", youtube_latest_title_var), ("fortnite:wins", fortnite_wins_var), ("fortnite:kills", fortnite_kills_var), ("pubg:damage", pubg_damage_var), ("pubg:headshots", pubg_headshots_var), ("pubg:kills", pubg_kills_var), ("pubg:roadkills", pubg_roadkills_var), ("pubg:teamkills", pubg_teamkills_var), ("pubg:vehiclesDestroyed", pubg_vehicles_destroyed_var), ("pubg:wins", pubg_wins_var)];
+pub const command_vars: [(&str, fn(r2d2::Pool<r2d2_redis::RedisConnectionManager>, Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, Option<Arc<IrcClient>>, &str, Option<Message>, Vec<String>, Vec<String>) -> String); 21] = [("args", args_var), ("user", user_var), ("channel", channel_var), ("cmd", cmd_var), ("counterinc", counterinc_var), ("counter", counter_var), ("phrase", phrase_var), ("countdown", countdown_var), ("date", date_var), ("dateinc", dateinc_var), ("watchtime", watchtime_var), ("watchrank", watchrank_var), ("fortnite:wins", fortnite_wins_var), ("fortnite:kills", fortnite_kills_var), ("pubg:damage", pubg_damage_var), ("pubg:headshots", pubg_headshots_var), ("pubg:kills", pubg_kills_var), ("pubg:roadkills", pubg_roadkills_var), ("pubg:teamkills", pubg_teamkills_var), ("pubg:vehiclesDestroyed", pubg_vehicles_destroyed_var), ("pubg:wins", pubg_wins_var)];
+
+pub const command_vars_async: [(&str, fn(r2d2::Pool<r2d2_redis::RedisConnectionManager>, Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, Option<Arc<IrcClient>>, &str, Option<Message>, Vec<String>, Vec<String>) -> Option<(RequestBuilder, fn(Chunk) -> String)>); 10] = [("uptime", uptime_var), ("followage", followage_var), ("subcount", subcount_var), ("followcount", followcount_var), ("urlfetch", urlfetch_var), ("spotify:playing-title", spotify_playing_title_var), ("spotify:playing-album", spotify_playing_album_var), ("spotify:playing-artist", spotify_playing_artist_var), ("youtube:latest-url", youtube_latest_url_var), ("youtube:latest-title", youtube_latest_title_var)];
 
 pub const twitch_bots: [&str; 20] = ["electricallongboard","lanfusion","cogwhistle","freddyybot","anotherttvviewer","apricotdrupefruit","skinnyseahorse","p0lizei_","xbit01","n3td3v","cachebear","icon_bot","virgoproz","v_and_k","slocool","host_giveaway","nightbot","commanderroot","p0sitivitybot","streamlabs"];
 
-fn args_var(_con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
+fn args_var(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, _con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<Arc<IrcClient>>, channel: &str, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> String {
     if vargs.len() > 0 {
         let num: Result<usize,_> = vargs[0].parse();
         match num {
@@ -42,7 +48,7 @@ fn args_var(_con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>
     }
 }
 
-fn cmd_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, irc_message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
+fn cmd_var(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<Arc<IrcClient>>, channel: &str, irc_message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> String {
     if let Some(client) = client {
         if vargs.len() > 0 {
             let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", channel, vargs[0]), "message");
@@ -51,17 +57,17 @@ fn cmd_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>,
                 for var in command_vars.iter() {
                     if var.0 != "cmd" && var.0 != "var" {
                         let args: Vec<String> = vargs[1..].iter().map(|a| a.to_string()).collect();
-                        message = parse_var(var, &message, con.clone(), Some(client), channel, irc_message, &args);
+                        message = parse_var(var, &message, pool.clone(), con.clone(), Some(client.clone()), channel, irc_message.clone(), args);
                     }
                 }
-                send_parsed_message(con.clone(), client, channel, message, cargs, irc_message);
+                send_parsed_message(pool.clone(), con.clone(), client, channel.to_owned(), message, cargs, irc_message);
             } else {
                 for cmd in native_commands.iter() {
                     if format!("!{}", cmd.0) == vargs[0] {
                         let args: Vec<String> = vargs[1..].iter().map(|a| a.to_string()).collect();
-                        match irc_message {
-                            None => { (cmd.1)(con.clone(), client, channel, &args, None) }
-                            Some(msg) => { (cmd.1)(con.clone(), client, channel, &args, Some(msg)) }
+                        match irc_message.clone() {
+                            None => { (cmd.1)(pool.clone(), con.clone(), client.clone(), channel.to_owned(), args, None) }
+                            Some(msg) => { (cmd.1)(pool.clone(), con.clone(), client.clone(), channel.to_owned(), args, Some(msg)) }
                         }
                     }
                 }
@@ -71,41 +77,40 @@ fn cmd_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>,
     "".to_owned()
 }
 
-fn uptime_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
+fn uptime_var(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<Arc<IrcClient>>, channel: &str, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> Option<(RequestBuilder, fn(Chunk) -> String)> {
     let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
-    let res = twitch_kraken_request(con.clone(), channel, "", "GET", Vec::new(), &format!("https://api.twitch.tv/kraken/streams?channel={}", &id), 0);
-    match res {
-        Err(e) => { error!("{}",e);"".to_owned() },
-        Ok((meta,body)) => {
-            let json: Result<KrakenStreams,_> = serde_json::from_str(&body);
-            match json {
-                Err(e) => {
-                    error!("{}",e);
-                    error!("[request_body] {}", body);
-                    "".to_owned()
-                }
-                Ok(json) => {
-                    if json.total > 0 {
-                        let dt = DateTime::parse_from_rfc3339(&json.streams[0].created_at).unwrap();
-                        let diff = Utc::now().signed_duration_since(dt);
-                        let formatted = format_duration(diff.to_std().unwrap()).to_string();
-                        let formatted: Vec<&str> = formatted.split_whitespace().collect();
-                        if formatted.len() == 1 {
-                            return format!("{}", formatted[0]);
-                        } else {
-                            return format!("{}{}", formatted[0], formatted[1]);
-                        }
+    let builder = twitch_kraken_request(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/streams?channel={}", &id));
+    let func = move |body: Chunk| -> String {
+        let body = std::str::from_utf8(&body).unwrap();
+        let json: Result<KrakenStreams,_> = serde_json::from_str(&body);
+        match json {
+            Err(e) => {
+                error!("{}",e);
+                error!("[request_body] {}", body);
+                "".to_owned()
+            }
+            Ok(json) => {
+                if json.total > 0 {
+                    let dt = DateTime::parse_from_rfc3339(&json.streams[0].created_at).unwrap();
+                    let diff = Utc::now().signed_duration_since(dt);
+                    let formatted = format_duration(diff.to_std().unwrap()).to_string();
+                    let formatted: Vec<&str> = formatted.split_whitespace().collect();
+                    if formatted.len() == 1 {
+                        format!("{}", formatted[0])
                     } else {
-                        error!("json.total == 0");
-                        "".to_owned()
+                        format!("{}{}", formatted[0], formatted[1])
                     }
+                } else {
+                    error!("json.total == 0");
+                    "".to_owned()
                 }
             }
         }
-    }
+    };
+    return Some((builder, func));
 }
 
-fn user_var(_con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
+fn user_var(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, _con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<Arc<IrcClient>>, channel: &str, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> String {
     if let Some(message) = message {
         let mut display = get_nick(&message);
         if let Some(tags) = &message.tags {
@@ -119,113 +124,93 @@ fn user_var(_con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>
                 }
             });
         }
-        return display;
+        display
     } else {
         "".to_owned()
     }
 }
 
-fn channel_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
+fn channel_var(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<Arc<IrcClient>>, channel: &str, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> String {
     let display: String = con.get(format!("channel:{}:display-name", channel)).expect("get:display-name");
-    return display;
+    display
 }
 
-fn counterinc_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
+fn counterinc_var(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<Arc<IrcClient>>, channel: &str, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> String {
     if vargs.len() > 0 {
-        let res: Result<String,_> = con.hget(format!("channel:{}:counters", channel), vargs[0]);
+        let res: Result<String,_> = con.hget(format!("channel:{}:counters", channel), &vargs[0]);
         if let Ok(counter) = res {
             let res: Result<u16,_> = counter.parse();
             if let Ok(num) = res {
-                let _: () = con.hset(format!("channel:{}:counters", channel), vargs[0], num + 1).unwrap();
+                let _: () = con.hset(format!("channel:{}:counters", channel), &vargs[0], num + 1).unwrap();
             } else {
-                let _: () = con.hset(format!("channel:{}:counters", channel), vargs[0], 1).unwrap();
+                let _: () = con.hset(format!("channel:{}:counters", channel), &vargs[0], 1).unwrap();
             }
         } else {
-            let _: () = con.hset(format!("channel:{}:counters", channel), vargs[0], 1).unwrap();
+            let _: () = con.hset(format!("channel:{}:counters", channel), &vargs[0], 1).unwrap();
         }
     }
 
     "".to_owned()
 }
 
-fn followage_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
+fn followage_var(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<Arc<IrcClient>>, channel: &str, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> Option<(RequestBuilder, fn(Chunk) -> String)> {
     if let Some(message) = message {
-        let res = twitch_kraken_request(con.clone(), channel, "", "GET", Vec::new(), &format!("https://api.twitch.tv/kraken/users?login={}", &get_nick(message)), 0);
-        match res {
-            Err(e) => { error!("{}",e);"0m".to_owned() },
-            Ok((meta,body)) => {
-                let json: Result<KrakenUsers,_> = serde_json::from_str(&body);
-                match json {
-                    Err(e) => { error!("{}",e);"0m".to_owned() }
-                    Ok(json) => {
-                        if json.total > 0 {
-                            let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
-                            let res = twitch_kraken_request(con.clone(), channel, "", "GET", Vec::new(), &format!("https://api.twitch.tv/kraken/users/{}/follows/channels/{}", &json.users[0].id, &id), 0);
-                            match res {
-                                Err(e) => { error!("{}",e);"0m".to_owned() }
-                                Ok((meta, body)) => {
-                                    let json: Result<KrakenFollow,_> = serde_json::from_str(&body);
-                                    match json {
-                                        Err(e) => { error!("{}",e);"0m".to_owned() }
-                                        Ok(json) => {
-                                            let timestamp = DateTime::parse_from_rfc3339(&json.created_at).unwrap();
-                                            let diff = Utc::now().signed_duration_since(timestamp);
-                                            let formatted = format_duration(diff.to_std().unwrap()).to_string();
-                                            let formatted: Vec<&str> = formatted.split_whitespace().collect();
-                                            if formatted.len() == 1 {
-                                                return format!("{}", formatted[0]);
-                                            } else {
-                                                return format!("{} and {}", formatted[0], formatted[1]);
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        } else {
-                            "0m".to_owned()
-                        }
+        let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
+        let user_id = get_id(&message).unwrap();
+        let builder = twitch_kraken_request(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/users/{}/follows/channels/{}", &user_id, &id));
+        let func = move |body: Chunk| -> String {
+            let body = std::str::from_utf8(&body).unwrap();
+            let json: Result<KrakenFollow,_> = serde_json::from_str(&body);
+            match json {
+                Err(e) => { error!("{}",e);"0m".to_owned() }
+                Ok(json) => {
+                    let timestamp = DateTime::parse_from_rfc3339(&json.created_at).unwrap();
+                    let diff = Utc::now().signed_duration_since(timestamp);
+                    let formatted = format_duration(diff.to_std().unwrap()).to_string();
+                    let formatted: Vec<&str> = formatted.split_whitespace().collect();
+                    if formatted.len() == 1 {
+                        format!("{}", formatted[0])
+                    } else {
+                        format!("{} and {}", formatted[0], formatted[1])
                     }
                 }
             }
-        }
-    } else {
-        "".to_owned()
-    }
+        };
+        return Some((builder, func));
+    } else { None }
 }
 
-fn subcount_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
+fn subcount_var(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<Arc<IrcClient>>, channel: &str, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> Option<(RequestBuilder, fn(Chunk) -> String)> {
     let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
-    let res = twitch_kraken_request(con.clone(), channel, "", "GET", Vec::new(), &format!("https://api.twitch.tv/kraken/channels/{}/subscriptions", &id), 0);
-    match res {
-        Err(e) => { error!("{}",e);"0".to_owned() },
-        Ok((meta,body)) => {
-            let json: Result<KrakenSubs,_> = serde_json::from_str(&body);
-            match json {
-                Err(e) => { "0".to_owned() }
-                Ok(json) => { json.total.to_string() }
-            }
+    let builder = twitch_kraken_request(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/channels/{}/subscriptions", &id));
+    let func = move |body: Chunk| -> String {
+        let body = std::str::from_utf8(&body).unwrap();
+        let json: Result<KrakenSubs,_> = serde_json::from_str(&body);
+        match json {
+            Err(e) => { "0".to_owned() }
+            Ok(json) => { json.total.to_string() }
         }
-    }
+    };
+    return Some((builder, func));
 }
 
-fn followcount_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
+fn followcount_var(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<Arc<IrcClient>>, channel: &str, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> Option<(RequestBuilder, fn(Chunk) -> String)> {
     let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
-    let res = twitch_kraken_request(con.clone(), channel, "", "GET", Vec::new(), &format!("https://api.twitch.tv/kraken/channels/{}/follows", &id), 0);
-    match res {
-        Err(e) => { error!("{}",e);"0".to_owned() },
-        Ok((meta,body)) => {
-            let json: Result<KrakenFollows,_> = serde_json::from_str(&body);
-            match json {
-                Err(e) => { "0".to_owned() }
-                Ok(json) => { json.total.to_string() }
-            }
+    let builder = twitch_kraken_request(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/channels/{}/follows", &id));
+    let func = move |body: Chunk| -> String {
+        let body = std::str::from_utf8(&body).unwrap();
+        let json: Result<KrakenFollows,_> = serde_json::from_str(&body);
+        match json {
+            Err(e) => { "0".to_owned() }
+            Ok(json) => { json.total.to_string() }
         }
-    }
+    };
+    return Some((builder, func));
 }
 
-fn counter_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
+fn counter_var(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<Arc<IrcClient>>, channel: &str, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> String {
     if vargs.len() > 0 {
-        let res: Result<String,_> = con.hget(format!("channel:{}:counters", channel), vargs[0]);
+        let res: Result<String,_> = con.hget(format!("channel:{}:counters", channel), &vargs[0]);
         if let Ok(counter) = res {
             let num: Result<u16,_> = counter.parse();
             match num {
@@ -240,9 +225,9 @@ fn counter_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManage
     }
 }
 
-fn phrase_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
+fn phrase_var(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<Arc<IrcClient>>, channel: &str, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> String {
     if vargs.len() > 0 {
-        let res: Result<String,_> = con.hget(format!("channel:{}:phrases", channel), vargs[0]);
+        let res: Result<String,_> = con.hget(format!("channel:{}:phrases", channel), &vargs[0]);
         if let Ok(phrase) = res {
             phrase
         } else {
@@ -253,9 +238,9 @@ fn phrase_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager
     }
 }
 
-fn date_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
+fn date_var(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<Arc<IrcClient>>, channel: &str, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> String {
     if vargs.len() > 0 {
-        let res: Result<String,_> = con.hget(format!("channel:{}:phrases", channel), vargs[0]);
+        let res: Result<String,_> = con.hget(format!("channel:{}:phrases", channel), &vargs[0]);
         if let Ok(phrase) = res {
             let res: Result<DateTime<FixedOffset>,_> = DateTime::parse_from_rfc3339(&phrase);
             if let Ok(dt) = res {
@@ -271,24 +256,24 @@ fn date_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>
     }
 }
 
-fn dateinc_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
+fn dateinc_var(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<Arc<IrcClient>>, channel: &str, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> String {
     if vargs.len() > 1 {
-        let res: Result<String,_> = con.hget(format!("channel:{}:phrases", channel), vargs[1]);
+        let res: Result<String,_> = con.hget(format!("channel:{}:phrases", channel), &vargs[1]);
         if let Ok(phrase) = res {
             let res: Result<DateTime<FixedOffset>,_> = DateTime::parse_from_rfc3339(&phrase);
             if let Ok(dt) = res {
                 let res: Result<i64,_> = vargs[0].parse();
                 if let Ok(num) = res {
                     let ndt = dt + Duration::seconds(num);
-                    let _: () = con.hset(format!("channel:{}:phrases", channel), vargs[1], ndt.to_rfc3339()).unwrap();
+                    let _: () = con.hset(format!("channel:{}:phrases", channel), &vargs[1], ndt.to_rfc3339()).unwrap();
                 }
             }
         }
     }
-    "".to_string()
+    "".to_owned()
 }
 
-fn countdown_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
+fn countdown_var(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<Arc<IrcClient>>, channel: &str, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> String {
     if vargs.len() > 0 {
         let dt = DateTime::parse_from_str(&vargs[0], "%Y-%m-%dT%H:%M%z");
         if let Ok(timestamp) = dt {
@@ -297,9 +282,9 @@ fn countdown_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMana
                 let formatted = format_duration(std).to_string();
                 let formatted: Vec<&str> = formatted.split_whitespace().collect();
                 if formatted.len() == 1 {
-                    return format!("{}", formatted[0]);
+                    format!("{}", formatted[0])
                 } else {
-                    return format!("{} and {}", formatted[0], formatted[1]);
+                    format!("{} and {}", formatted[0], formatted[1])
                 }
             } else {
                 "".to_owned()
@@ -312,7 +297,7 @@ fn countdown_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMana
     }
 }
 
-fn watchtime_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
+fn watchtime_var(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<Arc<IrcClient>>, channel: &str, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> String {
     if let Some(message) = message {
         let res: Result<String,_> = con.hget(format!("channel:{}:watchtimes", channel), get_nick(&message));
         if let Ok(watchtime) = res {
@@ -322,9 +307,9 @@ fn watchtime_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMana
                 let formatted = format_duration(diff.to_std().unwrap()).to_string();
                 let formatted: Vec<&str> = formatted.split_whitespace().collect();
                 if formatted.len() == 1 {
-                    return format!("{}", formatted[0]);
+                    format!("{}", formatted[0])
                 } else {
-                    return format!("{} and {}", formatted[0], formatted[1]);
+                    format!("{} and {}", formatted[0], formatted[1])
                 }
             } else {
                 "0m".to_owned()
@@ -337,7 +322,7 @@ fn watchtime_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMana
     }
 }
 
-fn watchrank_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
+fn watchrank_var(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<Arc<IrcClient>>, channel: &str, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> String {
     if let Some(message) = message {
         let hashtimes: HashMap<String,String> = con.hgetall(format!("channel:{}:watchtimes", channel)).unwrap_or(HashMap::new());
         let mut watchtimes: Vec<(String,u64)> = Vec::new();
@@ -361,14 +346,14 @@ fn watchrank_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMana
                     } else {
                         top = watchtimes.drain(..num).collect();
                     }
-                    return top.iter().map(|(n,t)| n).join(", ").to_owned();
+                    top.iter().map(|(n,t)| n).join(", ").to_owned()
                 } else {
                     "".to_owned()
                 }
             } else {
-                let i = watchtimes.iter().position(|wt| wt.0 == get_nick(message));
+                let i = watchtimes.iter().position(|wt| wt.0 == get_nick(&message));
                 if let Some(i) = i {
-                    return (i + 1).to_string();
+                    (i + 1).to_string()
                 } else {
                     "".to_owned()
                 }
@@ -381,160 +366,150 @@ fn watchrank_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMana
     }
 }
 
-fn urlfetch_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
+fn urlfetch_var(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<Arc<IrcClient>>, channel: &str, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> Option<(RequestBuilder, fn(Chunk) -> String)> {
     if vargs.len() > 0 {
-        let res = request("GET", Vec::new(), vargs[0], 0);
-        match res {
-            Err(e) => { error!("{}",e);"".to_owned() },
-            Ok((meta,body)) => { body }
-        }
-    } else {
-        "".to_owned()
-    }
+        let builder = request(Method::GET, None, &vargs[0]);
+        let func = move |body: Chunk| -> String {
+            let body = std::str::from_utf8(&body).unwrap();
+            return body.to_owned();
+        };
+        return Some((builder, func));
+    } else { None }
 }
 
-fn spotify_playing_title_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
-    let res = spotify_request(con.clone(), channel, "GET", Vec::new(), "https://api.spotify.com/v1/me/player/currently-playing", 0);
-    match res {
-        Err(e) => { error!("{}",e);"".to_owned() },
-        Ok((meta,body)) => {
-            let json: Result<SpotifyPlaying,_> = serde_json::from_str(&body);
-            match json {
-                Err(e) => {
-                    error!("{}", e);
-                    error!("[request_body] {}", body);
-                    return "".to_owned();
-                }
-                Ok(json) => { return json.item.name.to_owned(); }
+fn spotify_playing_title_var(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<Arc<IrcClient>>, channel: &str, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> Option<(RequestBuilder, fn(Chunk) -> String)> {
+    let builder = spotify_request(con.clone(), &channel);
+    let func = move |body: Chunk| -> String {
+        let body = std::str::from_utf8(&body).unwrap();
+        let json: Result<SpotifyPlaying,_> = serde_json::from_str(&body);
+        match json {
+            Err(e) => {
+                error!("{}", e);
+                error!("[request_body] {}", body);
+                "".to_owned()
             }
+            Ok(json) => { json.item.name.to_owned() }
         }
-    }
+    };
+    return Some((builder, func));
 }
 
-fn spotify_playing_album_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
-    let res = spotify_request(con.clone(), channel, "GET", Vec::new(), "https://api.spotify.com/v1/me/player/currently-playing", 0);
-    match res {
-        Err(e) => { error!("{}",e);"".to_owned() },
-        Ok((meta,body)) => {
-            let json: Result<SpotifyPlaying,_> = serde_json::from_str(&body);
-            match json {
-                Err(e) => {
-                    error!("{}", e);
-                    error!("[request_body] {}", body);
-                    return "".to_owned();
-                }
-                Ok(json) => { return json.item.album.name.to_owned(); }
+fn spotify_playing_album_var(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<Arc<IrcClient>>, channel: &str, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> Option<(RequestBuilder, fn(Chunk) -> String)> {
+    let builder = spotify_request(con.clone(), &channel);
+    let func = move |body: Chunk| -> String {
+        let body = std::str::from_utf8(&body).unwrap();
+        let json: Result<SpotifyPlaying,_> = serde_json::from_str(&body);
+        match json {
+            Err(e) => {
+                error!("{}", e);
+                error!("[request_body] {}", body);
+                "".to_owned()
             }
+            Ok(json) => { json.item.album.name.to_owned() }
         }
-    }
+    };
+    return Some((builder, func));
 }
 
-fn spotify_playing_artist_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
-    let res = spotify_request(con.clone(), channel, "GET", Vec::new(), "https://api.spotify.com/v1/me/player/currently-playing", 0);
-    match res {
-        Err(e) => { error!("{}",e);"".to_owned() },
-        Ok((meta,body)) => {
-            let json: Result<SpotifyPlaying,_> = serde_json::from_str(&body);
-            match json {
-                Err(e) => {
-                    error!("{}", e);
-                    error!("[request_body] {}", body);
-                    return "".to_owned();
-                }
-                Ok(json) => { return json.item.artists[0].name.to_owned(); }
+fn spotify_playing_artist_var(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<Arc<IrcClient>>, channel: &str, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> Option<(RequestBuilder, fn(Chunk) -> String)> {
+    let builder = spotify_request(con.clone(), &channel);
+    let func = move |body: Chunk| -> String {
+        let body = std::str::from_utf8(&body).unwrap();
+        let json: Result<SpotifyPlaying,_> = serde_json::from_str(&body);
+        match json {
+            Err(e) => {
+                error!("{}", e);
+                error!("[request_body] {}", body);
+                "".to_owned()
             }
+            Ok(json) => { json.item.artists[0].name.to_owned() }
         }
-    }
+    };
+    return Some((builder, func));
 }
 
-fn youtube_latest_url_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
+fn youtube_latest_url_var(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<Arc<IrcClient>>, channel: &str, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> Option<(RequestBuilder, fn(Chunk) -> String)> {
     if vargs.len() > 0 {
-        let res = request("GET", Vec::new(), &format!("https://decapi.me/youtube/latest_video?id={}", vargs[0]), 0);
-        match res {
-            Err(e) => { error!("{}",e);"".to_owned() },
-            Ok((meta,body)) => {
-                let data: Vec<&str> = body.split(" - ").collect();
-                if data.len() > 1 {
-                    return data[data.len()-1].to_owned();
-                } else {
-                    "".to_owned()
-                }
+        let builder = request(Method::GET, None, &format!("https://decapi.me/youtube/latest_video?id={}", vargs[0]));
+        let func = move |body: Chunk| -> String {
+            let body = std::str::from_utf8(&body).unwrap();
+            let data: Vec<&str> = body.split(" - ").collect();
+            if data.len() > 1 {
+                data[data.len()-1].to_owned()
+            } else {
+                "".to_owned()
             }
-        }
-    } else {
-        "".to_owned()
-    }
+        };
+        return Some((builder, func));
+    } else { None }
 }
 
-fn youtube_latest_title_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
+fn youtube_latest_title_var(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<Arc<IrcClient>>, channel: &str, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> Option<(RequestBuilder, fn(Chunk) -> String)> {
     if vargs.len() > 0 {
-        let res = request("GET", Vec::new(), &format!("https://decapi.me/youtube/latest_video?id={}", vargs[0]), 0);
-        match res {
-            Err(e) => { error!("{}",e);"".to_owned() },
-            Ok((meta,body)) => {
-                let data: Vec<&str> = body.split(" - ").collect();
-                if data.len() > 1 {
-                    return data[0..data.len()-1].join(" - ");
-                } else {
-                    "".to_owned()
-                }
+        let builder = request(Method::GET, None, &format!("https://decapi.me/youtube/latest_video?id={}", vargs[0]));
+        let func = move |body: Chunk| -> String {
+            let body = std::str::from_utf8(&body).unwrap();
+            let data: Vec<&str> = body.split(" - ").collect();
+            if data.len() > 1 {
+                data[0..data.len()-1].join(" - ")
+            } else {
+                "".to_owned()
             }
-        }
-    } else {
-        "".to_owned()
-    }
+        };
+        return Some((builder, func));
+    } else { None }
 }
 
-fn fortnite_wins_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
+fn fortnite_wins_var(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<Arc<IrcClient>>, channel: &str, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> String {
     let value: String = con.hget(format!("channel:{}:stats:fortnite", channel), "wins").unwrap_or("0".to_owned());
-    return value;
+    value
 }
 
-fn fortnite_kills_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
+fn fortnite_kills_var(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<Arc<IrcClient>>, channel: &str, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> String {
     let value: String = con.hget(format!("channel:{}:stats:fortnite", channel), "kills").unwrap_or("0".to_owned());
-    return value;
+    value
 }
 
-fn pubg_damage_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
+fn pubg_damage_var(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<Arc<IrcClient>>, channel: &str, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> String {
     let value: String = con.hget(format!("channel:{}:stats:pubg", channel), "damageDealt").unwrap_or("0".to_owned());
-    return value;
+    value
 }
 
-fn pubg_headshots_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
+fn pubg_headshots_var(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<Arc<IrcClient>>, channel: &str, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> String {
     let value: String = con.hget(format!("channel:{}:stats:pubg", channel), "headshotKills").unwrap_or("0".to_owned());
-    return value;
+    value
 }
 
-fn pubg_kills_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
+fn pubg_kills_var(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<Arc<IrcClient>>, channel: &str, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> String {
     let value: String = con.hget(format!("channel:{}:stats:pubg", channel), "kills").unwrap_or("0".to_owned());
-    return value;
+    value
 }
 
-fn pubg_roadkills_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
+fn pubg_roadkills_var(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<Arc<IrcClient>>, channel: &str, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> String {
     let value: String = con.hget(format!("channel:{}:stats:pubg", channel), "roadKills").unwrap_or("0".to_owned());
-    return value;
+    value
 }
 
-fn pubg_teamkills_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
+fn pubg_teamkills_var(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<Arc<IrcClient>>, channel: &str, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> String {
     let value: String = con.hget(format!("channel:{}:stats:pubg", channel), "teamKills").unwrap_or("0".to_owned());
-    return value;
+    value
 }
 
-fn pubg_vehicles_destroyed_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
+fn pubg_vehicles_destroyed_var(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<Arc<IrcClient>>, channel: &str, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> String {
     let value: String = con.hget(format!("channel:{}:stats:pubg", channel), "vehicleDestroys").unwrap_or("0".to_owned());
-    return value;
+    value
 }
 
-fn pubg_wins_var(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<&IrcClient>, channel: &str, message: Option<&Message>, vargs: Vec<&str>, cargs: &Vec<String>) -> String {
+fn pubg_wins_var(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<Arc<IrcClient>>, channel: &str, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> String {
     let value: String = con.hget(format!("channel:{}:stats:pubg", channel), "wins").unwrap_or("0".to_owned());
-    return value;
+    value
 }
 
-fn echo_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<String>, message: Option<&Message>) {
+fn echo_cmd(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Arc<IrcClient>, channel: String, args: Vec<String>, message: Option<Message>) {
     send_message(con.clone(), client, channel, args.join(" "));
 }
 
-fn set_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<String>, message: Option<&Message>) {
+fn set_cmd(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Arc<IrcClient>, channel: String, args: Vec<String>, message: Option<Message>) {
     match args.len() {
         0 => {}
         1 => {
@@ -548,14 +523,14 @@ fn set_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>,
     }
 }
 
-fn unset_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<String>, message: Option<&Message>) {
+fn unset_cmd(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Arc<IrcClient>, channel: String, args: Vec<String>, message: Option<Message>) {
     if args.len() == 1 {
         let _: () = con.hdel(format!("channel:{}:settings", channel), &args[0]).unwrap();
         send_message(con.clone(), client, channel, format!("{} has been unset", &args[0]));
     }
 }
 
-fn command_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<String>, message: Option<&Message>) {
+fn command_cmd(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Arc<IrcClient>, channel: String, args: Vec<String>, message: Option<Message>) {
     if args.len() > 1 {
         match args[0].to_lowercase().as_ref() {
             "add" => {
@@ -593,13 +568,15 @@ fn command_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManage
     }
 }
 
-fn title_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<String>, message: Option<&Message>) {
+fn title_cmd(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Arc<IrcClient>, channel: String, args: Vec<String>, message: Option<Message>) {
     let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
     if args.len() == 0 {
-        let res = twitch_kraken_request(con.clone(), channel, "", "GET", Vec::new(), &format!("https://api.twitch.tv/kraken/channels/{}", &id), 0);
-        match res {
-            Err(e) => { error!("{}",e); },
-            Ok((meta,body)) => {
+        let future = twitch_kraken_request(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/channels/{}", &id)).send()
+            .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
+            .map_err(|e| println!("request error: {}", e))
+            .map(move |body| {
+                let con = Arc::new(pool.get().unwrap());
+                let body = std::str::from_utf8(&body).unwrap();
                 let json: Result<KrakenChannel,_> = serde_json::from_str(&body);
                 match json {
                     Err(e) => {
@@ -608,13 +585,15 @@ fn title_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>
                     }
                     Ok(json) => { let _ = send_message(con.clone(), client, channel, json.status); }
                 }
-            }
-        }
+            });
+        thread::spawn(move || { tokio::run(future) });
     } else {
-        let res = twitch_kraken_request(con.clone(), channel, "application/x-www-form-urlencoded", "PUT", format!("channel[status]={}", args.join(" ")).as_bytes().to_owned(), &format!("https://api.twitch.tv/kraken/channels/{}", &id), 0);
-        match res {
-            Err(e) => { error!("{}",e); },
-            Ok((meta,body)) => {
+        let future = twitch_kraken_request(con.clone(), &channel, Some("application/x-www-form-urlencoded"), Some(format!("channel[status]={}", args.join(" ")).as_bytes().to_owned()), Method::PUT, &format!("https://api.twitch.tv/kraken/channels/{}", &id)).send()
+            .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
+            .map_err(|e| println!("request error: {}", e))
+            .map(move |body| {
+                let con = Arc::new(pool.get().unwrap());
+                let body = std::str::from_utf8(&body).unwrap();
                 let json: Result<KrakenChannel,_> = serde_json::from_str(&body);
                 match json {
                     Err(e) => {
@@ -623,18 +602,20 @@ fn title_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>
                     }
                     Ok(json) => { send_message(con.clone(), client, channel, format!("Title is now set to: {}", json.status)); }
                 }
-            }
-        }
+            });
+        thread::spawn(move || { tokio::run(future) });
     }
 }
 
-fn game_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<String>, message: Option<&Message>) {
+fn game_cmd(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Arc<IrcClient>, channel: String, args: Vec<String>, message: Option<Message>) {
     let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
     if args.len() == 0 {
-        let res = twitch_kraken_request(con.clone(), channel, "", "GET", Vec::new(), &format!("https://api.twitch.tv/kraken/channels/{}", &id), 0);
-        match res {
-            Err(e) => { error!("{}",e); },
-            Ok((meta,body)) => {
+        let future = twitch_kraken_request(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/channels/{}", &id)).send()
+            .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
+            .map_err(|e| println!("request error: {}", e))
+            .map(move |body| {
+                let con = Arc::new(pool.get().unwrap());
+                let body = std::str::from_utf8(&body).unwrap();
                 let json: Result<KrakenChannel,_> = serde_json::from_str(&body);
                 match json {
                     Err(e) => {
@@ -643,13 +624,15 @@ fn game_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>
                     }
                     Ok(json) => { let _ = send_message(con.clone(), client, channel, json.game); }
                 }
-            }
-        }
+            });
+        thread::spawn(move || { tokio::run(future) });
     } else {
-        let res = twitch_helix_request(con.clone(), channel, "", "GET", Vec::new(), &format!("https://api.twitch.tv/helix/games?name={}", args.join(" ")), 0);
-        match res {
-            Err(e) => { error!("{}",e); },
-            Ok((meta,body)) => {
+        let future = twitch_kraken_request(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/helix/games?name={}", args.join(" "))).send()
+            .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
+            .map_err(|e| println!("request error: {}", e))
+            .map(move |body| {
+                let con = Arc::new(pool.get().unwrap());
+                let body = std::str::from_utf8(&body).unwrap();
                 let json: Result<HelixGames,_> = serde_json::from_str(&body);
                 match json {
                     Err(e) => {
@@ -660,30 +643,32 @@ fn game_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>
                         if json.data.len() == 0 {
                             send_message(con.clone(), client, channel, format!("Unable to find a game matching: {}", args.join(" ")));
                         } else {
-                            let name = &json.data[0].name;
-                            let res = twitch_kraken_request(con.clone(), channel, "application/x-www-form-urlencoded", "PUT", format!("channel[game]={}", name).as_bytes().to_owned(), &format!("https://api.twitch.tv/kraken/channels/{}", &id), 0);
-                            match res {
-                                Err(e) => { error!("{}",e); },
-                                Ok((meta,body)) => {
+                            let name = json.data[0].name.clone();
+                            let future = twitch_kraken_request(con.clone(), &channel, Some("application/x-www-form-urlencoded"), Some(format!("channel[game]={}", name).as_bytes().to_owned()), Method::PUT, &format!("https://api.twitch.tv/kraken/channels/{}", &id)).send()
+                                .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
+                                .map_err(|e| println!("request error: {}", e))
+                                .map(move |body| {
+                                    let con = Arc::new(pool.get().unwrap());
+                                    let body = std::str::from_utf8(&body).unwrap();
                                     let json: Result<KrakenChannel,_> = serde_json::from_str(&body);
                                     match json {
                                         Err(e) => {
                                             error!("{}", e);
                                             error!("[request_body] {}", body);
                                         }
-                                        Ok(json) => { send_message(con.clone(), client, channel, format!("Game is now set to: {}", name)); }
+                                        Ok(json) => { send_message(con.clone(), client, channel, format!("Game is now set to: {}", &name)); }
                                     }
-                                }
-                            }
+                                });
+                            tokio::run(future);
                         }
                     }
                 }
-            }
-        }
+            });
+        thread::spawn(move || { tokio::run(future) });
     }
 }
 
-fn notices_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<String>, message: Option<&Message>) {
+fn notices_cmd(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Arc<IrcClient>, channel: String, args: Vec<String>, message: Option<Message>) {
     if args.len() > 1 {
         match args[0].to_lowercase().as_ref() {
             "add" => {
@@ -706,7 +691,7 @@ fn notices_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManage
     }
 }
 
-fn moderation_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<String>, message: Option<&Message>) {
+fn moderation_cmd(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Arc<IrcClient>, channel: String, args: Vec<String>, message: Option<Message>) {
     if args.len() > 1 {
         match args[0].to_lowercase().as_ref() {
             "links" => {
@@ -783,7 +768,7 @@ fn moderation_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMan
     }
 }
 
-fn permit_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<String>, message: Option<&Message>) {
+fn permit_cmd(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Arc<IrcClient>, channel: String, args: Vec<String>, message: Option<Message>) {
     if args.len() > 0 {
         let nick = args[0].to_lowercase();
         let _: () = con.set(format!("channel:{}:moderation:permitted:{}", channel, nick), "").unwrap();
@@ -792,12 +777,14 @@ fn permit_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager
     }
 }
 
-fn clip_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<String>, message: Option<&Message>) {
+fn clip_cmd(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Arc<IrcClient>, channel: String, args: Vec<String>, message: Option<Message>) {
     let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
-    let res = twitch_helix_request(con.clone(), channel, "", "POST", Vec::new(), &format!("https://api.twitch.tv/helix/clips?broadcaster_id={}", &id), 0);
-    match res {
-        Err(e) => { error!("{}",e); },
-        Ok((meta,body)) => {
+    let future = twitch_helix_request(con.clone(), &channel, None, None, Method::POST, &format!("https://api.twitch.tv/helix/clips?broadcaster_id={}", &id)).send()
+        .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
+        .map_err(|e| println!("request error: {}", e))
+        .map(move |body| {
+            let con = Arc::new(pool.get().unwrap());
+            let body = std::str::from_utf8(&body).unwrap();
             let json: Result<HelixClips,_> = serde_json::from_str(&body);
             match json {
                 Err(e) => {
@@ -810,11 +797,11 @@ fn clip_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>
                     }
                 }
             }
-        }
-    }
+        });
+    thread::spawn(move || { tokio::run(future) });
 }
 
-fn multi_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<String>, message: Option<&Message>) {
+fn multi_cmd(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Arc<IrcClient>, channel: String, args: Vec<String>, message: Option<Message>) {
     if args.len() == 0 {
         let streams: HashSet<String> = con.smembers(format!("channel:{}:multi", channel)).unwrap();
         if streams.len() > 0 { let _ = client.send_privmsg(format!("#{}", channel), format!("http://multistre.am/{}/{}", channel, streams.iter().join("/"))); }
@@ -830,7 +817,7 @@ fn multi_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>
     }
 }
 
-fn counters_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<String>, message: Option<&Message>) {
+fn counters_cmd(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Arc<IrcClient>, channel: String, args: Vec<String>, message: Option<Message>) {
     if args.len() > 1 {
         match args[0].to_lowercase().as_ref() {
             "set" => {
@@ -858,7 +845,7 @@ fn counters_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManag
     }
 }
 
-fn phrases_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<String>, message: Option<&Message>) {
+fn phrases_cmd(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Arc<IrcClient>, channel: String, args: Vec<String>, message: Option<Message>) {
     if args.len() > 2 {
         match args[0].to_lowercase().as_ref() {
             "set" => {
@@ -870,7 +857,7 @@ fn phrases_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManage
     }
 }
 
-fn commercials_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<String>, message: Option<&Message>) {
+fn commercials_cmd(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Arc<IrcClient>, channel: String, args: Vec<String>, message: Option<Message>) {
     if args.len() > 1 {
         match args[0].to_lowercase().as_ref() {
             "submode" => {
@@ -928,7 +915,6 @@ fn commercials_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMa
                                 let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
                                 let submode: String = con.get(format!("channel:{}:commercials:submode", channel)).unwrap_or("false".to_owned());
                                 let nres: Result<String,_> = con.get(format!("channel:{}:commercials:notice", channel));
-                                let _ = twitch_kraken_request(con.clone(), channel, "application/json", "POST", format!("{{\"length\": {}}}", num * 30).as_bytes().to_owned(), &format!("https://api.twitch.tv/kraken/channels/{}/commercial", &id), 0);
                                 let length: u16 = con.llen(format!("channel:{}:commercials:recent", channel)).unwrap();
                                 let _: () = con.lpush(format!("channel:{}:commercials:recent", channel), format!("{} {}", Utc::now().to_rfc3339(), num)).unwrap();
                                 if length > 7 {
@@ -936,7 +922,7 @@ fn commercials_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMa
                                 }
                                 if submode == "true" {
                                     let client_clone = client.clone();
-                                    let channel_clone = String::from(channel);
+                                    let channel_clone = String::from(channel.clone());
                                     let _ = client.send_privmsg(format!("#{}", channel), "/subscribers");
                                     thread::spawn(move || {
                                         thread::sleep(time::Duration::from_secs(num * 30));
@@ -946,17 +932,19 @@ fn commercials_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMa
                                 if let Ok(notice) = nres {
                                     let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", channel, notice), "message");
                                     if let Ok(message) = res {
-                                        send_message(con.clone(), client, channel, message);
+                                        send_message(con.clone(), client.clone(), channel.clone(), message);
                                     }
                                 }
-                                send_message(con.clone(), client, channel, format!("{} commercials have been run", args[1]));
+                                send_message(con.clone(), client.clone(), channel.clone(), format!("{} commercials have been run", args[1]));
+                                let future = twitch_kraken_request(con.clone(), &channel, Some("application/json"), Some(format!("{{\"length\": {}}}", num * 30).as_bytes().to_owned()), Method::POST, &format!("https://api.twitch.tv/kraken/channels/{}/commercial", &id)).send().and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() }).map_err(|e| println!("request error: {}", e)).map(move |body| {});
+                                thread::spawn(move || { tokio::run(future) });
                             }
                         } else {
-                            send_message(con.clone(), client, channel, format!("{} must be a number between one and six", args[1]));
+                            send_message(con.clone(), client.clone(), channel.clone(), format!("{} must be a number between one and six", args[1]));
                         }
                     }
                     Err(e) => {
-                        send_message(con.clone(), client, channel, format!("{} could not be parsed as a number", args[1]));
+                        send_message(con.clone(), client.clone(), channel.clone(), format!("{} could not be parsed as a number", args[1]));
                     }
                 }
             }
@@ -965,14 +953,14 @@ fn commercials_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionMa
     }
 }
 
-fn songreq_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: &IrcClient, channel: &str, args: &Vec<String>, message: Option<&Message>) {
+fn songreq_cmd(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Arc<IrcClient>, channel: String, args: Vec<String>, message: Option<Message>) {
     if let Some(message) = message {
-        let nick = get_nick(message);
-        let badges = get_badges(message);
+        let nick = get_nick(&message);
+        let badges = get_badges(&message);
         if args.len() > 0 {
             match args[0].to_lowercase().as_ref() {
                 "clear" => {
-                    let badges = get_badges(message);
+                    let badges = get_badges(&message);
                     let mut auth = false;
                     if let Some(value) = badges.get("broadcaster") { auth = true }
                     if let Some(value) = badges.get("moderator") { auth = true }
@@ -988,11 +976,13 @@ fn songreq_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManage
                 _ => {
                     let rgx = Regex::new(r"^[\-_a-zA-Z0-9]+$").unwrap();
                     if rgx.is_match(&args[0]) {
-                        let res = twitch_helix_request(con.clone(), channel, "", "GET", Vec::new(), &format!("https://www.youtube.com/oembed?format=json&url=https://youtube.com/watch?v={}", args[0]), 0);
-                        match res {
-                            Err(e) => { error!("{}",e); },
-                            Ok((meta,body)) => {
-                                if meta.status == 200 {
+                        let future = twitch_helix_request(con.clone(), &channel, None, None, Method::GET, &format!("https://www.youtube.com/oembed?format=json&url=https://youtube.com/watch?v={}", args[0])).send()
+                            .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
+                            .map_err(|e| println!("request error: {}", e))
+                            .map(move |body| {
+                                let con = Arc::new(pool.get().unwrap());
+                                let body = std::str::from_utf8(&body).unwrap();
+                                if body != "Not Found" {
                                     let mut exists = false;
                                     let entries: Vec<String> = con.lrange(format!("channel:{}:songreqs", channel), 1, -1).unwrap();
                                     for key in entries.iter() {
@@ -1016,8 +1006,8 @@ fn songreq_cmd(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManage
                                 } else {
                                     send_message(con.clone(), client, channel, format!("{} is not a proper youtube id", args[0]));
                                 }
-                            }
-                        }
+                            });
+                        thread::spawn(move || { tokio::run(future) });
                     } else {
                         send_message(con.clone(), client, channel, format!("{} is not a proper youtube id", args[0]));
                     }
