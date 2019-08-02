@@ -631,7 +631,6 @@ fn game_cmd(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2:
             .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
             .map_err(|e| println!("request error: {}", e))
             .map(move |body| {
-                println!("{:?}",body);
                 let con = Arc::new(pool.get().unwrap());
                 let body = std::str::from_utf8(&body).unwrap();
                 let json: Result<HelixGames,_> = serde_json::from_str(&body);
@@ -649,8 +648,6 @@ fn game_cmd(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2:
                                 .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                                 .map_err(|e| println!("request error: {}", e))
                                 .map(move |body| {
-                                    println!("---");
-                                    println!("{:?}",body);
                                     let con = Arc::new(pool.get().unwrap());
                                     let body = std::str::from_utf8(&body).unwrap();
                                     let json: Result<KrakenChannel,_> = serde_json::from_str(&body);
