@@ -753,7 +753,7 @@ fn update_stats(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
                                                                     }
                                                                 }
                                                             });
-                                                        tokio::run(future);
+                                                        thread::spawn(move || { tokio::run(future) });
                                                     }
                                                 }
                                             }
