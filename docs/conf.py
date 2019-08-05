@@ -197,7 +197,7 @@ latex_elements = {
 #  author, documentclass [howto, manual, or own class]).
 latex_documents = [
   ('index', 'Babblebot.tex', u'Babblebot Documentation',
-   u'Babblebot', 'manual'),
+   u'Babblebot Documentation', 'manual'),
 ]
 
 # The name of an image file (relative to this directory) to place at the top of
