@@ -750,6 +750,21 @@ fn moderation_cmd(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc
                     _ => {}
                 }
             }
+            "age" => {
+                match args[1].to_lowercase().as_ref() {
+                    "set" => {
+                        if args.len() > 2 {
+                            let _: () = con.set(format!("channel:{}:moderation:age", channel), &args[2]).unwrap();
+                            send_message(con.clone(), client, channel, format!("Minimum account age has been set to {}", &args[2]).to_owned());
+                        }
+                    }
+                    "off" => {
+                        let _: () = con.del(format!("channel:{}:moderation:age", channel)).unwrap();
+                        send_message(con.clone(), client, channel, "Minimum account age filter has been turned off".to_owned());
+                    }
+                    _ => {}
+                }
+            }
             "display" => {
                 match args[1].to_lowercase().as_ref() {
                     "on" => {
