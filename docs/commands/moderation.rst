@@ -41,6 +41,16 @@ turn off caps filter::
 
     !moderation caps off
 
+.. rubric:: Minimum Account Age
+
+set the minimum account age, in minutes::
+
+    !moderation age set [num]
+
+turn off minimum account age filter::
+
+    !moderation age off
+
 .. rubric:: Display Timeout Reasons
 
 display timeout reasons in chat::
