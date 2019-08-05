@@ -155,7 +155,8 @@ pub struct KrakenUsers {
 #[derive(Debug, Deserialize)]
 pub struct KrakenUser {
     #[serde(rename = "_id")]
-    pub id: String
+    pub id: String,
+    pub created_at: String
 }
 
 #[derive(Debug, Deserialize)]

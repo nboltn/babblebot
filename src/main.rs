@@ -50,7 +50,7 @@ fn main() {
 
     let manager = RedisConnectionManager::new(&redis_host[..]).unwrap();
     let pool = r2d2::Pool::builder().max_size(400).build(manager).unwrap();
-    let pool_c1 = pool.clone();
+    let poolC = pool.clone();
 
     Logger::with_env_or_str("babblebot")
         .log_to_file()
@@ -63,7 +63,7 @@ fn main() {
 
     if let Some(matches) = matches.subcommand_matches("run_command") { run_command(pool.clone(), &settings, matches) }
     else {
-        thread::spawn(move || { new_channel_listener(pool_c1) });
+        thread::spawn(move || { new_channel_listener(poolC) });
         thread::spawn(move || {
             rocket::ignite()
               .mount("/assets", StaticFiles::from("assets"))
@@ -352,9 +352,14 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, pool: r2d2::Poo
                         let colors: String = con.get(format!("channel:{}:moderation:colors", channel)).unwrap_or("false".to_owned());
                         let links: Vec<String> = con.smembers(format!("channel:{}:moderation:links", channel)).unwrap_or(Vec::new());
                         let bkeys: Vec<String> = con.keys(format!("channel:{}:moderation:blacklist:*", channel)).unwrap();
+                        let age: Result<String,_> = con.get(format!("channel:{}:moderation:age", channel));
                         if colors == "true" && msg.len() > 6 && msg.as_bytes()[0] == 1 && &msg[1..7] == "ACTION" {
                             let _ = client.send_privmsg(chan, format!("/timeout {} 1", nick));
                             if display == "true" { send_message(con.clone(), clientC.clone(), channel.to_owned(), format!("@{} you've been timed out for posting colors", nick)); }
+                        }
+                        if let Ok(age) = age {
+                            let res: Result<i64,_> = age.parse();
+                            if let Ok(age) = res { spawn_age_check(pool.clone(), con.clone(), clientC.clone(), channel.to_string(), nick.clone(), age, display.to_string()); }
                         }
                         if caps == "true" {
                             let limit: String = con.get(format!("channel:{}:moderation:caps:limit", channel)).expect("get:limit");
@@ -979,21 +984,25 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
         }
     });
 
-    // TODO: reimplement
     // shoutouts
-    /*thread::spawn(move || {
+    thread::spawn(move || {
         let con = Arc::new(so_con);
         loop {
+            let poolC = so_pool.clone();
+            let clientC = so_client.clone();
+            let channelC = so_channel.clone();
             let live: String = con.get(format!("channel:{}:live", &so_channel)).unwrap_or("false".to_owned());
             let hostm: String = con.hget(format!("channel:{}:settings", &so_channel), "channel:host-message").unwrap_or("".to_owned());
             let autom: String = con.hget(format!("channel:{}:settings", &so_channel), "channel:autohost-message").unwrap_or("".to_owned());
             if live == "true" && (!hostm.is_empty() || !autom.is_empty()) {
                 let id: String = con.get(format!("channel:{}:id", &so_channel)).unwrap();
                 let recent: Vec<String> = con.smembers(format!("channel:{}:hosts:recent", &so_channel)).unwrap_or(Vec::new());
-                let res = twitch_kraken_request(con.clone(), &so_channel, "", "GET", Vec::new(), &format!("https://api.twitch.tv/kraken/channels/{}/hosts", &id), 0);
-                match res {
-                    Err(e) => { error!("{}",e); },
-                    Ok((meta,body)) => {
+                let future = twitch_kraken_request(con.clone(), &channelC, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/channels/{}/hosts", &id)).send()
+                    .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
+                    .map_err(|e| println!("request error: {}", e))
+                    .map(move |body| {
+                        let con = Arc::new(poolC.get().unwrap());
+                        let body = std::str::from_utf8(&body).unwrap();
                         let json: Result<KrakenHosts,_> = serde_json::from_str(&body);
                         match json {
                             Err(e) => {
@@ -1001,16 +1010,24 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                                 error!("[request_body] {}", body);
                             }
                             Ok(json) => {
-                                let list: String = con.hget(format!("channel:{}:settings", &so_channel), "autohost:blacklist").unwrap_or("".to_owned());
-                                let mut blacklist: Vec<&str> = Vec::new();
-                                for nick in list.split_whitespace() { blacklist.push(nick) }
+                                let list: String = con.hget(format!("channel:{}:settings", &channelC), "autohost:blacklist").unwrap_or("".to_owned());
+                                let mut blacklist: Vec<String> = Vec::new();
+                                for nick in list.split_whitespace() { blacklist.push(nick.to_string()) }
                                 for host in json.hosts {
+                                    let pool = poolC.clone();
+                                    let client = clientC.clone();
+                                    let channel = channelC.clone();
+                                    let blacklist = blacklist.clone();
+                                    let hostm = hostm.clone();
+                                    let autom = autom.clone();
                                     if !recent.contains(&host.host_id) {
-                                        let _: () = con.sadd(format!("channel:{}:hosts:recent", &so_channel), &host.host_id).unwrap();
-                                        let res = twitch_kraken_request(con.clone(), &so_channel, "", "GET", Vec::new(), &format!("https://api.twitch.tv/kraken/streams?channel={}", &host.host_id), 0);
-                                        match res {
-                                            Err(e) => { error!("{}",e); },
-                                            Ok((meta,body)) => {
+                                        let _: () = con.sadd(format!("channel:{}:hosts:recent", &channel), &host.host_id).unwrap();
+                                        let future = twitch_kraken_request(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/streams?channel={}", &host.host_id)).send()
+                                            .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
+                                            .map_err(|e| println!("request error: {}", e))
+                                            .map(move |body| {
+                                                let con = Arc::new(pool.get().unwrap());
+                                                let body = std::str::from_utf8(&body).unwrap();
                                                 let json: Result<KrakenStreams,_> = serde_json::from_str(&body);
                                                 match json {
                                                     Err(e) => {
@@ -1018,7 +1035,7 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                                                         error!("[request_body] {}", body);
                                                     }
                                                     Ok(json) => {
-                                                        if !blacklist.contains(&host.host_id.as_ref()) {
+                                                        if !blacklist.contains(&host.host_id) {
                                                             if json.total > 0 {
                                                                 if !hostm.is_empty() {
                                                                     let mut message: String = hostm.to_owned();
@@ -1026,14 +1043,16 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                                                                     message = replace_var("name", &json.streams[0].channel.display_name, &message);
                                                                     message = replace_var("game", &json.streams[0].channel.game, &message);
                                                                     message = replace_var("viewers", &json.streams[0].viewers.to_string(), &message);
-                                                                    send_message(con.clone(), so_client.clone(), so_channel.clone(), message);
+                                                                    send_message(con.clone(), client.clone(), channel.clone(), message);
                                                                 }
                                                             } else {
                                                                 if !autom.is_empty() {
-                                                                    let res = twitch_kraken_request(con.clone(), &so_channel, "", "GET", Vec::new(), &format!("https://api.twitch.tv/kraken/channels/{}", &host.host_id), 0);
-                                                                    match res {
-                                                                        Err(e) => { error!("{}",e); },
-                                                                        Ok((meta,body)) => {
+                                                                    let future = twitch_kraken_request(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/channels/{}", &host.host_id)).send()
+                                                                        .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
+                                                                        .map_err(|e| println!("request error: {}", e))
+                                                                        .map(move |body| {
+                                                                            let con = Arc::new(pool.get().unwrap());
+                                                                            let body = std::str::from_utf8(&body).unwrap();
                                                                             let json: Result<KrakenChannel,_> = serde_json::from_str(&body);
                                                                             match json {
                                                                                 Err(e) => {
@@ -1045,24 +1064,24 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                                                                                     message = replace_var("url", &json.url, &message);
                                                                                     message = replace_var("name", &json.display_name, &message);
                                                                                     message = replace_var("game", &json.game, &message);
-                                                                                    send_message(con.clone(), so_client.clone(), so_channel.clone(), message);
+                                                                                    send_message(con.clone(), client.clone(), channel.clone(), message);
                                                                                 }
                                                                             }
-                                                                        }
-                                                                    }
+                                                                        });
+                                                                    thread::spawn(move || { tokio::run(future) });
                                                                 }
                                                             }
                                                         }
                                                     }
                                                 }
-                                            }
-                                        }
+                                            });
+                                        thread::spawn(move || { tokio::run(future) });
                                     }
                                 }
                             }
                         }
-                    }
-                }
+                    });
+                thread::spawn(move || { tokio::run(future) });
             }
             let rsp = so_receiver.recv_timeout(time::Duration::from_secs(60));
             match rsp {
@@ -1079,7 +1098,7 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                 }
             }
         }
-    });*/
+    });
 
     // commercials
     thread::spawn(move || {

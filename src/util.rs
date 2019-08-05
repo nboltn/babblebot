@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::{thread,mem};
 use config;
+use chrono::{Utc, DateTime};
 use http::header::{self,HeaderValue};
 use reqwest::{Method,Error};
 use reqwest::r#async::{Client,RequestBuilder,Chunk,Decoder};
@@ -57,6 +58,47 @@ pub fn send_parsed_message(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>,
         }
         let _ = client.send_privmsg(format!("#{}", channel), message);
     });
+}
+
+pub fn spawn_age_check(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Arc<IrcClient>, channel: String, nick: String, age: i64, display: String) {
+    let res: Result<String,_> = con.hget("account:ages", &nick);
+    if let Ok(timestamp) = res {
+        let dt = DateTime::parse_from_rfc3339(&timestamp).unwrap();
+        let diff = Utc::now().signed_duration_since(dt);
+        if diff.num_minutes() < age {
+            let length = age - diff.num_minutes();
+            let _ = client.send_privmsg(format!("#{}", channel), format!("/timeout {} {}", nick, length * 60));
+            if display == "true" { send_message(con.clone(), client.clone(), channel.to_owned(), format!("@{} you've been timed out for not reaching the minimum account age", nick)); }
+        }
+    } else {
+        let future = twitch_kraken_request(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/users?login={}", &nick)).send()
+            .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
+            .map_err(|e| println!("request error: {}", e))
+            .map(move |body| {
+                let con = Arc::new(pool.get().unwrap());
+                let body = std::str::from_utf8(&body).unwrap();
+                let json: Result<KrakenUsers,_> = serde_json::from_str(&body);
+                match json {
+                    Err(e) => {
+                        error!("{}", e);
+                        error!("[request_body] {}", body);
+                    }
+                    Ok(json) => {
+                        if json.total > 0 {
+                            let _: () = con.hset("account:ages", &nick, &json.users[0].created_at).unwrap();
+                            let dt = DateTime::parse_from_rfc3339(&json.users[0].created_at).unwrap();
+                            let diff = Utc::now().signed_duration_since(dt);
+                            if diff.num_minutes() < age {
+                                let length = age - diff.num_minutes();
+                                let _ = client.send_privmsg(format!("#{}", channel), format!("/timeout {} {}", nick, length * 60));
+                                if display == "true" { send_message(con.clone(), client.clone(), channel.to_owned(), format!("@{} you've been timed out for not reaching the minimum account age", nick)); }
+                            }
+                        }
+                    }
+                }
+            });
+        thread::spawn(move || { tokio::run(future) });
+    }
 }
 
 pub fn request(method: Method, body: Option<Vec<u8>>, url: &str) -> RequestBuilder {
