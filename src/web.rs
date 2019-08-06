@@ -91,8 +91,7 @@ pub fn spotify(con: RedisConnection, auth: Auth, code: String) -> Template {
             return Template::render("dashboard", &context);
         }
         Ok(mut rsp) => {
-            let body = rsp.text().unwrap();
-            let json: Result<SpotifyRsp,_> = serde_json::from_str(&body);
+            let json: Result<SpotifyRsp,_> = rsp.json();
             match json {
                 Err(e) => {
                     error!("{}",e);
@@ -142,7 +141,8 @@ pub fn data(con: RedisConnection, auth: Auth) -> Json<ApiData> {
             let settings: HashMap<String, String> = HashMap::new();
             let blacklist: HashMap<String, HashMap<String,String>> = HashMap::new();
             let songreqs: Vec<(String,String,String)> = Vec::new();
-            let json = ApiData { fields: fields, commands: commands, notices: notices, settings: settings, blacklist: blacklist, songreqs: songreqs };
+            let integrations: HashMap<String, HashMap<String,String>> = HashMap::new();
+            let json = ApiData { fields: fields, commands: commands, notices: notices, settings: settings, blacklist: blacklist, songreqs: songreqs, integrations: integrations };
             return Json(json);
         }
         Ok(mut rsp) => {
@@ -156,7 +156,8 @@ pub fn data(con: RedisConnection, auth: Auth) -> Json<ApiData> {
                     let settings: HashMap<String, String> = HashMap::new();
                     let blacklist: HashMap<String, HashMap<String,String>> = HashMap::new();
                     let songreqs: Vec<(String,String,String)> = Vec::new();
-                    let json = ApiData { fields: fields, commands: commands, notices: notices, settings: settings, blacklist: blacklist, songreqs: songreqs };
+                    let integrations: HashMap<String, HashMap<String,String>> = HashMap::new();
+                    let json = ApiData { fields: fields, commands: commands, notices: notices, settings: settings, blacklist: blacklist, songreqs: songreqs, integrations: integrations };
                     return Json(json);
                 }
                 Ok(json) => {
@@ -165,9 +166,20 @@ pub fn data(con: RedisConnection, auth: Auth) -> Json<ApiData> {
                     let mut notices: HashMap<String, Vec<String>> = HashMap::new();
                     let mut blacklist: HashMap<String, HashMap<String,String>> = HashMap::new();
                     let mut songreqs: Vec<(String,String,String)> = Vec::new();
+                    let mut integrations: HashMap<String, HashMap<String,String>> = HashMap::new();
+                    let mut spotify: HashMap<String,String> = HashMap::new();
 
                     fields.insert("status".to_owned(), json.status.to_owned());
                     fields.insert("game".to_owned(), json.game.to_owned());
+
+                    spotify.insert("client_id".to_owned(), settings.get_str("spotify_id").unwrap_or("".to_owned()));
+                    let res: Result<String,_> = redis::cmd("GET").arg(format!("channel:{}:spotify:token", auth.channel)).query(&*con);
+                    if let Ok(token) = res {
+                        spotify.insert("connected".to_owned(), "true".to_owned());
+                    } else {
+                        spotify.insert("connected".to_owned(), "false".to_owned());
+                    }
+                    integrations.insert("spotify".to_owned(), spotify);
 
                     let settings: HashMap<String,String> = redis::cmd("HGETALL").arg(format!("channel:{}:settings", &auth.channel)).query(&*con).unwrap();
 
@@ -205,7 +217,7 @@ pub fn data(con: RedisConnection, auth: Auth) -> Json<ApiData> {
                         songreqs.push((src,title,nick));
                     }
 
-                    let json = ApiData { fields: fields, commands: commands, notices: notices, settings: settings, blacklist: blacklist, songreqs: songreqs };
+                    let json = ApiData { fields: fields, commands: commands, notices: notices, settings: settings, blacklist: blacklist, songreqs: songreqs, integrations: integrations };
                     return Json(json);
                 }
             }
@@ -224,6 +236,7 @@ pub fn public_data(con: RedisConnection, channel: String) -> Json<ApiData> {
         let notices: HashMap<String, Vec<String>> = HashMap::new();
         let blacklist: HashMap<String, HashMap<String,String>> = HashMap::new();
         let songreqs: Vec<(String,String,String)> = Vec::new();
+        let integrations: HashMap<String, HashMap<String,String>> = HashMap::new();
 
         let keys: Vec<String> = redis::cmd("KEYS").arg(format!("channel:{}:commands:*", channel)).query(&*con).unwrap();
         for key in keys.iter() {
@@ -234,7 +247,7 @@ pub fn public_data(con: RedisConnection, channel: String) -> Json<ApiData> {
             }
         }
 
-        let json = ApiData { fields: fields, commands: commands, notices: notices, settings: settings, blacklist: blacklist, songreqs: songreqs };
+        let json = ApiData { fields: fields, commands: commands, notices: notices, settings: settings, blacklist: blacklist, songreqs: songreqs, integrations: integrations };
         return Json(json);
     } else {
         let fields: HashMap<String, String> = HashMap::new();
@@ -243,7 +256,8 @@ pub fn public_data(con: RedisConnection, channel: String) -> Json<ApiData> {
         let settings: HashMap<String, String> = HashMap::new();
         let blacklist: HashMap<String, HashMap<String,String>> = HashMap::new();
         let songreqs: Vec<(String,String,String)> = Vec::new();
-        let json = ApiData { fields: fields, commands: commands, notices: notices, settings: settings, blacklist: blacklist, songreqs: songreqs };
+        let integrations: HashMap<String, HashMap<String,String>> = HashMap::new();
+        let json = ApiData { fields: fields, commands: commands, notices: notices, settings: settings, blacklist: blacklist, songreqs: songreqs, integrations: integrations };
         return Json(json);
     }
 }

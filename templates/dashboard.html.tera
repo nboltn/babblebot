@@ -190,7 +190,8 @@
     </div>
     <div class='pane' id='integrations'>
       <div class='title is-4'>Spotify</div>
-      <a class='button is-link' v-on:click='connectSpotify()'>Connect</a>
+      <div v-if='integrations.spotify.connected == "true"'><a class='button is-success'>Connected</a></div>
+      <div v-else><a class='button is-link'  v-on:click='connectSpotify()'>Connect</a></div>
     </div>
   </div>
 </div>
@@ -206,6 +207,7 @@
       notices: {},
       settings: {},
       blacklist: {},
+      integrations: { spotify: { token: '', connected: false } },
       songreqs: [],
       newCmd: { name: '', message: '' },
       newNotice: { interval: '', command: ''},
@@ -224,6 +226,7 @@
 
         vm.fields = data.fields;
         vm.songreqs = data.songreqs;
+        vm.integrations = data.integrations;
         vm.commands = _.sortKeysBy(data.commands);
         vm.notices = _.sortKeysBy(data.notices);
         vm.settings = _.sortKeysBy(data.settings);
@@ -300,7 +303,8 @@
         submitForm();
       },
       connectSpotify: function(e){
-        location.href = "https://accounts.spotify.com/authorize?client_id=ae59c760014f4e25a42887c240eecb3c&response_type=code&redirect_uri=https%3A%2F%2Fbabblebot.io%2Fcallbacks%2Fspotify&scope=user-read-currently-playing"
+        var url = "https://accounts.spotify.com/authorize?client_id=" + this.integrations.spotify.client_id + "&response_type=code&redirect_uri=https%3A%2F%2Fbabblebot.io%2Fcallbacks%2Fspotify&scope=user-read-currently-playing"
+        location.href = url;
       },
       submitNewCmd: function(e){
         var vm = this;

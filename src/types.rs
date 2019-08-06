@@ -323,7 +323,8 @@ pub struct ApiData {
     pub notices: HashMap<String, Vec<String>>,
     pub settings: HashMap<String, String>,
     pub blacklist: HashMap<String, HashMap<String,String>>,
-    pub songreqs: Vec<(String,String,String)>
+    pub songreqs: Vec<(String,String,String)>,
+    pub integrations: HashMap<String, HashMap<String,String>>
 }
 
 #[derive(Serialize)]
