@@ -82,10 +82,8 @@ pub fn spotify(con: RedisConnection, auth: Auth, code: String) -> Template {
     settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
     let client_id = settings.get_str("spotify_id").unwrap_or("".to_owned());
     let client_secret = settings.get_str("spotify_secret").unwrap_or("".to_owned());
-
     let client = reqwest::Client::new();
-    let rsp = client.post("https://accounts.spotify.com/api/token").form(&[("grant_type","authorization_code"),("redirect_uri","https://babblebot.io/callbacks/spotify"),("code",&code)]).header(header::CONTENT_TYPE, "application/x-www-form-urlencoded").header(header::AUTHORIZATION, format!("Basic {}", base64::encode(&format!("{}:{}",client_id,client_secret)))).send();
-
+    let rsp = client.post("https://accounts.spotify.com/api/token").form(&[("grant_type","authorization_code"),("redirect_uri","https://babblebot.io/callbacks/spotify"),("code",&code)]).header(header::AUTHORIZATION, format!("Basic {}", base64::encode(&format!("{}:{}",client_id,client_secret)))).send();
     match rsp {
         Err(e) => {
             error!("{}",e);
@@ -93,7 +91,8 @@ pub fn spotify(con: RedisConnection, auth: Auth, code: String) -> Template {
             return Template::render("dashboard", &context);
         }
         Ok(mut rsp) => {
-            let json: Result<SpotifyRsp,_> = rsp.json();
+            let body = rsp.text().unwrap();
+            let json: Result<SpotifyRsp,_> = serde_json::from_str(&body);
             match json {
                 Err(e) => {
                     error!("{}",e);
@@ -101,7 +100,6 @@ pub fn spotify(con: RedisConnection, auth: Auth, code: String) -> Template {
                     return Template::render("dashboard", &context);
                 }
                 Ok(json) => {
-                    println!("{:?}",json);
                     redis::cmd("set").arg(format!("channel:{}:spotify:token", &auth.channel)).arg(&json.access_token).execute(&*con);
                     let context: HashMap<&str, String> = HashMap::new();
                     return Template::render("dashboard", &context);
