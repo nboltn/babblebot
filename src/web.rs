@@ -5,6 +5,7 @@ use crate::util::*;
 use std::collections::HashMap;
 use std::time::{SystemTime};
 use bcrypt::{DEFAULT_COST, hash, verify};
+use base64;
 use config;
 use reqwest::header::{self,HeaderValue};
 use rocket::{self, Outcome, get, post};
@@ -72,6 +73,42 @@ pub fn dashboard(_con: RedisConnection, _auth: Auth) -> Template {
 pub fn index(_con: RedisConnection) -> Template {
     let context: HashMap<&str, String> = HashMap::new();
     return Template::render("index", &context);
+}
+
+#[get("/callbacks/spotify?<code>")]
+pub fn spotify(con: RedisConnection, auth: Auth, code: String) -> Template {
+    let mut settings = config::Config::default();
+    settings.merge(config::File::with_name("Settings")).unwrap();
+    settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
+    let client_id = settings.get_str("spotify_id").unwrap_or("".to_owned());
+    let client_secret = settings.get_str("spotify_secret").unwrap_or("".to_owned());
+
+    let client = reqwest::Client::new();
+    let rsp = client.post("https://accounts.spotify.com/api/token").form(&[("grant_type","authorization_code"),("redirect_uri","https://babblebot.io/callbacks/spotify"),("code",&code)]).header(header::CONTENT_TYPE, "application/x-www-form-urlencoded").header(header::AUTHORIZATION, format!("Basic {}", base64::encode(&format!("{}:{}",client_id,client_secret)))).send();
+
+    match rsp {
+        Err(e) => {
+            error!("{}",e);
+            let context: HashMap<&str, String> = HashMap::new();
+            return Template::render("dashboard", &context);
+        }
+        Ok(mut rsp) => {
+            let json: Result<SpotifyRsp,_> = rsp.json();
+            match json {
+                Err(e) => {
+                    error!("{}",e);
+                    let context: HashMap<&str, String> = HashMap::new();
+                    return Template::render("dashboard", &context);
+                }
+                Ok(json) => {
+                    println!("{:?}",json);
+                    redis::cmd("set").arg(format!("channel:{}:spotify:token", &auth.channel)).arg(&json.access_token).execute(&*con);
+                    let context: HashMap<&str, String> = HashMap::new();
+                    return Template::render("dashboard", &context);
+                }
+            }
+        }
+    }
 }
 
 #[get("/<channel>/commands")]

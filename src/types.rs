@@ -86,6 +86,15 @@ pub struct Chatters {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct SpotifyRsp {
+    pub access_token: String,
+    pub token_type: String,
+    pub scope: String,
+    pub expires_in: i64,
+    pub refresh_token: String
+}
+
+#[derive(Debug, Deserialize)]
 pub struct HelixClips {
     pub data: Vec<HelixClip>
 }

@@ -151,7 +151,7 @@ pub fn twitch_helix_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisCon
 }
 
 pub fn spotify_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str) -> RequestBuilder {
-    let token: String = con.hget(format!("channel:{}:settings", channel), "spotify:token").unwrap_or("".to_owned());
+    let token: String = con.get(format!("channel:{}:spotify:token", channel)).unwrap_or("".to_owned());
     let mut headers = header::HeaderMap::new();
     headers.insert("Accept", HeaderValue::from_str("application/vnd.api+json").unwrap());
     headers.insert("Authorization", HeaderValue::from_str(&format!("Bearer {}", token)).unwrap());

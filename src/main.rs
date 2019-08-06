@@ -69,7 +69,7 @@ fn main() {
         thread::spawn(move || {
             rocket::ignite()
               .mount("/assets", StaticFiles::from("assets"))
-              .mount("/", routes![web::index, web::dashboard, web::commands, web::public_data, web::data, web::login, web::logout, web::signup, web::password, web::title, web::game, web::new_command, web::save_command, web::trash_command, web::new_notice, web::trash_notice, web::save_setting, web::trash_setting, web::new_blacklist, web::save_blacklist, web::trash_blacklist, web::trash_song])
+              .mount("/", routes![web::index, web::dashboard, web::commands, web::spotify, web::public_data, web::data, web::login, web::logout, web::signup, web::password, web::title, web::game, web::new_command, web::save_command, web::trash_command, web::new_notice, web::trash_notice, web::save_setting, web::trash_setting, web::new_blacklist, web::save_blacklist, web::trash_blacklist, web::trash_song])
               .register(catchers![web::internal_error, web::not_found])
               .attach(Template::fairing())
               .attach(RedisConnection::fairing())
@@ -901,12 +901,12 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
     let snotice_con = pool.get().unwrap();
     let so_con = pool.get().unwrap();
     let comm_con = pool.get().unwrap();
-    let pong_client = client.clone();
+    let ping_client = client.clone();
     let notice_client = client.clone();
     let snotice_client = client.clone();
     let so_client = client.clone();
     let comm_client = client.clone();
-    let pong_channel = channel.clone();
+    let ping_channel = channel.clone();
     let notice_channel = channel.clone();
     let snotice_channel = channel.clone();
     let so_channel = channel.clone();
@@ -915,12 +915,12 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
     let snotice_receiver = receivers[1].clone();
     let so_receiver = receivers[2].clone();
     let comm_receiver = receivers[3].clone();
-    let pong_receiver = receivers[4].clone();
+    let ping_receiver = receivers[4].clone();
 
-    // pongs
+    // pings
     thread::spawn(move || {
         loop {
-            let rsp = pong_receiver.recv_timeout(time::Duration::from_secs(60));
+            let rsp = ping_receiver.recv_timeout(time::Duration::from_secs(60));
             match rsp {
                 Ok(action) => {
                     match action {
@@ -935,7 +935,7 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                 }
             }
 
-            let _ = pong_client.send_join(format!("#{}",pong_channel));
+            let _ = ping_client.send_join(format!("#{}",ping_channel));
         }
     });
 
