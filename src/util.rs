@@ -15,49 +15,55 @@ use r2d2_redis::r2d2;
 use r2d2_redis::redis::Commands;
 
 pub fn send_message(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Arc<IrcClient>, channel: String, mut message: String) {
-    let me: String = con.hget(format!("channel:{}:settings", channel), "channel:me").unwrap_or("false".to_owned());
-    if me == "true" { message = format!("/me {}", message); }
-    let _ = client.send_privmsg(format!("#{}", channel), message);
+    let auth: String = con.get(format!("channel:{}:auth", channel)).unwrap_or("false".to_owned());
+    if auth == "true" {
+        let me: String = con.hget(format!("channel:{}:settings", channel), "channel:me").unwrap_or("false".to_owned());
+        if me == "true" { message = format!("/me {}", message); }
+        let _ = client.send_privmsg(format!("#{}", channel), message);
+    }
 }
 
 pub fn send_parsed_message(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Arc<IrcClient>, channel: String, mut message: String, args: Vec<String>, irc_message: Option<Message>) {
-    if args.len() > 0 {
-        if let Some(char) = args[args.len()-1].chars().next() {
-            if char == '@' { message = format!("{} -> {}", args[args.len()-1], message) }
+    let auth: String = con.get(format!("channel:{}:auth", channel)).unwrap_or("false".to_owned());
+    if auth == "true" {
+        if args.len() > 0 {
+            if let Some(char) = args[args.len()-1].chars().next() {
+                if char == '@' { message = format!("{} -> {}", args[args.len()-1], message) }
+            }
         }
-    }
-    let me: String = con.hget(format!("channel:{}:settings", channel), "channel:me").unwrap_or("false".to_owned());
-    if me == "true" { message = format!("/me {}", message); }
+        let me: String = con.hget(format!("channel:{}:settings", channel), "channel:me").unwrap_or("false".to_owned());
+        if me == "true" { message = format!("/me {}", message); }
 
-    for var in command_vars.iter() {
-        message = parse_var(var, &message, pool.clone(), con.clone(), Some(client.clone()), &channel, irc_message.clone(), args.clone());
-    }
+        for var in command_vars.iter() {
+            message = parse_var(var, &message, pool.clone(), con.clone(), Some(client.clone()), &channel, irc_message.clone(), args.clone());
+        }
 
-    let mut futures = Vec::new();
-    let mut regexes: Vec<String> = Vec::new();
-    for var in command_vars_async.iter() {
-        let rgx = Regex::new(&format!("\\({} ?((?:[\\w\\-\\?\\._:/&!= ]+)*)\\)", var.0)).unwrap();
-        for captures in rgx.captures_iter(&message) {
-            if let (Some(capture), Some(vargs)) = (captures.get(0), captures.get(1)) {
-                let vargs: Vec<String> = vargs.as_str().split_whitespace().map(|str| str.to_owned()).collect();
-                if let Some((builder, func)) = (var.1)(pool.clone(), con.clone(), Some(client.clone()), &channel, irc_message.clone(), vargs.clone(), args.clone()) {
-                    let future = builder.send().and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() }).map(func);
-                    futures.push(future);
-                    regexes.push(capture.as_str().to_owned());
+        let mut futures = Vec::new();
+        let mut regexes: Vec<String> = Vec::new();
+        for var in command_vars_async.iter() {
+            let rgx = Regex::new(&format!("\\({} ?((?:[\\w\\-\\?\\._:/&!= ]+)*)\\)", var.0)).unwrap();
+            for captures in rgx.captures_iter(&message) {
+                if let (Some(capture), Some(vargs)) = (captures.get(0), captures.get(1)) {
+                    let vargs: Vec<String> = vargs.as_str().split_whitespace().map(|str| str.to_owned()).collect();
+                    if let Some((builder, func)) = (var.1)(pool.clone(), con.clone(), Some(client.clone()), &channel, irc_message.clone(), vargs.clone(), args.clone()) {
+                        let future = builder.send().and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() }).map(func);
+                        futures.push(future);
+                        regexes.push(capture.as_str().to_owned());
+                    }
                 }
             }
         }
-    }
 
-    thread::spawn(move || {
-        let mut core = tokio_core::reactor::Core::new().unwrap();
-        let work = join_all(futures);
-        for (i,res) in core.run(work).unwrap().into_iter().enumerate() {
-            let rgx = Regex::new(&escape(&regexes[i])).unwrap();
-            message = rgx.replace(&message, |_: &Captures| { &res }).to_string();
-        }
-        let _ = client.send_privmsg(format!("#{}", channel), message);
-    });
+        thread::spawn(move || {
+            let mut core = tokio_core::reactor::Core::new().unwrap();
+            let work = join_all(futures);
+            for (i,res) in core.run(work).unwrap().into_iter().enumerate() {
+                let rgx = Regex::new(&escape(&regexes[i])).unwrap();
+                message = rgx.replace(&message, |_: &Captures| { &res }).to_string();
+            }
+            let _ = client.send_privmsg(format!("#{}", channel), message);
+        });
+    }
 }
 
 pub fn spawn_age_check(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Arc<IrcClient>, channel: String, nick: String, age: i64, display: String) {

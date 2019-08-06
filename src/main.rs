@@ -50,7 +50,8 @@ fn main() {
 
     let manager = RedisConnectionManager::new(&redis_host[..]).unwrap();
     let pool = r2d2::Pool::builder().max_size(400).build(manager).unwrap();
-    let poolC = pool.clone();
+    let poolC1 = pool.clone();
+    let poolC2 = pool.clone();
 
     Logger::with_env_or_str("babblebot")
         .log_to_file()
@@ -63,7 +64,8 @@ fn main() {
 
     if let Some(matches) = matches.subcommand_matches("run_command") { run_command(pool.clone(), &settings, matches) }
     else {
-        thread::spawn(move || { new_channel_listener(poolC) });
+        thread::spawn(move || { new_channel_listener(poolC1) });
+        // TODO: thread::spawn(move || { refresh_channel_listener(poolC2) });
         thread::spawn(move || {
             rocket::ignite()
               .mount("/assets", StaticFiles::from("assets"))
@@ -125,10 +127,11 @@ fn run_reactor(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, bots: HashM
                         let (sender3, receiver3) = unbounded();
                         let (sender4, receiver4) = unbounded();
                         let (sender5, receiver5) = unbounded();
-                        senders.insert(channel.to_owned(), [sender1,sender2,sender3,sender4,sender5].to_vec());
-                        spawn_timers(client.clone(), pool.clone(), channel.to_owned(), [receiver1,receiver2,receiver3,receiver4].to_vec());
+                        let (sender6, receiver6) = unbounded();
+                        senders.insert(channel.to_owned(), [sender1,sender2,sender3,sender4,sender5,sender6].to_vec());
+                        spawn_timers(client.clone(), pool.clone(), channel.to_owned(), [receiver1,receiver2,receiver3,receiver4,receiver5].to_vec());
                         rename_channel_listener(pool.clone(), client.clone(), channel.to_owned(), senders.clone());
-                        command_listener(pool.clone(), client.clone(), channel.to_owned(), receiver5);
+                        command_listener(pool.clone(), client.clone(), channel.to_owned(), receiver6);
                     }
                 }
             });
@@ -325,6 +328,25 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, pool: r2d2::Poo
     let msg_handler = move |client: &IrcClient, irc_message: Message| -> error::Result<()> {
         match &irc_message.command {
             Command::PING(_,_) => { let _ = client.send_pong(":tmi.twitch.tv"); }
+            Command::Raw(cmd, chans, _) => {
+                if cmd == "USERSTATE" {
+                    let badges = get_badges(&irc_message);
+                    match badges.get("moderator") {
+                        Some(_) => {
+                            for chan in chans {
+                                let channel = &chan[1..];
+                                let _: () = con.set(format!("channel:{}:auth", channel), true).unwrap();
+                            }
+                        }
+                        None => {
+                            for chan in chans {
+                                let channel = &chan[1..];
+                                let _: () = con.set(format!("channel:{}:auth", channel), false).unwrap();
+                            }
+                        }
+                    }
+                }
+            }
             Command::PRIVMSG(chan, msg) => {
                 let channel = &chan[1..];
                 let nick = get_nick(&irc_message);
@@ -536,10 +558,10 @@ fn update_watchtime(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
         loop {
             let channels: Vec<String> = con.smembers("channels").unwrap_or(Vec::new());
             for channel in channels {
-                let pool = pool.clone();
                 let live: String = con.get(format!("channel:{}:live", &channel)).unwrap_or("false".to_owned());
                 let enabled: String = con.hget(format!("channel:{}:settings", &channel), "viewerstats:enabled").unwrap_or("false".to_owned());
                 if live == "true" && enabled != "false" {
+                    let pool = pool.clone();
                     let future = request(Method::GET, None, &format!("http://tmi.twitch.tv/group/user/{}/chatters", &channel)).send()
                         .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                         .map_err(|e| println!("request error: {}", e))
@@ -665,9 +687,6 @@ fn update_stats(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
         loop {
             let channels: Vec<String> = con.smembers("channels").unwrap_or(Vec::new());
             for channel in channels {
-                let pool1 = pool_pubg.clone();
-                let pool2 = pool_pubg.clone();
-                let pool3 = pool_pubg.clone();
                 let reset: String = con.hget(format!("channel:{}:stats:pubg", &channel), "reset").unwrap_or("false".to_owned());
                 let res: Result<String,_> = con.hget(format!("channel:{}:settings", &channel), "stats:reset");
                 if let Ok(hour) = res {
@@ -685,6 +704,9 @@ fn update_stats(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
                     let res1: Result<String,_> = con.hget(format!("channel:{}:settings", &channel), "pubg:token");
                     let res2: Result<String,_> = con.hget(format!("channel:{}:settings", &channel), "pubg:name");
                     if let (Ok(token), Ok(name)) = (res1, res2) {
+                        let pool1 = pool_pubg.clone();
+                        let pool2 = pool_pubg.clone();
+                        let pool3 = pool_pubg.clone();
                         let platform: String = con.hget(format!("channel:{}:settings", &channel), "pubg:platform").unwrap_or("steam".to_owned());
                         let res: Result<String,_> = con.hget(format!("channel:{}:settings", &channel), "pubg:id");
                         if let Ok(id) = res {
@@ -801,7 +823,6 @@ fn update_stats(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
         loop {
             let channels: Vec<String> = con.smembers("channels").unwrap_or(Vec::new());
             for channel in channels {
-                let poolC = pool_fort.clone();
                 let reset: String = con.hget(format!("channel:{}:stats:fortnite", &channel), "reset").unwrap_or("false".to_owned());
                 let res: Result<String,_> = con.hget(format!("channel:{}:settings", &channel), "stats:reset");
                 if let Ok(hour) = res {
@@ -819,6 +840,7 @@ fn update_stats(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
                     let res1: Result<String,_> = con.hget(format!("channel:{}:settings", &channel), "fortnite:token");
                     let res2: Result<String,_> = con.hget(format!("channel:{}:settings", &channel), "fortnite:name");
                     if let (Ok(token), Ok(name)) = (res1, res2) {
+                        let poolC = pool_fort.clone();
                         let platform: String = con.hget(format!("channel:{}:settings", &channel), "pubg:platform").unwrap_or("pc".to_owned());
                         let mut cursor: String = con.hget(format!("channel:{}:stats:fortnite", &channel), "cursor").unwrap_or("".to_owned());
                         let future = fortnite_request(con.clone(), &channel, &format!("https://api.fortnitetracker.com/v1/profile/{}/{}", platform, name)).send()
@@ -879,10 +901,12 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
     let snotice_con = pool.get().unwrap();
     let so_con = pool.get().unwrap();
     let comm_con = pool.get().unwrap();
+    let pong_client = client.clone();
     let notice_client = client.clone();
     let snotice_client = client.clone();
     let so_client = client.clone();
     let comm_client = client.clone();
+    let pong_channel = channel.clone();
     let notice_channel = channel.clone();
     let snotice_channel = channel.clone();
     let so_channel = channel.clone();
@@ -891,6 +915,29 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
     let snotice_receiver = receivers[1].clone();
     let so_receiver = receivers[2].clone();
     let comm_receiver = receivers[3].clone();
+    let pong_receiver = receivers[4].clone();
+
+    // pongs
+    thread::spawn(move || {
+        loop {
+            let rsp = pong_receiver.recv_timeout(time::Duration::from_secs(60));
+            match rsp {
+                Ok(action) => {
+                    match action {
+                        ThreadAction::Kill => break
+                    }
+                }
+                Err(err) => {
+                    match err {
+                        RecvTimeoutError::Disconnected => break,
+                        RecvTimeoutError::Timeout => {}
+                    }
+                }
+            }
+
+            let _ = pong_client.send_join(format!("#{}",pong_channel));
+        }
+    });
 
     // scheduled notices
     thread::spawn(move || {
