@@ -65,7 +65,7 @@ pub fn not_found() -> &'static str { "404" }
 
 #[get("/")]
 pub fn dashboard(_con: RedisConnection, _auth: Auth) -> Template {
-    let context: HashMap<&str, String> = HashMap::new();
+    let mut context: HashMap<&str, String> = HashMap::new();
     return Template::render("dashboard", &context);
 }
 
@@ -76,7 +76,9 @@ pub fn index(_con: RedisConnection) -> Template {
     settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
     let client_id = settings.get_str("client_id").unwrap_or("".to_owned());
     let mut context: HashMap<&str, String> = HashMap::new();
-    context.insert("client_id", client_id);
+    context.insert("client_id", client_id.clone());
+    context.insert("code", "".to_owned());
+    context.insert("channel", "".to_owned());
     return Template::render("index", &context);
 }
 
@@ -92,25 +94,34 @@ pub fn twitch_cb(con: RedisConnection, code: String) -> Template {
     match rsp {
         Err(e) => {
             error!("{}",e);
-            let context: HashMap<&str, String> = HashMap::new();
+            let mut context: HashMap<&str, String> = HashMap::new();
+            context.insert("client_id", client_id.clone());
+            context.insert("code", "".to_owned());
+            context.insert("channel", "".to_owned());
             return Template::render("index", &context);
         }
         Ok(mut rsp) => {
-            let json: Result<TwitchRsp,_> = rsp.json();
+            let body = rsp.text().unwrap();
+            let json: Result<TwitchRsp,_> = serde_json::from_str(&body);
             match json {
                 Err(e) => {
+                    error!("{}",body);
                     error!("{}",e);
-                    let context: HashMap<&str, String> = HashMap::new();
+                    let mut context: HashMap<&str, String> = HashMap::new();
+                    context.insert("client_id", client_id.clone());
+                    context.insert("code", "".to_owned());
+                    context.insert("channel", "".to_owned());
                     return Template::render("index", &context);
                 }
                 Ok(json) => {
+                    let access_token = json.access_token.clone();
                     let mut settings = config::Config::default();
                     settings.merge(config::File::with_name("Settings")).unwrap();
                     settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
 
                     let mut headers = header::HeaderMap::new();
                     headers.insert("Accept", HeaderValue::from_str("application/vnd.twitchtv.v5+json").unwrap());
-                    headers.insert("Authorization", HeaderValue::from_str(&format!("OAuth {}", code)).unwrap());
+                    headers.insert("Authorization", HeaderValue::from_str(&format!("OAuth {}", &access_token)).unwrap());
                     headers.insert("Client-ID", HeaderValue::from_str(&settings.get_str("client_id").unwrap()).unwrap());
 
                     let client = reqwest::Client::builder().default_headers(headers).build().unwrap();
@@ -118,20 +129,29 @@ pub fn twitch_cb(con: RedisConnection, code: String) -> Template {
                     match rsp {
                         Err(e) => {
                             error!("{}",e);
-                            let context: HashMap<&str, String> = HashMap::new();
+                            let mut context: HashMap<&str, String> = HashMap::new();
+                            context.insert("client_id", client_id.clone());
+                            context.insert("code", "".to_owned());
+                            context.insert("channel", "".to_owned());
                             return Template::render("index", &context);
                         }
                         Ok(mut rsp) => {
-                            let json: Result<KrakenUser,_> = rsp.json();
+                            let body = rsp.text().unwrap();
+                            let json: Result<KrakenUser,_> = serde_json::from_str(&body);
                             match json {
                                 Err(e) => {
+                                    error!("{}",body);
                                     error!("{}",e);
-                                    let context: HashMap<&str, String> = HashMap::new();
+                                    let mut context: HashMap<&str, String> = HashMap::new();
+                                    context.insert("client_id", client_id.clone());
+                                    context.insert("code", "".to_owned());
+                                    context.insert("channel", "".to_owned());
                                     return Template::render("index", &context);
                                 }
                                 Ok(json) => {
                                     let mut context: HashMap<&str, String> = HashMap::new();
-                                    context.insert("code", code.clone());
+                                    context.insert("client_id", client_id.clone());
+                                    context.insert("code", access_token);
                                     context.insert("channel", json.name.clone());
                                     return Template::render("index", &context);
                                 }

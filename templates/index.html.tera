@@ -83,13 +83,12 @@
         <div class='field token'>
           <label class='label'>access token</label>
           <div class='control has-icons-right'>
-            <input class='input' type='text' name='token' placeholder='access token'>
+            <input class='input' type='text' name='token' placeholder='access token' value='{{code}}' readonly>
             <span class='icon is-small is-right hidden'>
               <i class='fas fa-exclamation-triangle'></i>
             </span>
           </div>
           <p class='help is-danger hidden'></p>
-          <p class='help'><a href='http://bit.ly/babblebot-twitch-token' target='_blank'>token link</a></p>
         </div>
         <div class='field'>
           <label class='label'>password</label>
@@ -110,8 +109,8 @@
   u.ready = function (fn) { document.readyState !== 'loading'? fn(): u(document).on('DOMContentLoaded', fn) }
 
   u.ready(function(){
-    if ("{{client_id}}" != "") {
-      console.log("{{client_id}}")
+    if ("{{code}}" != "") {
+      u('#signup-modal').addClass('is-active')
     }
   })
 
@@ -121,7 +120,7 @@
 
   u('#login').on('click', function(){ u('#login-modal').addClass('is-active') })
   u('#signup').on('click', function(){
-    var url = "https://id.twitch.tv/oauth2/authorize?response_type=code&client_id={{client_id}}&redirect_uri=https://www.babblebot.io/callbacks/twitch&scope=channel_editor+channel_commercial+channel_subscriptions+channel_check_subscription+analytics:read:extensions+clips:edit+bits:read+analytics:read:games+user:edit:broadcast+user:read:broadcast+chat:read"
+    var url = "https://id.twitch.tv/oauth2/authorize?response_type=code&client_id={{client_id}}&redirect_uri=https://www.babblebot.io/callbacks/twitch&scope=user_read+channel_editor+channel_commercial+channel_subscriptions+channel_check_subscription+analytics:read:extensions+clips:edit+bits:read+analytics:read:games+user:edit:broadcast+user:read:broadcast+chat:read"
     location.href = url
   })
   u('#login-modal .mclose').on('click', function(){ u('#login-modal').removeClass('is-active') })

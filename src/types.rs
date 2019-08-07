@@ -89,7 +89,7 @@ pub struct Chatters {
 pub struct TwitchRsp {
     pub access_token: String,
     pub token_type: String,
-    pub scope: String,
+    pub scope: Vec<String>,
     pub expires_in: i64,
     pub refresh_token: String
 }
