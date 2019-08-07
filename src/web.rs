@@ -71,12 +71,50 @@ pub fn dashboard(_con: RedisConnection, _auth: Auth) -> Template {
 
 #[get("/", rank=2)]
 pub fn index(_con: RedisConnection) -> Template {
-    let context: HashMap<&str, String> = HashMap::new();
+    let mut settings = config::Config::default();
+    settings.merge(config::File::with_name("Settings")).unwrap();
+    settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
+    let client_id = settings.get_str("client_id").unwrap_or("".to_owned());
+    let mut context: HashMap<&str, String> = HashMap::new();
+    context.insert("client_id", client_id);
     return Template::render("index", &context);
 }
 
-#[get("/callbacks/spotify?<code>")]
-pub fn spotify(con: RedisConnection, auth: Auth, code: String) -> Template {
+#[get("/callbacks/twitch_cb?<code>")]
+pub fn twitch_cb(con: RedisConnection, auth: Auth, code: String) -> Template {
+    let mut settings = config::Config::default();
+    settings.merge(config::File::with_name("Settings")).unwrap();
+    settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
+    let client_id = settings.get_str("spotify_id").unwrap_or("".to_owned());
+    let client_secret = settings.get_str("spotify_secret").unwrap_or("".to_owned());
+    let client = reqwest::Client::new();
+    let rsp = client.post(&format!("https://id.twitch.tv/oauth2/token?client_id={}&client_secret={}&code={}&grant_type=authorization_code&redirect_uri=https://babblebot.io/callbacks/twitch_cb", client_id, client_secret, code)).send();
+    match rsp {
+        Err(e) => {
+            error!("{}",e);
+            let context: HashMap<&str, String> = HashMap::new();
+            return Template::render("dashboard", &context);
+        }
+        Ok(mut rsp) => {
+            let json: Result<TwitchRsp,_> = rsp.json();
+            match json {
+                Err(e) => {
+                    error!("{}",e);
+                    let context: HashMap<&str, String> = HashMap::new();
+                    return Template::render("dashboard", &context);
+                }
+                Ok(json) => {
+                    redis::cmd("set").arg(format!("channel:{}:token", &auth.channel)).arg(&json.access_token).execute(&*con);
+                    let context: HashMap<&str, String> = HashMap::new();
+                    return Template::render("dashboard", &context);
+                }
+            }
+        }
+    }
+}
+
+#[get("/callbacks/spotify_cb?<code>")]
+pub fn spotify_cb(con: RedisConnection, auth: Auth, code: String) -> Template {
     let mut settings = config::Config::default();
     settings.merge(config::File::with_name("Settings")).unwrap();
     settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();

@@ -45,16 +45,16 @@ html.funky {
   font-size: 2.2em;
   margin: 20px 0;
 }
-#section-top #login {
-  font-size: 1.2em;
+#section-top #links {
   float: right;
   margin-top: 36px;
-  color: #45806f;
 }
-#section-top #login a {
+#section-top #links a {
   color: #45806f;
+  font-size: 1.2em;
+  margin-left: 24px;
 }
-#section-top #login a:hover {
+#section-top #links a:hover {
   text-decoration: underline;
 }
 #section-top #features {

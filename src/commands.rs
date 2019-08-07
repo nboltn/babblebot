@@ -755,7 +755,7 @@ fn moderation_cmd(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc
                     "set" => {
                         if args.len() > 2 {
                             let _: () = con.set(format!("channel:{}:moderation:age", channel), &args[2]).unwrap();
-                            send_message(con.clone(), client, channel, format!("Minimum account age has been set to {}", &args[2]).to_owned());
+                            send_message(con.clone(), client, channel, format!("Minimum account age has been set to: {}", &args[2]).to_owned());
                         }
                     }
                     "off" => {

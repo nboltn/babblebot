@@ -7,7 +7,10 @@
   <div class='content hidden animated fadeIn'>
     <div id='header'>
       <div id='title'>Babblebot</div>
-      <div id='login'><a href='javascript:void(0)'>login</a></div>
+      <div id='links'>
+        <a href='http://docs.babblebot.io/en/latest/index.html' target='_window'>documentation</a>
+        <a id='login' href='javascript:void(0)'>login</a>
+      </div>
     </div>
     <div id='features'>
       <div class='group'>the best bot on twitch</div>
@@ -111,7 +114,10 @@
   bg.onload = function(){ u('.section .content').removeClass('hidden') }
 
   u('#login').on('click', function(){ u('#login-modal').addClass('is-active') })
-  u('#signup').on('click', function(){ u('#signup-modal').addClass('is-active') })
+  u('#signup').on('click', function(){
+    var url = "https://id.twitch.tv/oauth2/authorize?response_type=code&client_id={{client_id}}&redirect_uri=https://babblebot.io/callbacks/signup&scope=channel_editor+channel_commercial+channel_subscriptions+channel_check_subscription+analytics:read:extensions+clips:edit+bits:read+analytics:read:games+user:edit:broadcast+user:read:broadcast+chat:read"
+    location.href = url
+  })
   u('#login-modal .mclose').on('click', function(){ u('#login-modal').removeClass('is-active') })
   u('#login-modal .is-link').on('click', function(){ u('#login-modal form').trigger('submit') })
   u('#signup-modal .mclose').on('click', function(){ u('#signup-modal').removeClass('is-active') })
