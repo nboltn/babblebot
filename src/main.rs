@@ -1057,7 +1057,7 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                                 error!("[request_body] {}", body);
                             }
                             Ok(json) => {
-                                let list: String = con.hget(format!("channel:{}:settings", &channelC), "autohost:blacklist").unwrap_or("".to_owned());
+                                let list: String = con.hget(format!("channel:{}:settings", &channelC), "autohost:blacklist").unwrap_or("".to_owned()); // UNDOCUMENTED
                                 let mut blacklist: Vec<String> = Vec::new();
                                 for nick in list.split_whitespace() { blacklist.push(nick.to_string()) }
                                 for host in json.hosts {
