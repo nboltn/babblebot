@@ -7,4 +7,4 @@ return the user's watchtime::
 
 .. rubric:: Notes
 
-The ``viewerstats`` settings must be set to "true".
+The ``viewerstats`` setting must be set to "true".
