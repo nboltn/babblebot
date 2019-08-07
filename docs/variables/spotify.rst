@@ -3,15 +3,15 @@ spotify
 
 return the title of the currently playing spotify track:
 
-    (spotify:playing-title)
+    ``(spotify:playing-title)``
 
 return the artist of the currently playing spotify track:
 
-    (spotify:playing-artist)
+    ``(spotify:playing-artist)``
 
 return the album of the currently playing spotify track:
 
-    (spotify:playing-album)
+    ``(spotify:playing-album)``
 
 .. rubric:: Notes
 

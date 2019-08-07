@@ -1,9 +1,9 @@
 watchrank
 ---------
 
-return the user's watchrank::
+return the user's watchrank:
 
-    (watchrank)
+    ``(watchrank)``
 
 .. rubric:: Notes
 

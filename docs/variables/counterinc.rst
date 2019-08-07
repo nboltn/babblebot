@@ -1,6 +1,6 @@
 counterinc
 ----------
 
-increase a stored counter by one::
+increase a stored counter by one:
 
-    (counterinc [name])
+    ``(counterinc [name])``

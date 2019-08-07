@@ -1,9 +1,9 @@
 watchtime
 ---------
 
-return the user's watchtime::
+return the user's watchtime:
 
-    (watchtime)
+    ``(watchtime)``
 
 .. rubric:: Notes
 

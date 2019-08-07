@@ -1,9 +1,9 @@
 args
 ----
 
-return an argument given to the command::
+return an argument given to the command:
 
-    (args [num])
+    ``(args [num])``
 
 .. rubric:: Usage
 

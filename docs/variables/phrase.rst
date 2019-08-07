@@ -1,9 +1,9 @@
 phrase
 ------
 
-return the stored phrase::
+return the stored phrase:
 
-    (phrase [name])
+    ``(phrase [name])``
 
 .. rubric:: Usage
 

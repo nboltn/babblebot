@@ -1,33 +1,33 @@
 pubg
 ----
 
-return the number of pubg wins:
+return the number of pubg wins::
 
-    (pubg:wins)
+    ``(pubg:wins)``
 
 return the number of pubg kills:
 
-    (pubg:kills)
+    ``(pubg:kills)
 
 return the amount of pubg damage dealt:
 
-    (pubg:damage)
+    ``(pubg:damage)``
 
 return the number of pubg headshots:
 
-    (pubg:headshots)
+    ``(pubg:headshots)``
 
 return the number of pubg roadkills:
 
-    (pubg:roadkills)
+    ``(pubg:roadkills)``
 
 return the number of pubg teamkills:
 
-    (pubg:teamkills)
+    ``(pubg:teamkills)``
 
 return the number of pubg vehicles destroyed:
 
-    (pubg:vehicles-destroyed)
+    ``(pubg:vehicles-destroyed)``
 
 .. rubric:: Required Settings
 

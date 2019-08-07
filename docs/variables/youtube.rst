@@ -1,13 +1,13 @@
 youtube
 -------
 
-return the url to the latest youtube video::
+return the url to the latest youtube video:
 
-    (youtube:latest-url [id])
+    ``(youtube:latest-url [id])``
 
-return the title of the latest youtube video::
+return the title of the latest youtube video:
 
-    (youtube:latest-url [id])
+    ``(youtube:latest-url [id])``
 
 .. rubric:: Notes
 

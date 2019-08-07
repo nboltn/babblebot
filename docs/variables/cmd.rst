@@ -1,9 +1,9 @@
 cmd
 ---
 
-run a command::
+run a command:
 
-    (cmd [command] [args])
+    ``(cmd [command] [args])``
 
 .. rubric:: Usage
 

@@ -1,9 +1,9 @@
 urlfetch
 --------
 
-call a url and return the result::
+call a url and return the result:
 
-    (urlfetch [url])
+    ``(urlfetch [url])``
 
 .. rubric:: Usage
 

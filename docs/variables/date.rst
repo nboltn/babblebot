@@ -1,9 +1,9 @@
 date
 ----
 
-return a human-readable version of a stored timestamp::
+return a human-readable version of a stored timestamp:
 
-    (date [name])
+    ``(date [name])``
 
 .. rubric:: Usage
 

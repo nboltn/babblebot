@@ -3,11 +3,11 @@ fortnite
 
 return the number of fortnite wins:
 
-    (fortnite:wins)
+    ``(fortnite:wins)``
 
 return the number of fortnite kills:
 
-    (fortnite:kills)
+    ``(fortnite:kills)``
 
 .. rubric:: Required Settings
 

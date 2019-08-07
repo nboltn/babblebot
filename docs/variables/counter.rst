@@ -1,9 +1,9 @@
 counter
 -------
 
-return a stored counter::
+return a stored counter:
 
-    (counter [name])
+    ``(counter [name])``
 
 .. rubric:: Usage
 

@@ -1,6 +1,6 @@
 channel
 -------
 
-return the channel name::
+return the channel name:
 
-    (channel)
+    ``(channel)``

@@ -1,6 +1,6 @@
 user
 ----
 
-return the user's name::
+return the user's name:
 
-    (user)
+    ``(user)``

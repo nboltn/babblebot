@@ -1,9 +1,9 @@
 countdown
 ---------
 
-return the time remaining between now and a timestamp::
+return the time remaining between now and a timestamp:
 
-    (countdown [timestamp])
+    ``(countdown [timestamp])``
 
 .. rubric:: Notes
 

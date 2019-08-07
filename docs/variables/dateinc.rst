@@ -1,6 +1,6 @@
 dateinc
 -------
 
-increase a stored date by the specified amount::
+increase a stored date by the specified amount:
 
-    (dateinc [name] [seconds])
+    ``(dateinc [name] [seconds])``

@@ -1,6 +1,6 @@
 subcount
 --------
 
-return the channel's subscriber count::
+return the channel's subscriber count:
 
-    (subcount)
+    ``(subcount)``
