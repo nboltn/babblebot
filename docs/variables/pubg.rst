@@ -1,13 +1,13 @@
 pubg
 ----
 
-return the number of pubg wins::
+return the number of pubg wins:
 
     ``(pubg:wins)``
 
 return the number of pubg kills:
 
-    ``(pubg:kills)
+    ``(pubg:kills)``
 
 return the amount of pubg damage dealt:
 
