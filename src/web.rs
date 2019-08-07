@@ -88,7 +88,7 @@ pub fn twitch_cb(con: RedisConnection, auth: Auth, code: String) -> Template {
     let client_id = settings.get_str("spotify_id").unwrap_or("".to_owned());
     let client_secret = settings.get_str("spotify_secret").unwrap_or("".to_owned());
     let client = reqwest::Client::new();
-    let rsp = client.post(&format!("https://id.twitch.tv/oauth2/token?client_id={}&client_secret={}&code={}&grant_type=authorization_code&redirect_uri=https://babblebot.io/callbacks/twitch_cb", client_id, client_secret, code)).send();
+    let rsp = client.post(&format!("https://id.twitch.tv/oauth2/token?client_id={}&client_secret={}&code={}&grant_type=authorization_code&redirect_uri=https://babblebot.io/callbacks/twitch", client_id, client_secret, code)).send();
     match rsp {
         Err(e) => {
             error!("{}",e);
