@@ -5,6 +5,8 @@ run a command::
 
     (cmd [command] [args])
 
-.. rubric:: Examples::
+.. rubric:: Examples
+
+.. code-block:: text
 
     !command add !setpassword (cmd !phrases set password (args 1))
