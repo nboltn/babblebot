@@ -141,7 +141,7 @@
     u('#login-modal .field input').removeClass('is-danger');
 
     if (data.success) {
-      location.reload(true);
+      window.location.href = "/";
     } else {
       var field = '#login-modal .field.'.concat(data.field);
       var icon = field.concat(' span.icon');
@@ -169,7 +169,7 @@
     u('#signup-modal .field input').removeClass('is-danger');
 
     if (data.success) {
-      location.reload(true);
+      window.location.href = "/";
     } else {
       var field = '#signup-modal .field.'.concat(data.field);
       var icon = field.concat(' span.icon');
