@@ -559,8 +559,8 @@ fn update_watchtime(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
             let channels: Vec<String> = con.smembers("channels").unwrap_or(Vec::new());
             for channel in channels {
                 let live: String = con.get(format!("channel:{}:live", &channel)).unwrap_or("false".to_owned());
-                let enabled: String = con.hget(format!("channel:{}:settings", &channel), "viewerstats:enabled").unwrap_or("false".to_owned());
-                if live == "true" && enabled != "false" {
+                let enabled: String = con.hget(format!("channel:{}:settings", &channel), "viewerstats").unwrap_or("false".to_owned());
+                if live == "true" && enabled == "true" {
                     let pool = pool.clone();
                     let future = request(Method::GET, None, &format!("http://tmi.twitch.tv/group/user/{}/chatters", &channel)).send()
                         .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
