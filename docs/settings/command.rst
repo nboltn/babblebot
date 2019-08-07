@@ -7,4 +7,4 @@ command
 
     !set command:prefix ~
 
-By default this is set to `!`.
+By default this is set to '!'.
