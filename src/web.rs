@@ -80,7 +80,7 @@ pub fn index(_con: RedisConnection) -> Template {
     return Template::render("index", &context);
 }
 
-#[get("/callbacks/twitch_cb?<code>")]
+#[get("/callbacks/twitch?<code>")]
 pub fn twitch_cb(con: RedisConnection, auth: Auth, code: String) -> Template {
     let mut settings = config::Config::default();
     settings.merge(config::File::with_name("Settings")).unwrap();
@@ -113,7 +113,7 @@ pub fn twitch_cb(con: RedisConnection, auth: Auth, code: String) -> Template {
     }
 }
 
-#[get("/callbacks/spotify_cb?<code>")]
+#[get("/callbacks/spotify?<code>")]
 pub fn spotify_cb(con: RedisConnection, auth: Auth, code: String) -> Template {
     let mut settings = config::Config::default();
     settings.merge(config::File::with_name("Settings")).unwrap();
