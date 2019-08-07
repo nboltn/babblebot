@@ -81,19 +81,19 @@ pub fn index(_con: RedisConnection) -> Template {
 }
 
 #[get("/callbacks/twitch?<code>")]
-pub fn twitch_cb(con: RedisConnection, auth: Auth, code: String) -> Template {
+pub fn twitch_cb(con: RedisConnection, code: String) -> Template {
     let mut settings = config::Config::default();
     settings.merge(config::File::with_name("Settings")).unwrap();
     settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
-    let client_id = settings.get_str("spotify_id").unwrap_or("".to_owned());
-    let client_secret = settings.get_str("spotify_secret").unwrap_or("".to_owned());
+    let client_id = settings.get_str("client_id").unwrap_or("".to_owned());
+    let client_secret = settings.get_str("client_secret").unwrap_or("".to_owned());
     let client = reqwest::Client::new();
     let rsp = client.post(&format!("https://id.twitch.tv/oauth2/token?client_id={}&client_secret={}&code={}&grant_type=authorization_code&redirect_uri=https://www.babblebot.io/callbacks/twitch", client_id, client_secret, code)).send();
     match rsp {
         Err(e) => {
             error!("{}",e);
             let context: HashMap<&str, String> = HashMap::new();
-            return Template::render("dashboard", &context);
+            return Template::render("index", &context);
         }
         Ok(mut rsp) => {
             let json: Result<TwitchRsp,_> = rsp.json();
@@ -101,12 +101,43 @@ pub fn twitch_cb(con: RedisConnection, auth: Auth, code: String) -> Template {
                 Err(e) => {
                     error!("{}",e);
                     let context: HashMap<&str, String> = HashMap::new();
-                    return Template::render("dashboard", &context);
+                    return Template::render("index", &context);
                 }
                 Ok(json) => {
-                    redis::cmd("set").arg(format!("channel:{}:token", &auth.channel)).arg(&json.access_token).execute(&*con);
-                    let context: HashMap<&str, String> = HashMap::new();
-                    return Template::render("dashboard", &context);
+                    let mut settings = config::Config::default();
+                    settings.merge(config::File::with_name("Settings")).unwrap();
+                    settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
+
+                    let mut headers = header::HeaderMap::new();
+                    headers.insert("Accept", HeaderValue::from_str("application/vnd.twitchtv.v5+json").unwrap());
+                    headers.insert("Authorization", HeaderValue::from_str(&format!("OAuth {}", code)).unwrap());
+                    headers.insert("Client-ID", HeaderValue::from_str(&settings.get_str("client_id").unwrap()).unwrap());
+
+                    let client = reqwest::Client::builder().default_headers(headers).build().unwrap();
+                    let rsp = client.get("https://api.twitch.tv/kraken/user").send();
+                    match rsp {
+                        Err(e) => {
+                            error!("{}",e);
+                            let context: HashMap<&str, String> = HashMap::new();
+                            return Template::render("index", &context);
+                        }
+                        Ok(mut rsp) => {
+                            let json: Result<KrakenUser,_> = rsp.json();
+                            match json {
+                                Err(e) => {
+                                    error!("{}",e);
+                                    let context: HashMap<&str, String> = HashMap::new();
+                                    return Template::render("index", &context);
+                                }
+                                Ok(json) => {
+                                    let mut context: HashMap<&str, String> = HashMap::new();
+                                    context.insert("code", code.clone());
+                                    context.insert("channel", json.name.clone());
+                                    return Template::render("index", &context);
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -129,9 +160,11 @@ pub fn spotify_cb(con: RedisConnection, auth: Auth, code: String) -> Template {
             return Template::render("dashboard", &context);
         }
         Ok(mut rsp) => {
-            let json: Result<SpotifyRsp,_> = rsp.json();
+            let body = rsp.text().unwrap();
+            let json: Result<SpotifyRsp,_> = serde_json::from_str(&body);
             match json {
                 Err(e) => {
+                    error!("{}",body);
                     error!("{}",e);
                     let context: HashMap<&str, String> = HashMap::new();
                     return Template::render("dashboard", &context);

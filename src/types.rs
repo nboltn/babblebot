@@ -174,6 +174,7 @@ pub struct KrakenUsers {
 pub struct KrakenUser {
     #[serde(rename = "_id")]
     pub id: String,
+    pub name: String,
     pub created_at: String
 }
 

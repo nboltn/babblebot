@@ -109,6 +109,12 @@
 <script type='text/javascript'>
   u.ready = function (fn) { document.readyState !== 'loading'? fn(): u(document).on('DOMContentLoaded', fn) }
 
+  u.ready(function(){
+    if ("{{client_id}}" != "") {
+      console.log("{{client_id}}")
+    }
+  })
+
   var bg = new Image();
   bg.src = '/assets/images/dark_mosaic.png';
   bg.onload = function(){ u('.section .content').removeClass('hidden') }
