@@ -1,8 +1,6 @@
 command
 -------
 
-.. rubric:: Usage
-
 add or modify a command::
 
     !command add [name] [content]

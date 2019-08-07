@@ -1,8 +1,6 @@
 commercials
 -----------
 
-.. rubric:: Usage
-
 run commercials::
 
     !commercials run [num]

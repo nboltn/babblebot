@@ -1,13 +1,11 @@
 notices
 -------
 
-.. rubric:: Usage
-
 create a notice to be posted to chat every X seconds::
 
     !notices add [secs] [command]
 
-.. rubric:: Notes
+.. rubric:: Usage
 
 Notices will be handled intelligently and ones created with the same interval will be rotated through. For example::
 

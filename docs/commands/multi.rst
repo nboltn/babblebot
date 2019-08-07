@@ -1,8 +1,6 @@
 multi
 -----
 
-.. rubric:: Usage
-
 return the currently set multistre.am link::
 
     !multi
