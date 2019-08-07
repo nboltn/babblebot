@@ -21,6 +21,14 @@ A message to send to a discord channel when you go live, embedded with stream in
 
 .. code-block:: text
 
-    !set discord:channel-id 4760364856201
+    !set discord:channel-id 3860364856220
 
 The channel id of the discord channel your going live message will show up in. https://support.discordapp.com/hc/en-us/articles/206346498-Where-can-I-find-my-User-Server-Message-ID-
+
+.. rubric:: discord:mod-channel
+
+.. code-block:: text
+
+    !set discord:mod-channel 4760384856201
+
+The channel id of a discord channel you want to be able to execute commands in.
