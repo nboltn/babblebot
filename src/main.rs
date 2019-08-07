@@ -59,6 +59,7 @@ fn main() {
         .append()
         .rotate(Criterion::Size(1000000), Naming::Numbers, Cleanup::Never)
         .duplicate_to_stderr(Duplicate::Warn)
+        .format(flexi_logger::default_format)
         .start()
         .unwrap_or_else(|e| panic!("Logger initialization failed with {}", e));
 
