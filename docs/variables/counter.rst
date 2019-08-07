@@ -5,7 +5,7 @@ return a stored counter::
 
     (counter [name])
 
-.. rubric:: Examples
+.. rubric:: Usage
 
 .. code-block:: text
 

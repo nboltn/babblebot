@@ -5,7 +5,7 @@ call a url and return the result::
 
     (urlfetch [url])
 
-.. rubric:: Examples::
+.. rubric:: Usage
 
 .. code-block:: text
 

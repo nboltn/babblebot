@@ -5,7 +5,7 @@ return an argument given to the command::
 
     (args [num])
 
-.. rubric:: Examples
+.. rubric:: Usage
 
 .. code-block:: text
 
