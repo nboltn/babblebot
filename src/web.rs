@@ -65,7 +65,12 @@ pub fn not_found() -> &'static str { "404" }
 
 #[get("/")]
 pub fn dashboard(_con: RedisConnection, _auth: Auth) -> Template {
+    let mut settings = config::Config::default();
+    settings.merge(config::File::with_name("Settings")).unwrap();
+    settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
+    let client_id = settings.get_str("client_id").unwrap_or("".to_owned());
     let mut context: HashMap<&str, String> = HashMap::new();
+    context.insert("client_id", client_id.clone());
     return Template::render("dashboard", &context);
 }
 
@@ -83,6 +88,46 @@ pub fn index(_con: RedisConnection) -> Template {
 }
 
 #[get("/callbacks/twitch?<code>")]
+pub fn twitch_cb_auth(con: RedisConnection, auth: Auth, code: String) -> Template {
+    let mut settings = config::Config::default();
+    settings.merge(config::File::with_name("Settings")).unwrap();
+    settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
+    let client_id = settings.get_str("client_id").unwrap_or("".to_owned());
+    let client_secret = settings.get_str("client_secret").unwrap_or("".to_owned());
+    let client = reqwest::Client::new();
+    let rsp = client.post(&format!("https://id.twitch.tv/oauth2/token?client_id={}&client_secret={}&code={}&grant_type=authorization_code&redirect_uri=https://www.babblebot.io/callbacks/twitch", client_id, client_secret, code)).send();
+    match rsp {
+        Err(e) => {
+            log_error(None, "twitch_cb", &e.to_string());
+            let mut context: HashMap<&str, String> = HashMap::new();
+            context.insert("client_id", client_id.clone());
+            context.insert("code", "".to_owned());
+            context.insert("channel", "".to_owned());
+            return Template::render("index", &context);
+        }
+        Ok(mut rsp) => {
+            let body = rsp.text().unwrap();
+            let json: Result<TwitchRsp,_> = serde_json::from_str(&body);
+            match json {
+                Err(e) => {
+                    log_error(None, "twitch_cb", &e.to_string());
+                    log_error(None, "request_body", &body);
+                    let mut context: HashMap<&str, String> = HashMap::new();
+                    context.insert("client_id", client_id.clone());
+                    return Template::render("index", &context);
+                }
+                Ok(json) => {
+                    redis::cmd("publish").arg(format!("channel:{}:signals:rename", &auth.channel)).arg(&json.access_token).execute(&*con);
+                    let mut context: HashMap<&str, String> = HashMap::new();
+                    context.insert("client_id", client_id.clone());
+                    return Template::render("dashboard", &context);
+                }
+            }
+        }
+    }
+}
+
+#[get("/callbacks/twitch?<code>", rank=2)]
 pub fn twitch_cb(con: RedisConnection, code: String) -> Template {
     let mut settings = config::Config::default();
     settings.merge(config::File::with_name("Settings")).unwrap();
@@ -109,8 +154,6 @@ pub fn twitch_cb(con: RedisConnection, code: String) -> Template {
                     log_error(None, "request_body", &body);
                     let mut context: HashMap<&str, String> = HashMap::new();
                     context.insert("client_id", client_id.clone());
-                    context.insert("code", "".to_owned());
-                    context.insert("channel", "".to_owned());
                     return Template::render("index", &context);
                 }
                 Ok(json) => {
@@ -169,14 +212,16 @@ pub fn patreon_cb(con: RedisConnection, auth: Auth, code: String) -> Template {
     let mut settings = config::Config::default();
     settings.merge(config::File::with_name("Settings")).unwrap();
     settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
-    let client_id = settings.get_str("patreon_id").unwrap_or("".to_owned());
-    let client_secret = settings.get_str("patreon_secret").unwrap_or("".to_owned());
+    let client_id = settings.get_str("client_id").unwrap();
+    let patreon_id = settings.get_str("patreon_secret").unwrap_or("".to_owned());
+    let patreon_secret = settings.get_str("patreon_secret").unwrap_or("".to_owned());
     let client = reqwest::Client::new();
-    let rsp = client.post("https://www.patreon.com/api/oauth2/token").form(&[("grant_type","authorization_code"),("redirect_uri","https://www.babblebot.io/callbacks/patreon"),("code",&code),("client_id",&client_id),("client_secret",&client_secret)]).send();
+    let rsp = client.post("https://www.patreon.com/api/oauth2/token").form(&[("grant_type","authorization_code"),("redirect_uri","https://www.babblebot.io/callbacks/patreon"),("code",&code),("client_id",&patreon_id),("client_secret",&patreon_secret)]).send();
     match rsp {
         Err(e) => {
             log_error(None, "patreon_cb", &e.to_string());
-            let context: HashMap<&str, String> = HashMap::new();
+            let mut context: HashMap<&str, String> = HashMap::new();
+            context.insert("client_id", client_id.clone());
             return Template::render("dashboard", &context);
         }
         Ok(mut rsp) => {
@@ -186,14 +231,16 @@ pub fn patreon_cb(con: RedisConnection, auth: Auth, code: String) -> Template {
                 Err(e) => {
                     log_error(Some(&auth.channel), "patreon_cb", &e.to_string());
                     log_error(Some(&auth.channel), "request_body", &body);
-                    let context: HashMap<&str, String> = HashMap::new();
+                    let mut context: HashMap<&str, String> = HashMap::new();
+                    context.insert("client_id", client_id.clone());
                     return Template::render("dashboard", &context);
                 }
                 Ok(json) => {
                     redis::cmd("set").arg(format!("channel:{}:patreon:token", &auth.channel)).arg(&json.access_token).execute(&*con);
                     redis::cmd("set").arg(format!("channel:{}:patreon:refresh", &auth.channel)).arg(&json.refresh_token).execute(&*con);
                     redis::cmd("set").arg(format!("channel:{}:patreon:expires", &auth.channel)).arg(&json.expires_in.to_string()).execute(&*con);
-                    let context: HashMap<&str, String> = HashMap::new();
+                    let mut context: HashMap<&str, String> = HashMap::new();
+                    context.insert("client_id", client_id.clone());
                     return Template::render("dashboard", &context);
                 }
             }
@@ -206,14 +253,16 @@ pub fn spotify_cb(con: RedisConnection, auth: Auth, code: String) -> Template {
     let mut settings = config::Config::default();
     settings.merge(config::File::with_name("Settings")).unwrap();
     settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
-    let client_id = settings.get_str("spotify_id").unwrap_or("".to_owned());
-    let client_secret = settings.get_str("spotify_secret").unwrap_or("".to_owned());
+    let client_id = settings.get_str("client_id").unwrap();
+    let spotify_id = settings.get_str("spotify_id").unwrap_or("".to_owned());
+    let spotify_secret = settings.get_str("spotify_secret").unwrap_or("".to_owned());
     let client = reqwest::Client::new();
-    let rsp = client.post("https://accounts.spotify.com/api/token").form(&[("grant_type","authorization_code"),("redirect_uri","https://babblebot.io/callbacks/spotify"),("code",&code)]).header(header::AUTHORIZATION, format!("Basic {}", base64::encode(&format!("{}:{}",client_id,client_secret)))).send();
+    let rsp = client.post("https://accounts.spotify.com/api/token").form(&[("grant_type","authorization_code"),("redirect_uri","https://babblebot.io/callbacks/spotify"),("code",&code)]).header(header::AUTHORIZATION, format!("Basic {}", base64::encode(&format!("{}:{}",spotify_id,spotify_secret)))).send();
     match rsp {
         Err(e) => {
             log_error(None, "spotify_cb", &e.to_string());
-            let context: HashMap<&str, String> = HashMap::new();
+            let mut context: HashMap<&str, String> = HashMap::new();
+            context.insert("client_id", client_id.clone());
             return Template::render("dashboard", &context);
         }
         Ok(mut rsp) => {
@@ -223,14 +272,16 @@ pub fn spotify_cb(con: RedisConnection, auth: Auth, code: String) -> Template {
                 Err(e) => {
                     log_error(Some(&auth.channel), "spotify_cb", &e.to_string());
                     log_error(Some(&auth.channel), "request_body", &body);
-                    let context: HashMap<&str, String> = HashMap::new();
+                    let mut context: HashMap<&str, String> = HashMap::new();
+                    context.insert("client_id", client_id.clone());
                     return Template::render("dashboard", &context);
                 }
                 Ok(json) => {
                     redis::cmd("set").arg(format!("channel:{}:spotify:token", &auth.channel)).arg(&json.access_token).execute(&*con);
                     redis::cmd("set").arg(format!("channel:{}:spotify:refresh", &auth.channel)).arg(&json.refresh_token).execute(&*con);
                     redis::cmd("set").arg(format!("channel:{}:spotify:expires", &auth.channel)).arg(&json.expires_in.to_string()).execute(&*con);
-                    let context: HashMap<&str, String> = HashMap::new();
+                    let mut context: HashMap<&str, String> = HashMap::new();
+                    context.insert("client_id", client_id.clone());
                     return Template::render("dashboard", &context);
                 }
             }
@@ -302,6 +353,9 @@ pub fn data(con: RedisConnection, auth: Auth) -> Json<ApiData> {
 
                     fields.insert("status".to_owned(), json.status.to_owned());
                     fields.insert("game".to_owned(), json.game.to_owned());
+
+                    let bot: String = redis::cmd("get").arg(format!("channel:{}:bot", auth.channel)).query(&*con).unwrap();
+                    if bot != "babblerbot" { fields.insert("username".to_owned(), bot); }
 
                     spotify.insert("client_id".to_owned(), settings.get_str("spotify_id").unwrap_or("".to_owned()));
                     patreon.insert("client_id".to_owned(), settings.get_str("patreon_id").unwrap_or("".to_owned()));

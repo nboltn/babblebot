@@ -175,6 +175,17 @@ pub fn twitch_helix_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisCon
     return builder;
 }
 
+pub fn patreon_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, method: Method, url: &str) -> RequestBuilder {
+    let token: String = con.get(format!("channel:{}:patreon:token", channel)).unwrap_or("".to_owned());
+    let mut headers = header::HeaderMap::new();
+    headers.insert("Accept", HeaderValue::from_str("application/vnd.api+json").unwrap());
+    headers.insert("Authorization", HeaderValue::from_str(&format!("Bearer {}", token)).unwrap());
+
+    let client = Client::builder().default_headers(headers).build().unwrap();
+    let builder = client.request(method, url);
+    return builder;
+}
+
 pub fn spotify_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str) -> RequestBuilder {
     let token: String = con.get(format!("channel:{}:spotify:token", channel)).unwrap_or("".to_owned());
     let mut headers = header::HeaderMap::new();

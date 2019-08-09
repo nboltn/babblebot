@@ -69,7 +69,7 @@ fn main() {
         thread::spawn(move || {
             rocket::ignite()
               .mount("/assets", StaticFiles::from("assets"))
-              .mount("/", routes![web::index, web::dashboard, web::commands, web::patreon_cb, web::spotify_cb, web::twitch_cb, web::public_data, web::data, web::login, web::logout, web::signup, web::password, web::title, web::game, web::new_command, web::save_command, web::trash_command, web::new_notice, web::trash_notice, web::save_setting, web::trash_setting, web::new_blacklist, web::save_blacklist, web::trash_blacklist, web::trash_song])
+              .mount("/", routes![web::index, web::dashboard, web::commands, web::patreon_cb, web::spotify_cb, web::twitch_cb, web::twitch_cb_auth, web::public_data, web::data, web::login, web::logout, web::signup, web::password, web::title, web::game, web::new_command, web::save_command, web::trash_command, web::new_notice, web::trash_notice, web::save_setting, web::trash_setting, web::new_blacklist, web::save_blacklist, web::trash_blacklist, web::trash_song])
               .register(catchers![web::internal_error, web::not_found])
               .attach(Template::fairing())
               .attach(RedisConnection::fairing())
@@ -100,6 +100,7 @@ fn main() {
             update_live(pool.clone());
             update_stats(pool.clone());
             update_watchtime(pool.clone());
+            update_patreon(pool.clone());
             run_reactor(pool.clone(), bots);
         });
 
@@ -203,13 +204,22 @@ fn rename_channel_listener(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>,
             let msg = ps.get_message().expect("redis:get_message");
             let token: String = msg.get_payload().expect("redis:get_payload");
 
-            let req = reqwest::Client::new();
-            let rsp = req.get("https://api.twitch.tv/helix/users").header(header::AUTHORIZATION, format!("Bearer {}", &token)).send();
+            let mut settings = config::Config::default();
+            settings.merge(config::File::with_name("Settings")).unwrap();
+            settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
+
+            let mut headers = header::HeaderMap::new();
+            headers.insert("Accept", HeaderValue::from_str("application/vnd.twitchtv.v5+json").unwrap());
+            headers.insert("Authorization", HeaderValue::from_str(&format!("OAuth {}", &token)).unwrap());
+            headers.insert("Client-ID", HeaderValue::from_str(&settings.get_str("client_id").unwrap()).unwrap());
+
+            let req = reqwest::Client::builder().default_headers(headers).build().unwrap();
+            let rsp = req.get("https://api.twitch.tv/kraken/user").send();
             match rsp {
                 Err(e) => { log_error(Some(&channel), "rename_channel_listener", &e.to_string()) }
                 Ok(mut rsp) => {
                     let text = rsp.text().unwrap();
-                    let json: Result<HelixUsers,_> = serde_json::from_str(&text);
+                    let json: Result<KrakenUser,_> = serde_json::from_str(&text);
                     match json {
                         Err(e) => {
                             log_error(Some(&channel), "rename_channel_listener", &e.to_string());
@@ -225,10 +235,10 @@ fn rename_channel_listener(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>,
 
                             let bot: String = con.get(format!("channel:{}:bot", &channel)).expect("get:bot");
                             let _: () = con.srem(format!("bot:{}:channels", &bot), &channel).unwrap();
-                            let _: () = con.sadd("bots", &json.data[0].login).unwrap();
-                            let _: () = con.sadd(format!("bot:{}:channels", &json.data[0].login), &channel).unwrap();
-                            let _: () = con.set(format!("bot:{}:token", &json.data[0].login), &token).unwrap();
-                            let _: () = con.set(format!("channel:{}:bot", &channel), &json.data[0].login).unwrap();
+                            let _: () = con.sadd("bots", &json.name).unwrap();
+                            let _: () = con.sadd(format!("bot:{}:channels", &json.name), &channel).unwrap();
+                            let _: () = con.set(format!("bot:{}:token", &json.name), &token).unwrap();
+                            let _: () = con.set(format!("channel:{}:bot", &channel), &json.name).unwrap();
 
                             let mut bots: HashMap<String, (HashSet<String>, Config)> = HashMap::new();
                             let mut channel_hash: HashSet<String> = HashSet::new();
@@ -548,6 +558,51 @@ fn discord_handler(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel
                 }
             }
             thread::sleep(time::Duration::from_secs(10));
+        }
+    });
+}
+
+fn update_patreon(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
+    thread::spawn(move || {
+        let con = Arc::new(acquire_con(pool.clone()));
+        loop {
+            let channels: Vec<String> = con.smembers("channels").unwrap_or(Vec::new());
+            for channel in channels {
+                let res: Result<String,_> = con.get(format!("channel:{}:patreon:token", &channel));
+                if let Ok(token) = res {
+                    let pool = pool.clone();
+                    let future = patreon_request(con.clone(), &channel, Method::GET, "https://www.patreon.com/api/oauth2/v2/identity?include=memberships").send()
+                        .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
+                        .map_err(|e| println!("request error: {}", e))
+                        .map(move |body| {
+                            let con = Arc::new(acquire_con(pool.clone()));
+                            let body = std::str::from_utf8(&body).unwrap();
+                            let json: Result<PatreonIdentity,_> = serde_json::from_str(&body);
+                            match json {
+                                Err(e) => {
+                                    log_error(Some(&channel), "update_patreon", &e.to_string());
+                                    log_error(Some(&channel), "request_body", &body);
+                                }
+                                Ok(json) => {
+                                    let mut settings = config::Config::default();
+                                    settings.merge(config::File::with_name("Settings")).unwrap();
+                                    settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
+                                    let patreon_id = settings.get_str("patreon_id").unwrap_or("".to_owned());
+
+                                    for membership in &json.data.relationships.memberships.data {
+                                        if membership.id == patreon_id {
+                                            let _: () = con.set(format!("channel:{}:patreon:subscribed", &channel), true).unwrap();
+                                        } else {
+                                            let _: () = con.set(format!("channel:{}:patreon:subscribed", &channel), false).unwrap();
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                    thread::spawn(move || { tokio::run(future) });
+                }
+            }
+            thread::sleep(time::Duration::from_secs(60));
         }
     });
 }

@@ -113,6 +113,31 @@ pub struct PatreonRsp {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct PatreonIdentity {
+    pub data: PatreonIdentityData
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PatreonIdentityData {
+    pub relationships: PatreonIdentityRelationships
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PatreonIdentityRelationships {
+    pub memberships: PatreonIdentityMemberships
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PatreonIdentityMemberships {
+    pub data: Vec<PatreonIdentityMembershipsData>
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PatreonIdentityMembershipsData {
+    pub id: String
+}
+
+#[derive(Debug, Deserialize)]
 pub struct HelixClips {
     pub data: Vec<HelixClip>
 }
