@@ -213,7 +213,7 @@ pub fn patreon_cb(con: RedisConnection, auth: Auth, code: String) -> Template {
     settings.merge(config::File::with_name("Settings")).unwrap();
     settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
     let client_id = settings.get_str("client_id").unwrap();
-    let patreon_id = settings.get_str("patreon_secret").unwrap_or("".to_owned());
+    let patreon_id = settings.get_str("patreon_client").unwrap_or("".to_owned());
     let patreon_secret = settings.get_str("patreon_secret").unwrap_or("".to_owned());
     let client = reqwest::Client::new();
     let rsp = client.post("https://www.patreon.com/api/oauth2/token").form(&[("grant_type","authorization_code"),("redirect_uri","https://www.babblebot.io/callbacks/patreon"),("code",&code),("client_id",&patreon_id),("client_secret",&patreon_secret)]).send();
