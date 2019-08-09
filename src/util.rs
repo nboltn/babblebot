@@ -60,7 +60,7 @@ pub fn send_parsed_message(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>,
         if me == "true" { message = format!("/me {}", message); }
 
         for var in command_vars.iter() {
-            message = parse_var(var, &message, pool.clone(), con.clone(), Some(client.clone()), &channel, irc_message.clone(), args.clone());
+            message = parse_var(var, &message, pool.clone(), con.clone(), Some(client.clone()), channel.clone(), irc_message.clone(), args.clone());
         }
 
         let mut futures = Vec::new();
@@ -70,7 +70,7 @@ pub fn send_parsed_message(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>,
             for captures in rgx.captures_iter(&message) {
                 if let (Some(capture), Some(vargs)) = (captures.get(0), captures.get(1)) {
                     let vargs: Vec<String> = vargs.as_str().split_whitespace().map(|str| str.to_owned()).collect();
-                    if let Some((builder, func)) = (var.1)(pool.clone(), con.clone(), Some(client.clone()), &channel, irc_message.clone(), vargs.clone(), args.clone()) {
+                    if let Some((builder, func)) = (var.1)(pool.clone(), con.clone(), Some(client.clone()), channel.clone(), irc_message.clone(), vargs.clone(), args.clone()) {
                         let future = builder.send().and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() }).map(func);
                         futures.push(future);
                         regexes.push(capture.as_str().to_owned());
@@ -221,13 +221,13 @@ pub fn pubg_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionM
     return builder;
 }
 
-pub fn parse_var(var: &(&str, fn(r2d2::Pool<r2d2_redis::RedisConnectionManager>, Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, Option<Arc<IrcClient>>, &str, Option<Message>, Vec<String>, Vec<String>) -> String), message: &str, pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<Arc<IrcClient>>, channel: &str, irc_message: Option<Message>, cargs: Vec<String>) -> String {
+pub fn parse_var(var: &(&str, fn(r2d2::Pool<r2d2_redis::RedisConnectionManager>, Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, Option<Arc<IrcClient>>, String, Option<Message>, Vec<String>, Vec<String>) -> String), message: &str, pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<Arc<IrcClient>>, channel: String, irc_message: Option<Message>, cargs: Vec<String>) -> String {
     let rgx = Regex::new(&format!("\\({} ?((?:[\\w\\-\\?\\._:/&!= ]+)*)\\)", var.0)).unwrap();
     let mut msg: String = message.to_owned();
     for captures in rgx.captures_iter(message) {
         if let Some(capture) = captures.get(1) {
             let vargs: Vec<String> = capture.as_str().split_whitespace().map(|str| str.to_owned()).collect();
-            let res = (var.1)(pool.clone(), con.clone(), client.clone(), channel, irc_message.clone(), vargs, cargs.clone());
+            let res = (var.1)(pool.clone(), con.clone(), client.clone(), channel.clone(), irc_message.clone(), vargs, cargs.clone());
             msg = rgx.replace(&msg, |_: &Captures| { &res }).to_string();
         }
     }
