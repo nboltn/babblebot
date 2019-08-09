@@ -257,7 +257,7 @@ pub fn spotify_cb(con: RedisConnection, auth: Auth, code: String) -> Template {
     let spotify_id = settings.get_str("spotify_id").unwrap_or("".to_owned());
     let spotify_secret = settings.get_str("spotify_secret").unwrap_or("".to_owned());
     let client = reqwest::Client::new();
-    let rsp = client.post("https://accounts.spotify.com/api/token").form(&[("grant_type","authorization_code"),("redirect_uri","https://babblebot.io/callbacks/spotify"),("code",&code)]).header(header::AUTHORIZATION, format!("Basic {}", base64::encode(&format!("{}:{}",spotify_id,spotify_secret)))).send();
+    let rsp = client.post("https://accounts.spotify.com/api/token").form(&[("grant_type","authorization_code"),("redirect_uri","https://www.babblebot.io/callbacks/spotify"),("code",&code)]).header(header::AUTHORIZATION, format!("Basic {}", base64::encode(&format!("{}:{}",spotify_id,spotify_secret)))).send();
     match rsp {
         Err(e) => {
             log_error(None, "spotify_cb", &e.to_string());
