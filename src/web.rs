@@ -93,7 +93,7 @@ pub fn twitch_cb(con: RedisConnection, code: String) -> Template {
     let rsp = client.post(&format!("https://id.twitch.tv/oauth2/token?client_id={}&client_secret={}&code={}&grant_type=authorization_code&redirect_uri=https://www.babblebot.io/callbacks/twitch", client_id, client_secret, code)).send();
     match rsp {
         Err(e) => {
-            error!("{}",e);
+            log_error(None, "twitch_cb", &e.to_string());
             let mut context: HashMap<&str, String> = HashMap::new();
             context.insert("client_id", client_id.clone());
             context.insert("code", "".to_owned());
@@ -105,8 +105,8 @@ pub fn twitch_cb(con: RedisConnection, code: String) -> Template {
             let json: Result<TwitchRsp,_> = serde_json::from_str(&body);
             match json {
                 Err(e) => {
-                    error!("{}",body);
-                    error!("{}",e);
+                    log_error(None, "twitch_cb", &e.to_string());
+                    log_error(None, "request_body", &body);
                     let mut context: HashMap<&str, String> = HashMap::new();
                     context.insert("client_id", client_id.clone());
                     context.insert("code", "".to_owned());
@@ -128,7 +128,7 @@ pub fn twitch_cb(con: RedisConnection, code: String) -> Template {
                     let rsp = client.get("https://api.twitch.tv/kraken/user").send();
                     match rsp {
                         Err(e) => {
-                            error!("{}",e);
+                            log_error(None, "twitch_cb", &e.to_string());
                             let mut context: HashMap<&str, String> = HashMap::new();
                             context.insert("client_id", client_id.clone());
                             context.insert("code", "".to_owned());
@@ -140,8 +140,8 @@ pub fn twitch_cb(con: RedisConnection, code: String) -> Template {
                             let json: Result<KrakenUser,_> = serde_json::from_str(&body);
                             match json {
                                 Err(e) => {
-                                    error!("{}",body);
-                                    error!("{}",e);
+                                    log_error(None, "twitch_cb", &e.to_string());
+                                    log_error(None, "request_body", &body);
                                     let mut context: HashMap<&str, String> = HashMap::new();
                                     context.insert("client_id", client_id.clone());
                                     context.insert("code", "".to_owned());
@@ -175,7 +175,7 @@ pub fn spotify_cb(con: RedisConnection, auth: Auth, code: String) -> Template {
     let rsp = client.post("https://accounts.spotify.com/api/token").form(&[("grant_type","authorization_code"),("redirect_uri","https://babblebot.io/callbacks/spotify"),("code",&code)]).header(header::AUTHORIZATION, format!("Basic {}", base64::encode(&format!("{}:{}",client_id,client_secret)))).send();
     match rsp {
         Err(e) => {
-            error!("{}",e);
+            log_error(None, "spotify_cb", &e.to_string());
             let context: HashMap<&str, String> = HashMap::new();
             return Template::render("dashboard", &context);
         }
@@ -184,8 +184,8 @@ pub fn spotify_cb(con: RedisConnection, auth: Auth, code: String) -> Template {
             let json: Result<SpotifyRsp,_> = serde_json::from_str(&body);
             match json {
                 Err(e) => {
-                    error!("{}",body);
-                    error!("{}",e);
+                    log_error(Some(&auth.channel), "spotify_cb", &e.to_string());
+                    log_error(Some(&auth.channel), "request_body", &body);
                     let context: HashMap<&str, String> = HashMap::new();
                     return Template::render("dashboard", &context);
                 }
@@ -227,7 +227,7 @@ pub fn data(con: RedisConnection, auth: Auth) -> Json<ApiData> {
 
     match rsp {
         Err(e) => {
-            error!("{}",e);
+            log_error(Some(&auth.channel), "data", &e.to_string());
             let fields: HashMap<String, String> = HashMap::new();
             let commands: HashMap<String, String> = HashMap::new();
             let notices: HashMap<String, Vec<String>> = HashMap::new();
@@ -242,7 +242,7 @@ pub fn data(con: RedisConnection, auth: Auth) -> Json<ApiData> {
             let json: Result<KrakenChannel,_> = rsp.json();
             match json {
                 Err(e) => {
-                    error!("{}",e);
+                    log_error(Some(&auth.channel), "data", &e.to_string());
                     let fields: HashMap<String, String> = HashMap::new();
                     let commands: HashMap<String, String> = HashMap::new();
                     let notices: HashMap<String, Vec<String>> = HashMap::new();
@@ -402,7 +402,7 @@ pub fn signup(con: RedisConnection, mut cookies: Cookies, data: Form<ApiSignupRe
 
     match rsp {
         Err(e) => {
-            error!("{}",e);
+            log_error(None, "signup", &e.to_string());
             let json = ApiRsp { success: false, success_value: None, field: Some("token".to_owned()), error_message: Some("invalid access code".to_owned()) };
             return Json(json);
         }
@@ -410,7 +410,7 @@ pub fn signup(con: RedisConnection, mut cookies: Cookies, data: Form<ApiSignupRe
             let json: Result<HelixUsers,_> = rsp.json();
             match json {
                 Err(e) => {
-                    error!("{}",e);
+                    log_error(None, "signup", &e.to_string());
                     let json = ApiRsp { success: false, success_value: None, field: Some("token".to_owned()), error_message: Some("invalid access code".to_owned()) };
                     return Json(json);
                 }
@@ -483,7 +483,7 @@ pub fn title(con: RedisConnection, data: Form<ApiTitleReq>, auth: Auth) -> Json<
 
     match rsp {
         Err(e) => {
-            error!("{}",e);
+            log_error(None, "title", &e.to_string());
             let json = ApiRsp { success: false, success_value: None, field: Some("title-field".to_owned()), error_message: Some("twitch api error".to_owned()) };
             return Json(json);
         }
@@ -491,7 +491,7 @@ pub fn title(con: RedisConnection, data: Form<ApiTitleReq>, auth: Auth) -> Json<
             let json: Result<KrakenChannel,_> = rsp.json();
             match json {
                 Err(e) => {
-                    error!("{}",e);
+                    log_error(None, "title", &e.to_string());
                     let json = ApiRsp { success: false, success_value: None, field: Some("title-field".to_owned()), error_message: Some("twitch api error".to_owned()) };
                     return Json(json);
                 }
@@ -523,7 +523,7 @@ pub fn game(con: RedisConnection, data: Form<ApiGameReq>, auth: Auth) -> Json<Ap
 
     match rsp {
         Err(e) => {
-            error!("{}",e);
+            log_error(None, "game", &e.to_string());
             let json = ApiRsp { success: false, success_value: None, field: Some("game".to_owned()), error_message: Some("game not found".to_owned()) };
             return Json(json);
         }
@@ -531,7 +531,7 @@ pub fn game(con: RedisConnection, data: Form<ApiGameReq>, auth: Auth) -> Json<Ap
             let json: Result<HelixGames,_> = rsp.json();
             match json {
                 Err(e) => {
-                    error!("{}",e);
+                    log_error(None, "game", &e.to_string());
                     let json = ApiRsp { success: false, success_value: None, field: Some("game".to_owned()), error_message: Some("game not found".to_owned()) };
                     return Json(json);
                 }
@@ -546,7 +546,7 @@ pub fn game(con: RedisConnection, data: Form<ApiGameReq>, auth: Auth) -> Json<Ap
 
                         match rsp {
                             Err(e) => {
-                                error!("{}",e);
+                                log_error(None, "game", &e.to_string());
                                 let json = ApiRsp { success: false, success_value: None, field: Some("game".to_owned()), error_message: Some("game not found".to_owned()) };
                                 return Json(json);
                             }
@@ -554,7 +554,7 @@ pub fn game(con: RedisConnection, data: Form<ApiGameReq>, auth: Auth) -> Json<Ap
                                 let json: Result<KrakenChannel,_> = rsp.json();
                                 match json {
                                     Err(e) => {
-                                        error!("{}",e);
+                                        log_error(None, "game", &e.to_string());
                                         let json = ApiRsp { success: false, success_value: None, field: Some("game".to_owned()), error_message: Some("game not found".to_owned()) };
                                         return Json(json);
                                     }

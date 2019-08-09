@@ -14,6 +14,31 @@ use regex::{Regex,RegexBuilder,Captures,escape};
 use r2d2_redis::r2d2;
 use r2d2_redis::redis::Commands;
 
+pub fn log_info(channel: Option<&str>, descriptor: &str, content: &str) {
+    let timestamp = Utc::now().to_rfc3339();
+    match channel {
+        None => info!("[{}] [{}] [{}]", timestamp, descriptor, content),
+        Some(channel) => info!("[{}] [{}] [{}] [{}]", timestamp, channel, descriptor, content)
+    }
+}
+
+pub fn log_error(channel: Option<&str>, descriptor: &str, content: &str) {
+    let timestamp = Utc::now().to_rfc3339();
+    match channel {
+        None => error!("[{}] [{}] [{}]", timestamp, descriptor, content),
+        Some(channel) => error!("[{}] [{}] [{}] [{}]", timestamp, channel, descriptor, content)
+    }
+}
+
+pub fn acquire_con(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) -> r2d2::PooledConnection<r2d2_redis::RedisConnectionManager> {
+    loop {
+        match pool.get() {
+            Err(e) => log_error(None, "acquire_con", &e.to_string()),
+            Ok(con) => return con
+        }
+    }
+}
+
 pub fn send_message(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Arc<IrcClient>, channel: String, mut message: String) {
     let auth: String = con.get(format!("channel:{}:auth", channel)).unwrap_or("false".to_owned());
     if auth == "true" {
@@ -81,13 +106,13 @@ pub fn spawn_age_check(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con
             .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
             .map_err(|e| println!("request error: {}", e))
             .map(move |body| {
-                let con = Arc::new(pool.get().unwrap());
+                let con = Arc::new(acquire_con(pool.clone()));
                 let body = std::str::from_utf8(&body).unwrap();
                 let json: Result<KrakenUsers,_> = serde_json::from_str(&body);
                 match json {
                     Err(e) => {
-                        error!("{}", e);
-                        error!("[request_body] {}", body);
+                        log_error(Some(&channel), "spawn_age_check", &e.to_string());
+                        log_error(Some(&channel), "request_body", &body);
                     }
                     Ok(json) => {
                         if json.total > 0 {

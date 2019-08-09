@@ -85,8 +85,8 @@ fn uptime_var(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d
         let json: Result<KrakenStreams,_> = serde_json::from_str(&body);
         match json {
             Err(e) => {
-                error!("{}",e);
-                error!("[request_body] {}", body);
+                log_error(Some(channel), "uptime_var", &e.to_string());
+                log_error(Some(channel), "request_body", &body);
                 "".to_owned()
             }
             Ok(json) => {
@@ -101,7 +101,6 @@ fn uptime_var(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d
                         format!("{}{}", formatted[0], formatted[1])
                     }
                 } else {
-                    error!("json.total == 0");
                     "".to_owned()
                 }
             }
@@ -162,7 +161,7 @@ fn followage_var(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<
             let body = std::str::from_utf8(&body).unwrap();
             let json: Result<KrakenFollow,_> = serde_json::from_str(&body);
             match json {
-                Err(e) => { error!("{}",e);"0m".to_owned() }
+                Err(e) => { "0m".to_owned() }
                 Ok(json) => {
                     let timestamp = DateTime::parse_from_rfc3339(&json.created_at).unwrap();
                     let diff = Utc::now().signed_duration_since(timestamp);
@@ -384,8 +383,8 @@ fn spotify_playing_title_var(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager
         let json: Result<SpotifyPlaying,_> = serde_json::from_str(&body);
         match json {
             Err(e) => {
-                error!("{}", e);
-                error!("[request_body] {}", body);
+                log_error(Some(channel), "spotify_playing_title_var", &e.to_string());
+                log_error(Some(channel), "request_body", &body);
                 "".to_owned()
             }
             Ok(json) => { json.item.name.to_owned() }
@@ -401,8 +400,8 @@ fn spotify_playing_album_var(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager
         let json: Result<SpotifyPlaying,_> = serde_json::from_str(&body);
         match json {
             Err(e) => {
-                error!("{}", e);
-                error!("[request_body] {}", body);
+                log_error(Some(channel), "spotify_playing_album_var", &e.to_string());
+                log_error(Some(channel), "request_body", &body);
                 "".to_owned()
             }
             Ok(json) => { json.item.album.name.to_owned() }
@@ -418,8 +417,8 @@ fn spotify_playing_artist_var(pool: r2d2::Pool<r2d2_redis::RedisConnectionManage
         let json: Result<SpotifyPlaying,_> = serde_json::from_str(&body);
         match json {
             Err(e) => {
-                error!("{}", e);
-                error!("[request_body] {}", body);
+                log_error(Some(channel), "spotify_playing_artist_var", &e.to_string());
+                log_error(Some(channel), "request_body", &body);
                 "".to_owned()
             }
             Ok(json) => { json.item.artists[0].name.to_owned() }
@@ -575,13 +574,13 @@ fn title_cmd(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2
             .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
             .map_err(|e| println!("request error: {}", e))
             .map(move |body| {
-                let con = Arc::new(pool.get().unwrap());
+                let con = Arc::new(acquire_con(pool.clone()));
                 let body = std::str::from_utf8(&body).unwrap();
                 let json: Result<KrakenChannel,_> = serde_json::from_str(&body);
                 match json {
                     Err(e) => {
-                        error!("{}", e);
-                        error!("[request_body] {}", body);
+                        log_error(Some(channel), "title_cmd", &e.to_string());
+                        log_error(Some(channel), "request_body", &body);
                     }
                     Ok(json) => { let _ = send_message(con.clone(), client, channel, json.status); }
                 }
@@ -592,13 +591,13 @@ fn title_cmd(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2
             .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
             .map_err(|e| println!("request error: {}", e))
             .map(move |body| {
-                let con = Arc::new(pool.get().unwrap());
+                let con = Arc::new(acquire_con(pool.clone()));
                 let body = std::str::from_utf8(&body).unwrap();
                 let json: Result<KrakenChannel,_> = serde_json::from_str(&body);
                 match json {
                     Err(e) => {
-                        error!("{}", e);
-                        error!("[request_body] {}", body);
+                        log_error(Some(channel), "title_cmd", &e.to_string());
+                        log_error(Some(channel), "request_body", &body);
                     }
                     Ok(json) => { send_message(con.clone(), client, channel, format!("Title is now set to: {}", json.status)); }
                 }
@@ -614,13 +613,13 @@ fn game_cmd(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2:
             .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
             .map_err(|e| println!("request error: {}", e))
             .map(move |body| {
-                let con = Arc::new(pool.get().unwrap());
+                let con = Arc::new(acquire_con(pool.clone()));
                 let body = std::str::from_utf8(&body).unwrap();
                 let json: Result<KrakenChannel,_> = serde_json::from_str(&body);
                 match json {
                     Err(e) => {
-                        error!("{}", e);
-                        error!("[request_body] {}", body);
+                        log_error(Some(channel), "game_cmd", &e.to_string());
+                        log_error(Some(channel), "request_body", &body);
                     }
                     Ok(json) => { let _ = send_message(con.clone(), client, channel, json.game); }
                 }
@@ -631,13 +630,13 @@ fn game_cmd(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2:
             .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
             .map_err(|e| println!("request error: {}", e))
             .map(move |body| {
-                let con = Arc::new(pool.get().unwrap());
+                let con = Arc::new(acquire_con(pool.clone()));
                 let body = std::str::from_utf8(&body).unwrap();
                 let json: Result<HelixGames,_> = serde_json::from_str(&body);
                 match json {
                     Err(e) => {
-                        error!("{}", e);
-                        error!("[request_body] {}", body);
+                        log_error(Some(channel), "game_cmd", &e.to_string());
+                        log_error(Some(channel), "request_body", &body);
                     }
                     Ok(json) => {
                         if json.data.len() == 0 {
@@ -648,13 +647,13 @@ fn game_cmd(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2:
                                 .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                                 .map_err(|e| println!("request error: {}", e))
                                 .map(move |body| {
-                                    let con = Arc::new(pool.get().unwrap());
+                                    let con = Arc::new(acquire_con(pool.clone()));
                                     let body = std::str::from_utf8(&body).unwrap();
                                     let json: Result<KrakenChannel,_> = serde_json::from_str(&body);
                                     match json {
                                         Err(e) => {
-                                            error!("{}", e);
-                                            error!("[request_body] {}", body);
+                                            log_error(Some(channel), "game_cmd", &e.to_string());
+                                            log_error(Some(channel), "request_body", &body);
                                         }
                                         Ok(json) => { send_message(con.clone(), client, channel, format!("Game is now set to: {}", &name)); }
                                     }
@@ -798,13 +797,13 @@ fn clip_cmd(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2:
         .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
         .map_err(|e| println!("request error: {}", e))
         .map(move |body| {
-            let con = Arc::new(pool.get().unwrap());
+            let con = Arc::new(acquire_con(pool.clone()));
             let body = std::str::from_utf8(&body).unwrap();
             let json: Result<HelixClips,_> = serde_json::from_str(&body);
             match json {
                 Err(e) => {
-                    error!("{}",e);
-                    error!("[request_body] {}", body);
+                    log_error(Some(channel), "clip_cmd", &e.to_string());
+                    log_error(Some(channel), "request_body", &body);
                 }
                 Ok(json) => {
                     if json.data.len() > 0 {
@@ -995,7 +994,7 @@ fn songreq_cmd(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2
                             .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                             .map_err(|e| println!("request error: {}", e))
                             .map(move |body| {
-                                let con = Arc::new(pool.get().unwrap());
+                                let con = Arc::new(acquire_con(pool.clone()));
                                 let body = std::str::from_utf8(&body).unwrap();
                                 if body != "Not Found" {
                                     let mut exists = false;
