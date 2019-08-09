@@ -139,6 +139,9 @@ html.funky {
 #panes .pane.active {
   display: block;
 }
+#panes .pane .integration {
+  margin-bottom: 40px;
+}
 #panes .pane .section {
   margin-bottom: 60px;
 }

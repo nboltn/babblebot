@@ -164,6 +164,43 @@ pub fn twitch_cb(con: RedisConnection, code: String) -> Template {
     }
 }
 
+#[get("/callbacks/patreon?<code>")]
+pub fn patreon_cb(con: RedisConnection, auth: Auth, code: String) -> Template {
+    let mut settings = config::Config::default();
+    settings.merge(config::File::with_name("Settings")).unwrap();
+    settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
+    let client_id = settings.get_str("patreon_id").unwrap_or("".to_owned());
+    let client_secret = settings.get_str("patreon_secret").unwrap_or("".to_owned());
+    let client = reqwest::Client::new();
+    let rsp = client.post("https://www.patreon.com/api/oauth2/token").form(&[("grant_type","authorization_code"),("redirect_uri","https://www.babblebot.io/callbacks/patreon"),("code",&code),("client_id",&client_id),("client_secret",&client_secret)]).send();
+    match rsp {
+        Err(e) => {
+            log_error(None, "patreon_cb", &e.to_string());
+            let context: HashMap<&str, String> = HashMap::new();
+            return Template::render("dashboard", &context);
+        }
+        Ok(mut rsp) => {
+            let body = rsp.text().unwrap();
+            let json: Result<PatreonRsp,_> = serde_json::from_str(&body);
+            match json {
+                Err(e) => {
+                    log_error(Some(&auth.channel), "patreon_cb", &e.to_string());
+                    log_error(Some(&auth.channel), "request_body", &body);
+                    let context: HashMap<&str, String> = HashMap::new();
+                    return Template::render("dashboard", &context);
+                }
+                Ok(json) => {
+                    redis::cmd("set").arg(format!("channel:{}:patreon:token", &auth.channel)).arg(&json.access_token).execute(&*con);
+                    redis::cmd("set").arg(format!("channel:{}:patreon:refresh", &auth.channel)).arg(&json.refresh_token).execute(&*con);
+                    redis::cmd("set").arg(format!("channel:{}:patreon:expires", &auth.channel)).arg(&json.expires_in.to_string()).execute(&*con);
+                    let context: HashMap<&str, String> = HashMap::new();
+                    return Template::render("dashboard", &context);
+                }
+            }
+        }
+    }
+}
+
 #[get("/callbacks/spotify?<code>")]
 pub fn spotify_cb(con: RedisConnection, auth: Auth, code: String) -> Template {
     let mut settings = config::Config::default();
@@ -261,18 +298,23 @@ pub fn data(con: RedisConnection, auth: Auth) -> Json<ApiData> {
                     let mut songreqs: Vec<(String,String,String)> = Vec::new();
                     let mut integrations: HashMap<String, HashMap<String,String>> = HashMap::new();
                     let mut spotify: HashMap<String,String> = HashMap::new();
+                    let mut patreon: HashMap<String,String> = HashMap::new();
 
                     fields.insert("status".to_owned(), json.status.to_owned());
                     fields.insert("game".to_owned(), json.game.to_owned());
 
                     spotify.insert("client_id".to_owned(), settings.get_str("spotify_id").unwrap_or("".to_owned()));
+                    patreon.insert("client_id".to_owned(), settings.get_str("patreon_id").unwrap_or("".to_owned()));
+
                     let res: Result<String,_> = redis::cmd("GET").arg(format!("channel:{}:spotify:token", auth.channel)).query(&*con);
-                    if let Ok(token) = res {
-                        spotify.insert("connected".to_owned(), "true".to_owned());
-                    } else {
-                        spotify.insert("connected".to_owned(), "false".to_owned());
-                    }
+                    if let Ok(token) = res { spotify.insert("connected".to_owned(), "true".to_owned()); }
+                    else { spotify.insert("connected".to_owned(), "false".to_owned()); }
                     integrations.insert("spotify".to_owned(), spotify);
+
+                    let res: Result<String,_> = redis::cmd("GET").arg(format!("channel:{}:patreon:token", auth.channel)).query(&*con);
+                    if let Ok(token) = res { patreon.insert("connected".to_owned(), "true".to_owned()); }
+                    else { patreon.insert("connected".to_owned(), "false".to_owned()); }
+                    integrations.insert("patreon".to_owned(), patreon);
 
                     let settings: HashMap<String,String> = redis::cmd("HGETALL").arg(format!("channel:{}:settings", &auth.channel)).query(&*con).unwrap();
 

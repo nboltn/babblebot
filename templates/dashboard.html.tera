@@ -189,9 +189,16 @@
       </table>
     </div>
     <div class='pane' id='integrations'>
-      <div class='title is-4'>Spotify</div>
-      <div v-if='integrations.spotify.connected == "true"'><a class='button is-success'>Connected</a></div>
-      <div v-else><a class='button is-link'  v-on:click='connectSpotify()'>Connect</a></div>
+      <div class="integration">
+        <div class='title is-4'>Patreon</div>
+        <div v-if='integrations.patreon.connected == "true"'><a class='button is-success'>Connected</a></div>
+        <div v-else><a class='button is-link'  v-on:click='connectPatreon()'>Connect</a></div>
+      </div>
+      <div class="integration">
+        <div class='title is-4'>Spotify</div>
+        <div v-if='integrations.spotify.connected == "true"'><a class='button is-success'>Connected</a></div>
+        <div v-else><a class='button is-link'  v-on:click='connectSpotify()'>Connect</a></div>
+      </div>
     </div>
   </div>
 </div>
@@ -302,8 +309,12 @@
 
         submitForm();
       },
+      connectPatreon: function(e){
+        var url = "https://www.patreon.com/oauth2/authorize?client_id=" + this.integrations.patreon.client_id + "&response_type=code&redirect_uri=https%3A%2F%2Fwww.babblebot.io%2Fcallbacks%2Fpatreon&scope=identity%20identity.memberships"
+        location.href = url;
+      },
       connectSpotify: function(e){
-        var url = "https://accounts.spotify.com/authorize?client_id=" + this.integrations.spotify.client_id + "&response_type=code&redirect_uri=https%3A%2F%2Fbabblebot.io%2Fcallbacks%2Fspotify&scope=user-read-currently-playing"
+        var url = "https://accounts.spotify.com/authorize?client_id=" + this.integrations.spotify.client_id + "&response_type=code&redirect_uri=https%3A%2F%2Fwww.babblebot.io%2Fcallbacks%2Fspotify&scope=user-read-currently-playing"
         location.href = url;
       },
       submitNewCmd: function(e){
