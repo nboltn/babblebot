@@ -358,7 +358,7 @@ pub fn data(con: RedisConnection, auth: Auth) -> Json<ApiData> {
                     if bot != "babblerbot" { fields.insert("username".to_owned(), bot); }
 
                     spotify.insert("client_id".to_owned(), settings.get_str("spotify_id").unwrap_or("".to_owned()));
-                    patreon.insert("client_id".to_owned(), settings.get_str("patreon_id").unwrap_or("".to_owned()));
+                    patreon.insert("client_id".to_owned(), settings.get_str("patreon_client").unwrap_or("".to_owned()));
 
                     let res: Result<String,_> = redis::cmd("GET").arg(format!("channel:{}:spotify:token", auth.channel)).query(&*con);
                     if let Ok(token) = res { spotify.insert("connected".to_owned(), "true".to_owned()); }
