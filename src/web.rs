@@ -207,8 +207,8 @@ pub fn twitch_cb(con: RedisConnection, code: String) -> Template {
     }
 }
 
-#[get("/callbacks/patreon?<code>")]
-pub fn patreon_cb(con: RedisConnection, auth: Auth, code: String) -> Template {
+#[get("/callbacks/patreon?<code>&<state>")]
+pub fn patreon_cb(con: RedisConnection, code: String, state: String) -> Template {
     let mut settings = config::Config::default();
     settings.merge(config::File::with_name("Settings")).unwrap();
     settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
@@ -229,16 +229,16 @@ pub fn patreon_cb(con: RedisConnection, auth: Auth, code: String) -> Template {
             let json: Result<PatreonRsp,_> = serde_json::from_str(&body);
             match json {
                 Err(e) => {
-                    log_error(Some(&auth.channel), "patreon_cb", &e.to_string());
-                    log_error(Some(&auth.channel), "request_body", &body);
+                    log_error(Some(&state), "patreon_cb", &e.to_string());
+                    log_error(Some(&state), "request_body", &body);
                     let mut context: HashMap<&str, String> = HashMap::new();
                     context.insert("client_id", client_id.clone());
                     return Template::render("dashboard", &context);
                 }
                 Ok(json) => {
-                    redis::cmd("set").arg(format!("channel:{}:patreon:token", &auth.channel)).arg(&json.access_token).execute(&*con);
-                    redis::cmd("set").arg(format!("channel:{}:patreon:refresh", &auth.channel)).arg(&json.refresh_token).execute(&*con);
-                    redis::cmd("set").arg(format!("channel:{}:patreon:expires", &auth.channel)).arg(&json.expires_in.to_string()).execute(&*con);
+                    redis::cmd("set").arg(format!("channel:{}:patreon:token", &state)).arg(&json.access_token).execute(&*con);
+                    redis::cmd("set").arg(format!("channel:{}:patreon:refresh", &state)).arg(&json.refresh_token).execute(&*con);
+                    redis::cmd("set").arg(format!("channel:{}:patreon:expires", &state)).arg(&json.expires_in.to_string()).execute(&*con);
                     let mut context: HashMap<&str, String> = HashMap::new();
                     context.insert("client_id", client_id.clone());
                     return Template::render("dashboard", &context);
@@ -323,7 +323,7 @@ pub fn data(con: RedisConnection, auth: Auth) -> Json<ApiData> {
             let blacklist: HashMap<String, HashMap<String,String>> = HashMap::new();
             let songreqs: Vec<(String,String,String)> = Vec::new();
             let integrations: HashMap<String, HashMap<String,String>> = HashMap::new();
-            let json = ApiData { fields: fields, commands: commands, notices: notices, settings: settings, blacklist: blacklist, songreqs: songreqs, integrations: integrations };
+            let json = ApiData { channel: auth.channel, fields: fields, commands: commands, notices: notices, settings: settings, blacklist: blacklist, songreqs: songreqs, integrations: integrations };
             return Json(json);
         }
         Ok(mut rsp) => {
@@ -338,7 +338,7 @@ pub fn data(con: RedisConnection, auth: Auth) -> Json<ApiData> {
                     let blacklist: HashMap<String, HashMap<String,String>> = HashMap::new();
                     let songreqs: Vec<(String,String,String)> = Vec::new();
                     let integrations: HashMap<String, HashMap<String,String>> = HashMap::new();
-                    let json = ApiData { fields: fields, commands: commands, notices: notices, settings: settings, blacklist: blacklist, songreqs: songreqs, integrations: integrations };
+                    let json = ApiData { channel: auth.channel, fields: fields, commands: commands, notices: notices, settings: settings, blacklist: blacklist, songreqs: songreqs, integrations: integrations };
                     return Json(json);
                 }
                 Ok(json) => {
@@ -406,7 +406,7 @@ pub fn data(con: RedisConnection, auth: Auth) -> Json<ApiData> {
                         songreqs.push((src,title,nick));
                     }
 
-                    let json = ApiData { fields: fields, commands: commands, notices: notices, settings: settings, blacklist: blacklist, songreqs: songreqs, integrations: integrations };
+                    let json = ApiData { channel: auth.channel, fields: fields, commands: commands, notices: notices, settings: settings, blacklist: blacklist, songreqs: songreqs, integrations: integrations };
                     return Json(json);
                 }
             }
@@ -436,7 +436,7 @@ pub fn public_data(con: RedisConnection, channel: String) -> Json<ApiData> {
             }
         }
 
-        let json = ApiData { fields: fields, commands: commands, notices: notices, settings: settings, blacklist: blacklist, songreqs: songreqs, integrations: integrations };
+        let json = ApiData { channel: "".to_owned(), fields: fields, commands: commands, notices: notices, settings: settings, blacklist: blacklist, songreqs: songreqs, integrations: integrations };
         return Json(json);
     } else {
         let fields: HashMap<String, String> = HashMap::new();
@@ -446,7 +446,7 @@ pub fn public_data(con: RedisConnection, channel: String) -> Json<ApiData> {
         let blacklist: HashMap<String, HashMap<String,String>> = HashMap::new();
         let songreqs: Vec<(String,String,String)> = Vec::new();
         let integrations: HashMap<String, HashMap<String,String>> = HashMap::new();
-        let json = ApiData { fields: fields, commands: commands, notices: notices, settings: settings, blacklist: blacklist, songreqs: songreqs, integrations: integrations };
+        let json = ApiData { channel: "".to_owned(), fields: fields, commands: commands, notices: notices, settings: settings, blacklist: blacklist, songreqs: songreqs, integrations: integrations };
         return Json(json);
     }
 }

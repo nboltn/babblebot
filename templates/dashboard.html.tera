@@ -242,6 +242,7 @@
           headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'NoForward': '' }
         }).then(res => res.json());
 
+        vm.channel = data.channel;
         vm.fields = data.fields;
         vm.songreqs = data.songreqs;
         vm.integrations = data.integrations;
@@ -321,11 +322,11 @@
         submitForm();
       },
       connectTwitch: function(e){
-        var url = "https://id.twitch.tv/oauth2/authorize?response_type=code&client_id={{client_id}}&redirect_uri=https://www.babblebot.io/callbacks/twitch&scope=user_read+channel:moderate+chat:read+chat:edit+whispers:read+whispers:edit"
+        var url = "https://id.twitch.tv/oauth2/authorize?response_type=code&client_id=" + this.integrations.twitch.client_id + "&redirect_uri=https://www.babblebot.io/callbacks/twitch&scope=user_read+channel:moderate+chat:read+chat:edit+whispers:read+whispers:edit"
         location.href = url
       },
       connectPatreon: function(e){
-        var url = "https://www.patreon.com/oauth2/authorize?client_id=" + this.integrations.patreon.client_id + "&response_type=code&redirect_uri=https%3A%2F%2Fwww.babblebot.io%2Fcallbacks%2Fpatreon&scope=identity%20identity.memberships"
+        var url = "https://www.patreon.com/oauth2/authorize?client_id=" + this.integrations.patreon.client_id + "&state=" + this.channel + "response_type=code&redirect_uri=https%3A%2F%2Fwww.babblebot.io%2Fcallbacks%2Fpatreon&scope=identity%20identity.memberships"
         location.href = url;
       },
       connectSpotify: function(e){

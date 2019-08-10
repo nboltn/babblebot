@@ -362,6 +362,7 @@ pub struct YoutubeData {
 
 #[derive(Debug, Serialize)]
 pub struct ApiData {
+    pub channel: String,
     pub fields: HashMap<String, String>,
     pub commands: HashMap<String, String>,
     pub notices: HashMap<String, Vec<String>>,

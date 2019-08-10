@@ -594,6 +594,7 @@ fn update_patreon(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
                                             let _: () = con.set(format!("channel:{}:patreon:subscribed", &channel), true).unwrap();
                                         } else {
                                             let _: () = con.set(format!("channel:{}:patreon:subscribed", &channel), false).unwrap();
+                                            // TODO: revert username
                                         }
                                     }
                                 }
