@@ -348,8 +348,9 @@ pub fn data(con: RedisConnection, auth: Auth) -> Json<ApiData> {
                     let mut blacklist: HashMap<String, HashMap<String,String>> = HashMap::new();
                     let mut songreqs: Vec<(String,String,String)> = Vec::new();
                     let mut integrations: HashMap<String, HashMap<String,String>> = HashMap::new();
-                    let mut spotify: HashMap<String,String> = HashMap::new();
+                    let mut twitch: HashMap<String,String> = HashMap::new();
                     let mut patreon: HashMap<String,String> = HashMap::new();
+                    let mut spotify: HashMap<String,String> = HashMap::new();
 
                     fields.insert("status".to_owned(), json.status.to_owned());
                     fields.insert("game".to_owned(), json.game.to_owned());
@@ -359,6 +360,9 @@ pub fn data(con: RedisConnection, auth: Auth) -> Json<ApiData> {
 
                     spotify.insert("client_id".to_owned(), settings.get_str("spotify_id").unwrap_or("".to_owned()));
                     patreon.insert("client_id".to_owned(), settings.get_str("patreon_client").unwrap_or("".to_owned()));
+                    twitch.insert("client_id".to_owned(), settings.get_str("client_id").unwrap_or("".to_owned()));
+
+                    integrations.insert("twitch".to_owned(), twitch);
 
                     let res: Result<String,_> = redis::cmd("GET").arg(format!("channel:{}:spotify:token", auth.channel)).query(&*con);
                     if let Ok(token) = res { spotify.insert("connected".to_owned(), "true".to_owned()); }
