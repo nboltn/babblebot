@@ -199,7 +199,7 @@ pub fn twitch_cb(con: RedisConnection, code: String) -> Template {
 }
 
 #[get("/callbacks/patreon?<code>&<state>")]
-pub fn patreon_cb(con: RedisConnection, code: String, state: String) -> Redirect {
+pub fn patreon_cb(con: RedisConnection, code: String, state: String) -> Template {
     let mut settings = config::Config::default();
     settings.merge(config::File::with_name("Settings")).unwrap();
     settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
@@ -210,7 +210,8 @@ pub fn patreon_cb(con: RedisConnection, code: String, state: String) -> Redirect
     match rsp {
         Err(e) => {
             log_error(None, "patreon_cb", &e.to_string());
-            Redirect::to("/")
+            let context: HashMap<&str, String> = HashMap::new();
+            return Template::render("dashboard", &context);
         }
         Ok(mut rsp) => {
             let body = rsp.text().unwrap();
@@ -219,13 +220,44 @@ pub fn patreon_cb(con: RedisConnection, code: String, state: String) -> Redirect
                 Err(e) => {
                     log_error(Some(&state), "patreon_cb", &e.to_string());
                     log_error(Some(&state), "request_body", &body);
-                    Redirect::to("/")
+                    let context: HashMap<&str, String> = HashMap::new();
+                    return Template::render("dashboard", &context);
                 }
                 Ok(json) => {
+                    let client = reqwest::Client::new();
+                    let rsp = client.get("https://www.patreon.com/api/oauth2/v2/identity?include=memberships").header(header::ACCEPT, "application/vnd.api+json").header(header::AUTHORIZATION, format!("Bearer {}", &json.access_token)).send();
+                    match rsp {
+                        Err(e) => { log_error(None, "patreon_refresh", &e.to_string()) }
+                        Ok(mut rsp) => {
+                            let body = rsp.text().unwrap();
+                            let json: Result<PatreonIdentity,_> = serde_json::from_str(&body);
+                            match json {
+                                Err(e) => {
+                                    log_error(Some(&state), "patreon_refresh", &e.to_string());
+                                    log_error(Some(&state), "request_body", &body);
+                                }
+                                Ok(json) => {
+                                    let mut settings = config::Config::default();
+                                    settings.merge(config::File::with_name("Settings")).unwrap();
+                                    settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
+                                    let patreon_id = settings.get_str("patreon_id").unwrap_or("".to_owned());
+
+                                    let mut subscribed = false;
+                                    for membership in &json.data.relationships.memberships.data {
+                                        if membership.id == patreon_id { subscribed = true }
+                                    }
+
+                                    if subscribed { redis::cmd("set").arg(format!("channel:{}:patreon:subscribed", &state)).arg("true").execute(&*con) }
+                                }
+                            }
+                        }
+                    }
+
                     redis::cmd("set").arg(format!("channel:{}:patreon:token", &state)).arg(&json.access_token).execute(&*con);
                     redis::cmd("set").arg(format!("channel:{}:patreon:refresh", &state)).arg(&json.refresh_token).execute(&*con);
                     redis::cmd("set").arg(format!("channel:{}:patreon:expires", &state)).arg(&json.expires_in.to_string()).execute(&*con);
-                    Redirect::to("/patreon/refresh")
+                    let context: HashMap<&str, String> = HashMap::new();
+                    return Template::render("dashboard", &context);
                 }
             }
         }
