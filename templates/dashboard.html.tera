@@ -61,17 +61,19 @@
       </div>
       <div class='section' id='bot' v-if='integrations.patreon.connected == "true"'>
         <div class='title is-4'>Bot</div>
-        <div class='field twitch'>
-          <label class='label'>Custom Username</label>
-          <div class='control has-icons-right'>
-            <input class='input' type='text' name='username' v-model='fields.username' readonly>
-            <span class='icon is-small is-right hidden'>
-              <i class='fas fa-exclamation-triangle'></i>
-            </span>
+        <form>
+          <div class='field twitch'>
+            <label class='label'>Custom Username</label>
+            <div class='control has-icons-right'>
+              <input class='input' type='text' name='username' v-model='fields.username' readonly>
+              <span class='icon is-small is-right hidden'>
+                <i class='fas fa-exclamation-triangle'></i>
+              </span>
+            </div>
+            <a class='button is-link' v-on:click='connectTwitch()'><i class='fas fa-plug'></i></a>
+            <p class='help is-danger hidden'>{%raw%}{{error}}{%endraw%}</p>
           </div>
-          <a class='button is-link' v-on:click='connectTwitch()'><i class='fas fa-plug'></i></a>
-          <p class='help is-danger hidden'>{%raw%}{{error}}{%endraw%}</p>
-        </div>
+        </form>
       </div>
     </div>
     <div class='pane' id='commands'>
