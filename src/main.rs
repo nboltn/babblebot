@@ -69,7 +69,7 @@ fn main() {
         thread::spawn(move || {
             rocket::ignite()
               .mount("/assets", StaticFiles::from("assets"))
-              .mount("/", routes![web::index, web::dashboard, web::commands, web::patreon_cb, web::spotify_cb, web::twitch_cb, web::twitch_cb_auth, web::public_data, web::data, web::login, web::logout, web::signup, web::password, web::title, web::game, web::new_command, web::save_command, web::trash_command, web::new_notice, web::trash_notice, web::save_setting, web::trash_setting, web::new_blacklist, web::save_blacklist, web::trash_blacklist, web::trash_song])
+              .mount("/", routes![web::index, web::dashboard, web::commands, web::patreon_cb, web::patreon_refresh, web::spotify_cb, web::twitch_cb, web::twitch_cb_auth, web::public_data, web::data, web::login, web::logout, web::signup, web::password, web::title, web::game, web::new_command, web::save_command, web::trash_command, web::new_notice, web::trash_notice, web::save_setting, web::trash_setting, web::new_blacklist, web::save_blacklist, web::trash_blacklist, web::trash_song])
               .register(catchers![web::internal_error, web::not_found])
               .attach(Template::fairing())
               .attach(RedisConnection::fairing())
@@ -601,11 +601,7 @@ fn update_patreon(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
                                         let _: () = con.set(format!("channel:{}:patreon:subscribed", &channel), true).unwrap();
                                     } else {
                                         let _: () = con.set(format!("channel:{}:patreon:subscribed", &channel), false).unwrap();
-                                        let mut settings = config::Config::default();
-                                        settings.merge(config::File::with_name("Settings")).unwrap();
-                                        settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
                                         let token = settings.get_str("bot_token").unwrap();
-
                                         if patreon_sub == "true" {
                                             let _: () = con.publish(format!("channel:{}:signals:rename", &channel), token).unwrap();
                                         }
@@ -616,7 +612,7 @@ fn update_patreon(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
                     thread::spawn(move || { tokio::run(future) });
                 }
             }
-            thread::sleep(time::Duration::from_secs(60));
+            thread::sleep(time::Duration::from_secs(3600));
         }
     });
 }
