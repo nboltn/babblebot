@@ -595,8 +595,13 @@ fn update_patreon(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
                                         if membership.id == patreon_id {
                                             let _: () = con.set(format!("channel:{}:patreon:subscribed", &channel), true).unwrap();
                                         } else {
+                                            let mut settings = config::Config::default();
+                                            settings.merge(config::File::with_name("Settings")).unwrap();
+                                            settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
+                                            let token = settings.get_str("bot_token").unwrap();
+
                                             let _: () = con.set(format!("channel:{}:patreon:subscribed", &channel), false).unwrap();
-                                            // TODO: revert username
+                                            let _: () = con.publish(format!("channel:{}:signals:rename", &channel), token).unwrap();
                                         }
                                     }
                                 }
