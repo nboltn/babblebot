@@ -590,6 +590,7 @@ fn update_patreon(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
                                     settings.merge(config::File::with_name("Settings")).unwrap();
                                     settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
                                     let patreon_id = settings.get_str("patreon_id").unwrap_or("".to_owned());
+                                    let patreon_sub: String = con.get(format!("channel:{}:patreon:subscribed", &channel)).unwrap();
 
                                     let mut subscribed = false;
                                     for membership in &json.data.relationships.memberships.data {
@@ -599,13 +600,15 @@ fn update_patreon(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
                                     if subscribed {
                                         let _: () = con.set(format!("channel:{}:patreon:subscribed", &channel), true).unwrap();
                                     } else {
+                                        let _: () = con.set(format!("channel:{}:patreon:subscribed", &channel), false).unwrap();
                                         let mut settings = config::Config::default();
                                         settings.merge(config::File::with_name("Settings")).unwrap();
                                         settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
                                         let token = settings.get_str("bot_token").unwrap();
 
-                                        let _: () = con.set(format!("channel:{}:patreon:subscribed", &channel), false).unwrap();
-                                        let _: () = con.publish(format!("channel:{}:signals:rename", &channel), token).unwrap();
+                                        if patreon_sub == "true" {
+                                            let _: () = con.publish(format!("channel:{}:signals:rename", &channel), token).unwrap();
+                                        }
                                     }
                                 }
                             }
