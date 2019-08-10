@@ -82,7 +82,6 @@ pub fn index(_con: RedisConnection) -> Template {
     let client_id = settings.get_str("client_id").unwrap_or("".to_owned());
     let mut context: HashMap<&str, String> = HashMap::new();
     context.insert("code", "".to_owned());
-    context.insert("channel", "".to_owned());
     return Template::render("index", &context);
 }
 
@@ -98,10 +97,8 @@ pub fn twitch_cb_auth(con: RedisConnection, auth: Auth, code: String) -> Templat
     match rsp {
         Err(e) => {
             log_error(None, "twitch_cb", &e.to_string());
-            let mut context: HashMap<&str, String> = HashMap::new();
-            context.insert("code", "".to_owned());
-            context.insert("channel", "".to_owned());
-            return Template::render("index", &context);
+            let context: HashMap<&str, String> = HashMap::new();
+            return Template::render("dashboard", &context);
         }
         Ok(mut rsp) => {
             let body = rsp.text().unwrap();
@@ -110,7 +107,9 @@ pub fn twitch_cb_auth(con: RedisConnection, auth: Auth, code: String) -> Templat
                 Err(e) => {
                     log_error(None, "twitch_cb", &e.to_string());
                     log_error(None, "request_body", &body);
-                    let context: HashMap<&str, String> = HashMap::new();
+                    let mut context: HashMap<&str, String> = HashMap::new();
+                    context.insert("client_id", client_id);
+                    context.insert("code", "".to_owned());
                     return Template::render("index", &context);
                 }
                 Ok(json) => {
@@ -137,7 +136,6 @@ pub fn twitch_cb(con: RedisConnection, code: String) -> Template {
             log_error(None, "twitch_cb", &e.to_string());
             let mut context: HashMap<&str, String> = HashMap::new();
             context.insert("code", "".to_owned());
-            context.insert("channel", "".to_owned());
             return Template::render("index", &context);
         }
         Ok(mut rsp) => {
@@ -147,7 +145,8 @@ pub fn twitch_cb(con: RedisConnection, code: String) -> Template {
                 Err(e) => {
                     log_error(None, "twitch_cb", &e.to_string());
                     log_error(None, "request_body", &body);
-                    let context: HashMap<&str, String> = HashMap::new();
+                    let mut context: HashMap<&str, String> = HashMap::new();
+                    context.insert("code", "".to_owned());
                     return Template::render("index", &context);
                 }
                 Ok(json) => {
@@ -168,7 +167,6 @@ pub fn twitch_cb(con: RedisConnection, code: String) -> Template {
                             log_error(None, "twitch_cb", &e.to_string());
                             let mut context: HashMap<&str, String> = HashMap::new();
                             context.insert("code", "".to_owned());
-                            context.insert("channel", "".to_owned());
                             return Template::render("index", &context);
                         }
                         Ok(mut rsp) => {
@@ -180,13 +178,11 @@ pub fn twitch_cb(con: RedisConnection, code: String) -> Template {
                                     log_error(None, "request_body", &body);
                                     let mut context: HashMap<&str, String> = HashMap::new();
                                     context.insert("code", "".to_owned());
-                                    context.insert("channel", "".to_owned());
                                     return Template::render("index", &context);
                                 }
                                 Ok(json) => {
                                     let mut context: HashMap<&str, String> = HashMap::new();
                                     context.insert("code", access_token);
-                                    context.insert("channel", json.name.clone());
                                     return Template::render("index", &context);
                                 }
                             }
@@ -273,8 +269,6 @@ pub fn patreon_refresh(con: RedisConnection, auth: Auth) -> Template {
         match rsp {
             Err(e) => {
                 log_error(None, "patreon_refresh", &e.to_string());
-                let context: HashMap<&str, String> = HashMap::new();
-                return Template::render("dashboard", &context);
             }
             Ok(mut rsp) => {
                 let body = rsp.text().unwrap();
@@ -283,8 +277,6 @@ pub fn patreon_refresh(con: RedisConnection, auth: Auth) -> Template {
                     Err(e) => {
                         log_error(Some(&auth.channel), "patreon_refresh", &e.to_string());
                         log_error(Some(&auth.channel), "request_body", &body);
-                        let context: HashMap<&str, String> = HashMap::new();
-                        return Template::render("dashboard", &context);
                     }
                     Ok(json) => {
                         let mut settings = config::Config::default();
