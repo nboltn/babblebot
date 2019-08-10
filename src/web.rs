@@ -81,6 +81,7 @@ pub fn index(_con: RedisConnection) -> Template {
     settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
     let client_id = settings.get_str("client_id").unwrap_or("".to_owned());
     let mut context: HashMap<&str, String> = HashMap::new();
+    context.insert("client_id", client_id);
     context.insert("code", "".to_owned());
     return Template::render("index", &context);
 }
@@ -135,6 +136,7 @@ pub fn twitch_cb(con: RedisConnection, code: String) -> Template {
         Err(e) => {
             log_error(None, "twitch_cb", &e.to_string());
             let mut context: HashMap<&str, String> = HashMap::new();
+            context.insert("client_id", client_id);
             context.insert("code", "".to_owned());
             return Template::render("index", &context);
         }
@@ -146,6 +148,7 @@ pub fn twitch_cb(con: RedisConnection, code: String) -> Template {
                     log_error(None, "twitch_cb", &e.to_string());
                     log_error(None, "request_body", &body);
                     let mut context: HashMap<&str, String> = HashMap::new();
+                    context.insert("client_id", client_id);
                     context.insert("code", "".to_owned());
                     return Template::render("index", &context);
                 }
@@ -166,6 +169,7 @@ pub fn twitch_cb(con: RedisConnection, code: String) -> Template {
                         Err(e) => {
                             log_error(None, "twitch_cb", &e.to_string());
                             let mut context: HashMap<&str, String> = HashMap::new();
+                            context.insert("client_id", client_id);
                             context.insert("code", "".to_owned());
                             return Template::render("index", &context);
                         }
@@ -177,11 +181,13 @@ pub fn twitch_cb(con: RedisConnection, code: String) -> Template {
                                     log_error(None, "twitch_cb", &e.to_string());
                                     log_error(None, "request_body", &body);
                                     let mut context: HashMap<&str, String> = HashMap::new();
+                                    context.insert("client_id", client_id);
                                     context.insert("code", "".to_owned());
                                     return Template::render("index", &context);
                                 }
                                 Ok(json) => {
                                     let mut context: HashMap<&str, String> = HashMap::new();
+                                    context.insert("client_id", client_id);
                                     context.insert("code", access_token);
                                     return Template::render("index", &context);
                                 }
