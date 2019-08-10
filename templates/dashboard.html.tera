@@ -326,7 +326,7 @@
         location.href = url
       },
       connectPatreon: function(e){
-        var url = "https://www.patreon.com/oauth2/authorize?client_id=" + this.integrations.patreon.client_id + "&state=" + this.channel + "response_type=code&redirect_uri=https%3A%2F%2Fwww.babblebot.io%2Fcallbacks%2Fpatreon&scope=identity%20identity.memberships"
+        var url = "https://www.patreon.com/oauth2/authorize?client_id=" + this.integrations.patreon.client_id + "&state=" + this.channel + "&response_type=code&redirect_uri=https%3A%2F%2Fwww.babblebot.io%2Fcallbacks%2Fpatreon&scope=identity%20identity.memberships"
         location.href = url;
       },
       connectSpotify: function(e){
