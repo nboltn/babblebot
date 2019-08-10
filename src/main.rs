@@ -591,18 +591,21 @@ fn update_patreon(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
                                     settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
                                     let patreon_id = settings.get_str("patreon_id").unwrap_or("".to_owned());
 
+                                    let mut subscribed = false;
                                     for membership in &json.data.relationships.memberships.data {
-                                        if membership.id == patreon_id {
-                                            let _: () = con.set(format!("channel:{}:patreon:subscribed", &channel), true).unwrap();
-                                        } else {
-                                            let mut settings = config::Config::default();
-                                            settings.merge(config::File::with_name("Settings")).unwrap();
-                                            settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
-                                            let token = settings.get_str("bot_token").unwrap();
+                                        if membership.id == patreon_id { subscribed = true }
+                                    }
 
-                                            let _: () = con.set(format!("channel:{}:patreon:subscribed", &channel), false).unwrap();
-                                            let _: () = con.publish(format!("channel:{}:signals:rename", &channel), token).unwrap();
-                                        }
+                                    if subscribed {
+                                        let _: () = con.set(format!("channel:{}:patreon:subscribed", &channel), true).unwrap();
+                                    } else {
+                                        let mut settings = config::Config::default();
+                                        settings.merge(config::File::with_name("Settings")).unwrap();
+                                        settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
+                                        let token = settings.get_str("bot_token").unwrap();
+
+                                        let _: () = con.set(format!("channel:{}:patreon:subscribed", &channel), false).unwrap();
+                                        let _: () = con.publish(format!("channel:{}:signals:rename", &channel), token).unwrap();
                                     }
                                 }
                             }
