@@ -49,7 +49,7 @@ fn main() {
     let redis_host = settings.get_str("redis_host").unwrap_or("redis://127.0.0.1".to_owned());
 
     let manager = RedisConnectionManager::new(&redis_host[..]).unwrap();
-    let pool = r2d2::Pool::builder().max_size(1000).build(manager).unwrap();
+    let pool = r2d2::Pool::builder().max_size(800).build(manager).unwrap();
     let poolC1 = pool.clone();
     let poolC2 = pool.clone();
 
@@ -128,11 +128,10 @@ fn run_reactor(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, bots: HashM
                         let (sender3, receiver3) = unbounded();
                         let (sender4, receiver4) = unbounded();
                         let (sender5, receiver5) = unbounded();
-                        let (sender6, receiver6) = unbounded();
-                        senders.insert(channel.to_owned(), [sender1,sender2,sender3,sender4,sender5,sender6].to_vec());
-                        spawn_timers(client.clone(), pool.clone(), channel.to_owned(), [receiver1,receiver2,receiver3,receiver4,receiver5].to_vec());
+                        senders.insert(channel.to_owned(), [sender1,sender2,sender3,sender4,sender5].to_vec());
+                        spawn_timers(client.clone(), pool.clone(), channel.to_owned(), [receiver1,receiver2,receiver3,receiver4].to_vec());
                         rename_channel_listener(pool.clone(), client.clone(), channel.to_owned(), senders.clone());
-                        command_listener(pool.clone(), client.clone(), channel.to_owned(), receiver6);
+                        command_listener(pool.clone(), client.clone(), channel.to_owned(), receiver5);
                     }
                 }
             });
@@ -966,12 +965,10 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
     let snotice_con = acquire_con(pool.clone());
     let so_con = acquire_con(pool.clone());
     let comm_con = acquire_con(pool.clone());
-    let ping_client = client.clone();
     let notice_client = client.clone();
     let snotice_client = client.clone();
     let so_client = client.clone();
     let comm_client = client.clone();
-    let ping_channel = channel.clone();
     let notice_channel = channel.clone();
     let snotice_channel = channel.clone();
     let so_channel = channel.clone();
@@ -980,29 +977,6 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
     let snotice_receiver = receivers[1].clone();
     let so_receiver = receivers[2].clone();
     let comm_receiver = receivers[3].clone();
-    let ping_receiver = receivers[4].clone();
-
-    // pings
-    thread::spawn(move || {
-        loop {
-            let rsp = ping_receiver.recv_timeout(time::Duration::from_secs(60));
-            match rsp {
-                Ok(action) => {
-                    match action {
-                        ThreadAction::Kill => break
-                    }
-                }
-                Err(err) => {
-                    match err {
-                        RecvTimeoutError::Disconnected => break,
-                        RecvTimeoutError::Timeout => {}
-                    }
-                }
-            }
-
-            let _ = ping_client.send_join(format!("#{}",ping_channel));
-        }
-    });
 
     // scheduled notices
     thread::spawn(move || {
