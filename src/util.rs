@@ -24,8 +24,8 @@ pub fn log_info(channel: Option<&str>, descriptor: &str, content: &str) {
 pub fn log_error(channel: Option<&str>, descriptor: &str, content: &str) {
     let timestamp = Utc::now().to_rfc3339();
     match channel {
-        None => error!("[{}] [{}] [{}]", timestamp, descriptor, content),
-        Some(channel) => error!("[{}] [{}] [{}] [{}]", timestamp, channel, descriptor, content)
+        None => error!("[{}] [{}] {}", timestamp, descriptor, content),
+        Some(channel) => error!("[{}] [{}] [{}] {}", timestamp, channel, descriptor, content)
     }
 }
 

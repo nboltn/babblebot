@@ -103,10 +103,11 @@ fn main() {
 fn run_reactor(bots: HashMap<String, (HashSet<String>, Config)>) {
     let con = Arc::new(acquire_con());
     loop {
+        let mut chan_senders: HashMap<String, Vec<Sender<ThreadAction>>> = HashMap::new();
         let mut senders: HashMap<String, Vec<Sender<ThreadAction>>> = HashMap::new();
         let mut success = true;
         if let Ok(mut reactor) = IrcReactor::new() {
-            bots.iter().for_each(|(_bot, channels)| {
+            bots.iter().for_each(|(bot, channels)| {
                 let client = reactor.prepare_client_and_connect(&channels.1);
                 if let Ok(client) = client {
                     let client = Arc::new(client);
@@ -133,9 +134,14 @@ fn run_reactor(bots: HashMap<String, (HashSet<String>, Config)>) {
                     Ok(_) => break,
                     Err(e) => {
                         log_error(None, "run_reactor", &e.to_string());
-                        bots.iter().for_each(|(_bot, channels)| {
+                        bots.iter().for_each(|(bot, channels)| {
+                            if let Some(senders) = senders.get(bot) {
+                                for sender in senders {
+                                    let _ = sender.send(ThreadAction::Kill);
+                                }
+                            }
                             for channel in channels.0.iter() {
-                                if let Some(senders) = senders.get(channel) {
+                                if let Some(senders) = chan_senders.get(channel) {
                                     for sender in senders {
                                         let _ = sender.send(ThreadAction::Kill);
                                     }
@@ -328,7 +334,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<Connec
     let clientC = clientA.clone();
     let msg_handler = move |client: &IrcClient, irc_message: Message| -> error::Result<()> {
         match &irc_message.command {
-            Command::PING(_,_) => { let _ = client.send_pong(":tmi.twitch.tv"); }
+            Command::PING(_,_) => { let _ = client.send_pong("tmi.twitch.tv"); }
             Command::Raw(cmd, chans, _) => {
                 if cmd == "USERSTATE" {
                     let badges = get_badges(&irc_message);
