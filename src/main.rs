@@ -36,8 +36,7 @@ use serenity::framework::standard::StandardFramework;
 use rocket::routes;
 use rocket_contrib::templates::Template;
 use rocket_contrib::serve::StaticFiles;
-use r2d2_redis::{r2d2, redis, RedisConnectionManager};
-use r2d2_redis::redis::Commands;
+use redis::{self,Commands,Connection};
 
 fn main() {
     let yaml = load_yaml!("../cli.yml");
@@ -45,13 +44,6 @@ fn main() {
     let mut settings = config::Config::default();
     settings.merge(config::File::with_name("Settings")).unwrap();
     settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
-
-    let redis_host = settings.get_str("redis_host").unwrap_or("redis://127.0.0.1".to_owned());
-
-    let manager = RedisConnectionManager::new(&redis_host[..]).unwrap();
-    let pool = r2d2::Pool::builder().max_size(800).build(manager).unwrap();
-    let poolC1 = pool.clone();
-    let poolC2 = pool.clone();
 
     Logger::with_env_or_str("babblebot")
         .log_to_file()
@@ -63,9 +55,9 @@ fn main() {
         .start()
         .unwrap_or_else(|e| panic!("Logger initialization failed with {}", e));
 
-    if let Some(matches) = matches.subcommand_matches("run_command") { run_command(pool.clone(), &settings, matches) }
+    if let Some(matches) = matches.subcommand_matches("run_command") { run_command(&settings, matches) }
     else {
-        thread::spawn(move || { new_channel_listener(poolC1) });
+        thread::spawn(move || { new_channel_listener() });
         thread::spawn(move || {
             rocket::ignite()
               .mount("/assets", StaticFiles::from("assets"))
@@ -76,7 +68,7 @@ fn main() {
               .launch()
         });
         thread::spawn(move || {
-            let con = Arc::new(acquire_con(pool.clone()));
+            let con = acquire_con();
             let mut bots: HashMap<String, (HashSet<String>, Config)> = HashMap::new();
             let bs: HashSet<String> = con.smembers("bots").unwrap();
             for bot in bs {
@@ -94,22 +86,22 @@ fn main() {
                 };
                 bots.insert(bot.to_owned(), (channel_hash.clone(), config));
                 for channel in channel_hash.iter() {
-                    discord_handler(pool.clone(), channel.to_owned());
+                    discord_handler(channel.to_owned());
                 }
             }
-            update_live(pool.clone());
-            update_stats(pool.clone());
-            update_watchtime(pool.clone());
-            update_patreon(pool.clone());
-            run_reactor(pool.clone(), bots);
+            update_live();
+            update_stats();
+            update_watchtime();
+            update_patreon();
+            run_reactor(bots);
         });
 
         loop { thread::sleep(time::Duration::from_secs(60)) }
     }
 }
 
-fn run_reactor(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, bots: HashMap<String, (HashSet<String>, Config)>) {
-    let con = Arc::new(acquire_con(pool.clone()));
+fn run_reactor(bots: HashMap<String, (HashSet<String>, Config)>) {
+    let con = Arc::new(acquire_con());
     loop {
         let mut senders: HashMap<String, Vec<Sender<ThreadAction>>> = HashMap::new();
         let mut success = true;
@@ -121,7 +113,7 @@ fn run_reactor(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, bots: HashM
                     let _ = client.identify();
                     let _ = client.send("CAP REQ :twitch.tv/tags");
                     let _ = client.send("CAP REQ :twitch.tv/commands");
-                    register_handler((*client).clone(), &mut reactor, pool.clone(), con.clone());
+                    register_handler((*client).clone(), &mut reactor, con.clone());
                     for channel in channels.0.iter() {
                         let (sender1, receiver1) = unbounded();
                         let (sender2, receiver2) = unbounded();
@@ -129,9 +121,9 @@ fn run_reactor(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, bots: HashM
                         let (sender4, receiver4) = unbounded();
                         let (sender5, receiver5) = unbounded();
                         senders.insert(channel.to_owned(), [sender1,sender2,sender3,sender4,sender5].to_vec());
-                        spawn_timers(client.clone(), pool.clone(), channel.to_owned(), [receiver1,receiver2,receiver3,receiver4].to_vec());
-                        rename_channel_listener(pool.clone(), client.clone(), channel.to_owned(), senders.clone());
-                        command_listener(pool.clone(), client.clone(), channel.to_owned(), receiver5);
+                        spawn_timers(client.clone(), channel.to_owned(), [receiver1,receiver2,receiver3,receiver4].to_vec());
+                        rename_channel_listener(client.clone(), channel.to_owned(), senders.clone());
+                        command_listener(client.clone(), channel.to_owned(), receiver5);
                     }
                 }
             });
@@ -158,14 +150,13 @@ fn run_reactor(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, bots: HashM
     }
 }
 
-fn new_channel_listener(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
-    let con = Arc::new(acquire_con(pool.clone()));
-    let mut conn = acquire_con(pool.clone());
+fn new_channel_listener() {
+    let con = Arc::new(acquire_con());
+    let mut conn = acquire_con();
     let mut ps = conn.as_pubsub();
     ps.subscribe("new_channels").unwrap();
 
     loop {
-        let clone = pool.clone();
         let msg = ps.get_message().expect("redis:get_message");
         let channel: String = msg.get_payload().expect("redis:get_payload");
         let mut bots: HashMap<String, (HashSet<String>, Config)> = HashMap::new();
@@ -185,21 +176,20 @@ fn new_channel_listener(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
         };
         bots.insert(bot.to_owned(), (channel_hash.clone(), config));
         for channel in channel_hash.iter() {
-            discord_handler(pool.clone(), channel.to_owned());
+            discord_handler(channel.to_owned());
         }
-        thread::spawn(move || { run_reactor(clone, bots); });
+        thread::spawn(move || { run_reactor(bots); });
     }
 }
 
-fn rename_channel_listener(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, client: Arc<IrcClient>, channel: String, senders: HashMap<String, Vec<Sender<ThreadAction>>>) {
+fn rename_channel_listener(client: Arc<IrcClient>, channel: String, senders: HashMap<String, Vec<Sender<ThreadAction>>>) {
     thread::spawn(move || {
-        let con = Arc::new(acquire_con(pool.clone()));
-        let mut conn = acquire_con(pool.clone());
+        let con = Arc::new(acquire_con());
+        let mut conn = acquire_con();
         let mut ps = conn.as_pubsub();
         ps.subscribe(format!("channel:{}:signals:rename", channel)).unwrap();
 
         loop {
-            let clone = pool.clone();
             let res = ps.get_message();
             if let Ok(msg) = res {
                 let token: String = msg.get_payload().expect("redis:get_payload");
@@ -254,7 +244,7 @@ fn rename_channel_listener(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>,
                                     ..Default::default()
                                 };
                                 bots.insert(bot.to_owned(), (channel_hash.clone(), config));
-                                thread::spawn(move || { run_reactor(clone, bots); });
+                                thread::spawn(move || { run_reactor(bots); });
                             }
                         }
                     }
@@ -264,10 +254,10 @@ fn rename_channel_listener(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>,
     });
 }
 
-fn command_listener(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, client: Arc<IrcClient>, channel: String, receiver: Receiver<ThreadAction>) {
+fn command_listener(client: Arc<IrcClient>, channel: String, receiver: Receiver<ThreadAction>) {
     thread::spawn(move || {
-        let con = Arc::new(acquire_con(pool.clone()));
-        let mut conn = acquire_con(pool.clone());
+        let con = Arc::new(acquire_con());
+        let mut conn = acquire_con();
         let mut ps = conn.as_pubsub();
         ps.set_read_timeout(Some(time::Duration::from_secs(10)));
 
@@ -312,7 +302,7 @@ fn command_listener(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, client
                                         // parse native commands
                                         for cmd in commands::native_commands.iter() {
                                             if format!("{}{}", prefix, cmd.0) == word {
-                                                (cmd.1)(pool.clone(), con.clone(), client.clone(), channel.clone(), args.clone(), None);
+                                                (cmd.1)(con.clone(), client.clone(), channel.clone(), args.clone(), None);
                                                 break;
                                             }
                                         }
@@ -320,7 +310,7 @@ fn command_listener(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, client
                                         // parse custom commands
                                         let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", channel, word), "message");
                                         if let Ok(message) = res {
-                                            send_parsed_message(pool.clone(), con.clone(), client.clone(), channel.clone(), message.to_owned(), args, None);
+                                            send_parsed_message(con.clone(), client.clone(), channel.clone(), message.to_owned(), args, None);
                                         }
                                     }
                                 }
@@ -333,7 +323,7 @@ fn command_listener(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, client
     });
 }
 
-fn register_handler(client: IrcClient, reactor: &mut IrcReactor, pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>) {
+fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<Connection>) {
     let clientA = Arc::new(client);
     let clientC = clientA.clone();
     let msg_handler = move |client: &IrcClient, irc_message: Message| -> error::Result<()> {
@@ -392,7 +382,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, pool: r2d2::Poo
                         }
                         if let Ok(age) = age {
                             let res: Result<i64,_> = age.parse();
-                            if let Ok(age) = res { spawn_age_check(pool.clone(), con.clone(), clientC.clone(), channel.to_string(), nick.clone(), age, display.to_string()); }
+                            if let Ok(age) = res { spawn_age_check(con.clone(), clientC.clone(), channel.to_string(), nick.clone(), age, display.to_string()); }
                         }
                         if caps == "true" {
                             let limit: String = con.get(format!("channel:{}:moderation:caps:limit", channel)).expect("get:limit");
@@ -487,9 +477,9 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, pool: r2d2::Poo
                     for cmd in commands::native_commands.iter() {
                         if format!("{}{}", prefix, cmd.0) == word {
                             if args.len() == 0 {
-                                if !cmd.2 || auth { (cmd.1)(pool.clone(), con.clone(), clientC.clone(), channel.to_owned(), args.clone(), Some(irc_message.clone())) }
+                                if !cmd.2 || auth { (cmd.1)(con.clone(), clientC.clone(), channel.to_owned(), args.clone(), Some(irc_message.clone())) }
                             } else {
-                                if !cmd.3 || auth { (cmd.1)(pool.clone(), con.clone(), clientC.clone(), channel.to_owned(), args.clone(), Some(irc_message.clone())) }
+                                if !cmd.3 || auth { (cmd.1)(con.clone(), clientC.clone(), channel.to_owned(), args.clone(), Some(irc_message.clone())) }
                             }
                             break;
                         }
@@ -511,7 +501,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, pool: r2d2::Poo
                             let protected: String = con.hget(format!("channel:{}:commands:{}", channel, word), format!("{}_protected", protected)).expect("hget:protected");
                             if protected == "false" || auth {
                                 let _: () = con.hset(format!("channel:{}:commands:{}", channel, word), "lastrun", Utc::now().to_rfc3339()).unwrap();
-                                send_parsed_message(pool.clone(), con.clone(), clientC.clone(), channel.to_owned(), message.to_owned(), args.clone(), Some(irc_message.clone()));
+                                send_parsed_message(con.clone(), clientC.clone(), channel.to_owned(), message.to_owned(), args.clone(), Some(irc_message.clone()));
                             }
                         }
                     }
@@ -529,7 +519,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, pool: r2d2::Poo
                                 let diff = Utc::now().signed_duration_since(timestamp);
                                 if diff.num_hours() < hours { break }
                             }
-                            send_parsed_message(pool.clone(), con.clone(), clientC.clone(), channel.to_owned(), msg, Vec::new(), None);
+                            send_parsed_message(con.clone(), clientC.clone(), channel.to_owned(), msg, Vec::new(), None);
                             break;
                         }
                     }
@@ -545,13 +535,13 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, pool: r2d2::Poo
     reactor.register_client_with_handler((*clientA).clone(), msg_handler);
 }
 
-fn discord_handler(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: String) {
+fn discord_handler(channel: String) {
     thread::spawn(move || {
-        let con = Arc::new(acquire_con(pool.clone()));
+        let con = Arc::new(acquire_con());
         loop {
             let res: Result<String,_> = con.hget(format!("channel:{}:settings", channel), "discord:token");
             if let Ok(token) = res {
-                let mut client = serenity::client::Client::new(&token, DiscordHandler { pool: pool.clone(), channel: channel.to_owned() }).unwrap();
+                let mut client = serenity::client::Client::new(&token, DiscordHandler { channel: channel.to_owned() }).unwrap();
                 client.with_framework(StandardFramework::new());
 
                 if let Err(e) = client.start() {
@@ -563,20 +553,19 @@ fn discord_handler(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel
     });
 }
 
-fn update_patreon(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
+fn update_patreon() {
     thread::spawn(move || {
-        let con = Arc::new(acquire_con(pool.clone()));
+        let con = Arc::new(acquire_con());
         loop {
             let channels: Vec<String> = con.smembers("channels").unwrap_or(Vec::new());
             for channel in channels {
                 let res: Result<String,_> = con.get(format!("channel:{}:patreon:token", &channel));
                 if let Ok(token) = res {
-                    let pool = pool.clone();
                     let future = patreon_request(con.clone(), &channel, Method::GET, "https://www.patreon.com/api/oauth2/v2/identity?include=memberships").send()
                         .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                         .map_err(|e| println!("request error: {}", e))
                         .map(move |body| {
-                            let con = Arc::new(acquire_con(pool.clone()));
+                            let con = Arc::new(acquire_con());
                             let body = std::str::from_utf8(&body).unwrap();
                             let json: Result<PatreonIdentity,_> = serde_json::from_str(&body);
                             match json {
@@ -616,21 +605,20 @@ fn update_patreon(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
     });
 }
 
-fn update_watchtime(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
+fn update_watchtime() {
     thread::spawn(move || {
-        let con = Arc::new(acquire_con(pool.clone()));
+        let con = Arc::new(acquire_con());
         loop {
             let channels: Vec<String> = con.smembers("channels").unwrap_or(Vec::new());
             for channel in channels {
                 let live: String = con.get(format!("channel:{}:live", &channel)).unwrap_or("false".to_owned());
                 let enabled: String = con.hget(format!("channel:{}:settings", &channel), "viewerstats").unwrap_or("false".to_owned());
                 if live == "true" && enabled == "true" {
-                    let pool = pool.clone();
                     let future = request(Method::GET, None, &format!("http://tmi.twitch.tv/group/user/{}/chatters", &channel)).send()
                         .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                         .map_err(|e| println!("request error: {}", e))
                         .map(move |body| {
-                            let con = Arc::new(acquire_con(pool.clone()));
+                            let con = Arc::new(acquire_con());
                             let body = std::str::from_utf8(&body).unwrap();
                             let json: Result<TmiChatters,_> = serde_json::from_str(&body);
                             match json {
@@ -666,11 +654,10 @@ fn update_watchtime(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
     });
 }
 
-fn update_live(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
+fn update_live() {
     thread::spawn(move || {
-        let con = Arc::new(acquire_con(pool.clone()));
+        let con = Arc::new(acquire_con());
         loop {
-            let pool = pool.clone();
             let channels: Vec<String> = con.smembers("channels").unwrap_or(Vec::new());
             if channels.len() > 0 {
                 let mut ids = Vec::new();
@@ -683,7 +670,7 @@ fn update_live(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
                     .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                     .map_err(|e| println!("request error: {}", e))
                     .map(move |body| {
-                        let con = Arc::new(acquire_con(pool.clone()));
+                        let con = Arc::new(acquire_con());
                         let body = std::str::from_utf8(&body).unwrap();
                         let json: Result<KrakenStreams,_> = serde_json::from_str(&body);
                         match json {
@@ -741,13 +728,10 @@ fn update_live(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
     });
 }
 
-fn update_stats(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
-    let pool_pubg = pool.clone();
-    let pool_fort = pool.clone();
-
+fn update_stats() {
     // pubg
     thread::spawn(move || {
-        let con = Arc::new(acquire_con(pool_pubg.clone()));
+        let con = Arc::new(acquire_con());
         loop {
             let channels: Vec<String> = con.smembers("channels").unwrap_or(Vec::new());
             for channel in channels {
@@ -768,9 +752,6 @@ fn update_stats(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
                     let res1: Result<String,_> = con.hget(format!("channel:{}:settings", &channel), "pubg:token");
                     let res2: Result<String,_> = con.hget(format!("channel:{}:settings", &channel), "pubg:name");
                     if let (Ok(token), Ok(name)) = (res1, res2) {
-                        let pool1 = pool_pubg.clone();
-                        let pool2 = pool_pubg.clone();
-                        let pool3 = pool_pubg.clone();
                         let platform: String = con.hget(format!("channel:{}:settings", &channel), "pubg:platform").unwrap_or("steam".to_owned());
                         let res: Result<String,_> = con.hget(format!("channel:{}:settings", &channel), "pubg:id");
                         if let Ok(id) = res {
@@ -779,7 +760,7 @@ fn update_stats(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
                                 .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                                 .map_err(|e| println!("request error: {}", e))
                                 .map(move |body| {
-                                    let con = Arc::new(acquire_con(pool2.clone()));
+                                    let con = Arc::new(acquire_con());
                                     let body = std::str::from_utf8(&body).unwrap();
                                     let json: Result<PubgPlayer,_> = serde_json::from_str(&body);
                                     match json {
@@ -793,7 +774,6 @@ fn update_stats(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
                                                 let _: () = con.hset(format!("channel:{}:stats:pubg", &channel), "cursor", &json.data.relationships.matches.data[0].id).unwrap();
                                                 for match_ in json.data.relationships.matches.data.iter() {
                                                     let idC = id.clone();
-                                                    let poolC = pool3.clone();
                                                     let channelC = channel.clone();
                                                     if match_.id == cursor { break }
                                                     else {
@@ -801,7 +781,7 @@ fn update_stats(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
                                                             .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                                                             .map_err(|e| println!("request error: {}", e))
                                                             .map(move |body| {
-                                                                let con = Arc::new(acquire_con(poolC.clone()));
+                                                                let con = Arc::new(acquire_con());
                                                                 let body = std::str::from_utf8(&body).unwrap();
                                                                 let json: Result<PubgMatch,_> = serde_json::from_str(&body);
                                                                 match json {
@@ -857,7 +837,7 @@ fn update_stats(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
                                 .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                                 .map_err(|e| println!("request error: {}", e))
                                 .map(move |body| {
-                                    let con = Arc::new(acquire_con(pool1.clone()));
+                                    let con = Arc::new(acquire_con());
                                     let body = std::str::from_utf8(&body).unwrap();
                                     let json: Result<PubgPlayers,_> = serde_json::from_str(&body);
                                     match json {
@@ -883,7 +863,7 @@ fn update_stats(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
 
     // fortnite
     thread::spawn(move || {
-        let con = Arc::new(acquire_con(pool_fort.clone()));
+        let con = Arc::new(acquire_con());
         loop {
             let channels: Vec<String> = con.smembers("channels").unwrap_or(Vec::new());
             for channel in channels {
@@ -904,14 +884,13 @@ fn update_stats(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
                     let res1: Result<String,_> = con.hget(format!("channel:{}:settings", &channel), "fortnite:token");
                     let res2: Result<String,_> = con.hget(format!("channel:{}:settings", &channel), "fortnite:name");
                     if let (Ok(token), Ok(name)) = (res1, res2) {
-                        let poolC = pool_fort.clone();
                         let platform: String = con.hget(format!("channel:{}:settings", &channel), "pubg:platform").unwrap_or("pc".to_owned());
                         let mut cursor: String = con.hget(format!("channel:{}:stats:fortnite", &channel), "cursor").unwrap_or("".to_owned());
                         let future = fortnite_request(con.clone(), &channel, &format!("https://api.fortnitetracker.com/v1/profile/{}/{}", platform, name)).send()
                             .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                             .map_err(|e| println!("request error: {}", e))
                             .map(move |body| {
-                                let con = Arc::new(acquire_con(poolC.clone()));
+                                let con = Arc::new(acquire_con());
                                 let body = std::str::from_utf8(&body).unwrap();
                                 let json: Result<FortniteApi,_> = serde_json::from_str(&body);
                                 match json {
@@ -956,15 +935,11 @@ fn update_stats(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) {
     });
 }
 
-fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, channel: String, receivers: Vec<Receiver<ThreadAction>>) {
-    let notice_pool = pool.clone();
-    let snotice_pool = pool.clone();
-    let so_pool = pool.clone();
-    let comm_pool = pool.clone();
-    let notice_con = acquire_con(pool.clone());
-    let snotice_con = acquire_con(pool.clone());
-    let so_con = acquire_con(pool.clone());
-    let comm_con = acquire_con(pool.clone());
+fn spawn_timers(client: Arc<IrcClient>, channel: String, receivers: Vec<Receiver<ThreadAction>>) {
+    let notice_con = acquire_con();
+    let snotice_con = acquire_con();
+    let so_con = acquire_con();
+    let comm_con = acquire_con();
     let notice_client = client.clone();
     let snotice_client = client.clone();
     let so_client = client.clone();
@@ -1010,7 +985,7 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                         if hour == Utc::now().time().hour() && min == Utc::now().time().minute() {
                             let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", channel, cmd), "message");
                             if let Ok(message) = res {
-                                send_parsed_message(snotice_pool.clone(), con.clone(), snotice_client.clone(), snotice_channel.clone(), message.to_owned(), Vec::new(), None);
+                                send_parsed_message(con.clone(), snotice_client.clone(), snotice_channel.clone(), message.to_owned(), Vec::new(), None);
                             }
                         }
                     }
@@ -1065,7 +1040,7 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                     let _: () = con.rpush(format!("channel:{}:notices:{}:commands", notice_channel, int), cmd.clone()).unwrap();
                     let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", notice_channel, cmd), "message");
                     if let Ok(mut message) = res {
-                        send_parsed_message(notice_pool.clone(), con.clone(), notice_client.clone(), notice_channel.clone(), message, Vec::new(), None);
+                        send_parsed_message(con.clone(), notice_client.clone(), notice_channel.clone(), message, Vec::new(), None);
                     }
                 }
             }
@@ -1076,7 +1051,6 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
     thread::spawn(move || {
         let con = Arc::new(so_con);
         loop {
-            let poolC = so_pool.clone();
             let clientC = so_client.clone();
             let channelC = so_channel.clone();
             let live: String = con.get(format!("channel:{}:live", &so_channel)).unwrap_or("false".to_owned());
@@ -1089,7 +1063,7 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                     .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                     .map_err(|e| println!("request error: {}", e))
                     .map(move |body| {
-                        let con = Arc::new(acquire_con(poolC.clone()));
+                        let con = Arc::new(acquire_con());
                         let body = std::str::from_utf8(&body).unwrap();
                         let json: Result<KrakenHosts,_> = serde_json::from_str(&body);
                         match json {
@@ -1102,7 +1076,6 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                                 let mut blacklist: Vec<String> = Vec::new();
                                 for nick in list.split_whitespace() { blacklist.push(nick.to_string()) }
                                 for host in json.hosts {
-                                    let pool = poolC.clone();
                                     let client = clientC.clone();
                                     let channel = channelC.clone();
                                     let blacklist = blacklist.clone();
@@ -1114,7 +1087,7 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                                             .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                                             .map_err(|e| println!("request error: {}", e))
                                             .map(move |body| {
-                                                let con = Arc::new(acquire_con(pool.clone()));
+                                                let con = Arc::new(acquire_con());
                                                 let body = std::str::from_utf8(&body).unwrap();
                                                 let json: Result<KrakenStreams,_> = serde_json::from_str(&body);
                                                 match json {
@@ -1139,7 +1112,7 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                                                                         .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                                                                         .map_err(|e| println!("request error: {}", e))
                                                                         .map(move |body| {
-                                                                            let con = Arc::new(acquire_con(pool.clone()));
+                                                                            let con = Arc::new(acquire_con());
                                                                             let body = std::str::from_utf8(&body).unwrap();
                                                                             let json: Result<KrakenChannel,_> = serde_json::from_str(&body);
                                                                             match json {
@@ -1251,7 +1224,7 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
                     if let Ok(notice) = nres {
                         let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", comm_channel, notice), "message");
                         if let Ok(message) = res {
-                            send_parsed_message(comm_pool.clone(), con.clone(), comm_client.clone(), comm_channel.clone(), message, Vec::new(), None);
+                            send_parsed_message(con.clone(), comm_client.clone(), comm_channel.clone(), message, Vec::new(), None);
                         }
                     }
                     send_message(con.clone(), comm_client.clone(), comm_channel.clone(), format!("{} commercials have been run", num));
@@ -1293,8 +1266,8 @@ fn spawn_timers(client: Arc<IrcClient>, pool: r2d2::Pool<r2d2_redis::RedisConnec
     });
 }
 
-fn run_command(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, settings: &config::Config, matches: &ArgMatches) {
-    let con = Arc::new(acquire_con(pool.clone()));
+fn run_command(settings: &config::Config, matches: &ArgMatches) {
+    let con = Arc::new(acquire_con());
     let channel: String = matches.value_of("channel").unwrap().to_owned();
     let cmd = matches.values_of("command").unwrap();
     let mut command: Vec<String> = Vec::new();

@@ -11,8 +11,7 @@ use reqwest::r#async::{Client,RequestBuilder,Chunk,Decoder};
 use futures::future::{Future,IntoFuture,join_all};
 use irc::client::prelude::*;
 use regex::{Regex,RegexBuilder,Captures,escape};
-use r2d2_redis::r2d2;
-use r2d2_redis::redis::Commands;
+use redis::{self,Commands,Connection};
 
 pub fn log_info(channel: Option<&str>, descriptor: &str, content: &str) {
     let timestamp = Utc::now().to_rfc3339();
@@ -30,16 +29,21 @@ pub fn log_error(channel: Option<&str>, descriptor: &str, content: &str) {
     }
 }
 
-pub fn acquire_con(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>) -> r2d2::PooledConnection<r2d2_redis::RedisConnectionManager> {
+pub fn acquire_con() -> redis::Connection {
+    let mut settings = config::Config::default();
+    settings.merge(config::File::with_name("Settings")).unwrap();
+    settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
+    let redis_host = settings.get_str("redis_host").unwrap_or("redis://127.0.0.1".to_owned());
+    let client = redis::Client::open(&redis_host[..]).unwrap();
     loop {
-        match pool.get() {
+        match client.get_connection() {
             Err(e) => log_error(None, "acquire_con", &e.to_string()),
             Ok(con) => return con
         }
     }
 }
 
-pub fn send_message(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Arc<IrcClient>, channel: String, mut message: String) {
+pub fn send_message(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, mut message: String) {
     let auth: String = con.get(format!("channel:{}:auth", channel)).unwrap_or("false".to_owned());
     if auth == "true" {
         let me: String = con.hget(format!("channel:{}:settings", channel), "channel:me").unwrap_or("false".to_owned());
@@ -48,7 +52,7 @@ pub fn send_message(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionM
     }
 }
 
-pub fn send_parsed_message(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Arc<IrcClient>, channel: String, mut message: String, args: Vec<String>, irc_message: Option<Message>) {
+pub fn send_parsed_message(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, mut message: String, args: Vec<String>, irc_message: Option<Message>) {
     let auth: String = con.get(format!("channel:{}:auth", channel)).unwrap_or("false".to_owned());
     if auth == "true" {
         if args.len() > 0 {
@@ -60,7 +64,7 @@ pub fn send_parsed_message(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>,
         if me == "true" { message = format!("/me {}", message); }
 
         for var in command_vars.iter() {
-            message = parse_var(var, &message, pool.clone(), con.clone(), Some(client.clone()), channel.clone(), irc_message.clone(), args.clone());
+            message = parse_var(var, &message, con.clone(), Some(client.clone()), channel.clone(), irc_message.clone(), args.clone());
         }
 
         let mut futures = Vec::new();
@@ -70,7 +74,7 @@ pub fn send_parsed_message(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>,
             for captures in rgx.captures_iter(&message) {
                 if let (Some(capture), Some(vargs)) = (captures.get(0), captures.get(1)) {
                     let vargs: Vec<String> = vargs.as_str().split_whitespace().map(|str| str.to_owned()).collect();
-                    if let Some((builder, func)) = (var.1)(pool.clone(), con.clone(), Some(client.clone()), channel.clone(), irc_message.clone(), vargs.clone(), args.clone()) {
+                    if let Some((builder, func)) = (var.1)(con.clone(), Some(client.clone()), channel.clone(), irc_message.clone(), vargs.clone(), args.clone()) {
                         let future = builder.send().and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() }).map(func);
                         futures.push(future);
                         regexes.push(capture.as_str().to_owned());
@@ -91,7 +95,7 @@ pub fn send_parsed_message(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>,
     }
 }
 
-pub fn spawn_age_check(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Arc<IrcClient>, channel: String, nick: String, age: i64, display: String) {
+pub fn spawn_age_check(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, nick: String, age: i64, display: String) {
     let res: Result<String,_> = con.hget("account:ages", &nick);
     if let Ok(timestamp) = res {
         let dt = DateTime::parse_from_rfc3339(&timestamp).unwrap();
@@ -106,7 +110,7 @@ pub fn spawn_age_check(pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con
             .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
             .map_err(|e| println!("request error: {}", e))
             .map(move |body| {
-                let con = Arc::new(acquire_con(pool.clone()));
+                let con = Arc::new(acquire_con());
                 let body = std::str::from_utf8(&body).unwrap();
                 let json: Result<KrakenUsers,_> = serde_json::from_str(&body);
                 match json {
@@ -139,7 +143,7 @@ pub fn request(method: Method, body: Option<Vec<u8>>, url: &str) -> RequestBuild
     return builder;
 }
 
-pub fn twitch_kraken_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, content: Option<&str>, body: Option<Vec<u8>>, method: Method, url: &str) -> RequestBuilder {
+pub fn twitch_kraken_request(con: Arc<Connection>, channel: &str, content: Option<&str>, body: Option<Vec<u8>>, method: Method, url: &str) -> RequestBuilder {
     let mut settings = config::Config::default();
     settings.merge(config::File::with_name("Settings")).unwrap();
     settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
@@ -157,7 +161,7 @@ pub fn twitch_kraken_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisCo
     return builder;
 }
 
-pub fn twitch_helix_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, content: Option<&str>, body: Option<Vec<u8>>, method: Method, url: &str) -> RequestBuilder {
+pub fn twitch_helix_request(con: Arc<Connection>, channel: &str, content: Option<&str>, body: Option<Vec<u8>>, method: Method, url: &str) -> RequestBuilder {
     let mut settings = config::Config::default();
     settings.merge(config::File::with_name("Settings")).unwrap();
     settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
@@ -175,7 +179,7 @@ pub fn twitch_helix_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisCon
     return builder;
 }
 
-pub fn patreon_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, method: Method, url: &str) -> RequestBuilder {
+pub fn patreon_request(con: Arc<Connection>, channel: &str, method: Method, url: &str) -> RequestBuilder {
     let token: String = con.get(format!("channel:{}:patreon:token", channel)).unwrap_or("".to_owned());
     let mut headers = header::HeaderMap::new();
     headers.insert("Accept", HeaderValue::from_str("application/vnd.api+json").unwrap());
@@ -186,7 +190,7 @@ pub fn patreon_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnecti
     return builder;
 }
 
-pub fn spotify_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str) -> RequestBuilder {
+pub fn spotify_request(con: Arc<Connection>, channel: &str) -> RequestBuilder {
     let token: String = con.get(format!("channel:{}:spotify:token", channel)).unwrap_or("".to_owned());
     let mut headers = header::HeaderMap::new();
     headers.insert("Accept", HeaderValue::from_str("application/vnd.api+json").unwrap());
@@ -197,7 +201,7 @@ pub fn spotify_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnecti
     return builder;
 }
 
-pub fn discord_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, body: Option<Vec<u8>>, method: Method, url: &str) -> RequestBuilder {
+pub fn discord_request(con: Arc<Connection>, channel: &str, body: Option<Vec<u8>>, method: Method, url: &str) -> RequestBuilder {
     let token: String = con.hget(format!("channel:{}:settings", channel), "discord:token").unwrap_or("".to_owned());
     let mut headers = header::HeaderMap::new();
     headers.insert("Authorization", HeaderValue::from_str(&format!("Bot {}", token)).unwrap());
@@ -210,7 +214,7 @@ pub fn discord_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnecti
     return builder;
 }
 
-pub fn fortnite_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, url: &str) -> RequestBuilder {
+pub fn fortnite_request(con: Arc<Connection>, channel: &str, url: &str) -> RequestBuilder {
     let token: String = con.hget(format!("channel:{}:settings", channel), "fortnite:token").unwrap_or("".to_owned());
     let mut headers = header::HeaderMap::new();
     headers.insert("Accept", HeaderValue::from_str("application/vnd.api+json").unwrap());
@@ -221,7 +225,7 @@ pub fn fortnite_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnect
     return builder;
 }
 
-pub fn pubg_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, channel: &str, url: &str) -> RequestBuilder {
+pub fn pubg_request(con: Arc<Connection>, channel: &str, url: &str) -> RequestBuilder {
     let token: String = con.hget(format!("channel:{}:settings", channel), "pubg:token").unwrap_or("".to_owned());
     let mut headers = header::HeaderMap::new();
     headers.insert("Accept", HeaderValue::from_str("application/vnd.api+json").unwrap());
@@ -232,13 +236,13 @@ pub fn pubg_request(con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionM
     return builder;
 }
 
-pub fn parse_var(var: &(&str, fn(r2d2::Pool<r2d2_redis::RedisConnectionManager>, Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, Option<Arc<IrcClient>>, String, Option<Message>, Vec<String>, Vec<String>) -> String), message: &str, pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>, con: Arc<r2d2::PooledConnection<r2d2_redis::RedisConnectionManager>>, client: Option<Arc<IrcClient>>, channel: String, irc_message: Option<Message>, cargs: Vec<String>) -> String {
+pub fn parse_var(var: &(&str, fn(Arc<Connection>, Option<Arc<IrcClient>>, String, Option<Message>, Vec<String>, Vec<String>) -> String), message: &str, con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: String, irc_message: Option<Message>, cargs: Vec<String>) -> String {
     let rgx = Regex::new(&format!("\\({} ?((?:[\\w\\-\\?\\._:/&!= ]+)*)\\)", var.0)).unwrap();
     let mut msg: String = message.to_owned();
     for captures in rgx.captures_iter(message) {
         if let Some(capture) = captures.get(1) {
             let vargs: Vec<String> = capture.as_str().split_whitespace().map(|str| str.to_owned()).collect();
-            let res = (var.1)(pool.clone(), con.clone(), client.clone(), channel.clone(), irc_message.clone(), vargs, cargs.clone());
+            let res = (var.1)(con.clone(), client.clone(), channel.clone(), irc_message.clone(), vargs, cargs.clone());
             msg = rgx.replace(&msg, |_: &Captures| { &res }).to_string();
         }
     }

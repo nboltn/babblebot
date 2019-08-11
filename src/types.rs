@@ -9,17 +9,15 @@ use serde_json::Value;
 use regex::{Regex,RegexBuilder,Captures};
 use rocket_contrib::database;
 use rocket_contrib::databases::redis;
-use r2d2_redis::{r2d2, RedisConnectionManager};
-use r2d2_redis::redis::Commands;
+use redis::Commands;
 
 pub struct DiscordHandler {
-    pub pool: r2d2::Pool<r2d2_redis::RedisConnectionManager>,
     pub channel: String
 }
 
 impl EventHandler for DiscordHandler {
     fn message(&self, ctx: Context, msg: Message) {
-        let con = Arc::new(self.pool.get().unwrap());
+        let con = Arc::new(acquire_con());
         let prefix: String = con.hget(format!("channel:{}:settings", self.channel), "command:prefix").unwrap_or("!".to_owned());
         let id: String = con.hget(format!("channel:{}:settings", self.channel), "discord:mod-channel").unwrap_or("".to_owned());
         if msg.channel_id.as_u64().to_string() == id {
