@@ -72,21 +72,23 @@ fn main() {
             let mut bots: HashMap<String, (HashSet<String>, Config)> = HashMap::new();
             let bs: HashSet<String> = con.smembers("bots").unwrap();
             for bot in bs {
-                let passphrase: String = con.get(format!("bot:{}:token", bot)).expect("get:token");
                 let channel_hash: HashSet<String> = con.smembers(format!("bot:{}:channels", bot)).unwrap();
-                let mut channels: Vec<String> = Vec::new();
-                channels.extend(channel_hash.iter().cloned().map(|chan| { format!("#{}", chan) }));
-                let config = Config {
-                    server: Some("irc.chat.twitch.tv".to_owned()),
-                    use_ssl: Some(true),
-                    nickname: Some(bot.to_owned()),
-                    password: Some(format!("oauth:{}", passphrase)),
-                    channels: Some(channels),
-                    ..Default::default()
-                };
-                bots.insert(bot.to_owned(), (channel_hash.clone(), config));
-                for channel in channel_hash.iter() {
-                    discord_handler(channel.to_owned());
+                if channel_hash.len() > 0 {
+                    let passphrase: String = con.get(format!("bot:{}:token", bot)).expect("get:token");
+                    let mut channels: Vec<String> = Vec::new();
+                    channels.extend(channel_hash.iter().cloned().map(|chan| { format!("#{}", chan) }));
+                    let config = Config {
+                        server: Some("irc.chat.twitch.tv".to_owned()),
+                        use_ssl: Some(true),
+                        nickname: Some(bot.to_owned()),
+                        password: Some(format!("oauth:{}", passphrase)),
+                        channels: Some(channels),
+                        ..Default::default()
+                    };
+                    bots.insert(bot.to_owned(), (channel_hash.clone(), config));
+                    for channel in channel_hash.iter() {
+                        discord_handler(channel.to_owned());
+                    }
                 }
             }
             update_live();
@@ -105,16 +107,16 @@ fn run_reactor(bots: HashMap<String, (HashSet<String>, Config)>) {
     loop {
         let mut chan_senders: HashMap<String, Vec<Sender<ThreadAction>>> = HashMap::new();
         let mut senders: HashMap<String, Vec<Sender<ThreadAction>>> = HashMap::new();
-        let mut success = true;
         if let Ok(mut reactor) = IrcReactor::new() {
             bots.iter().for_each(|(bot, channels)| {
-                let client = reactor.prepare_client_and_connect(&channels.1);
-                if let Ok(client) = client {
+                let res = reactor.prepare_client_and_connect(&channels.1);
+                if let Ok(client) = res {
+                    let clientC = client.clone();
                     let client = Arc::new(client);
                     let _ = client.identify();
                     let _ = client.send("CAP REQ :twitch.tv/tags");
                     let _ = client.send("CAP REQ :twitch.tv/commands");
-                    register_handler((*client).clone(), &mut reactor, con.clone());
+                    register_handler(clientC, &mut reactor, con.clone());
                     for channel in channels.0.iter() {
                         let (sender1, receiver1) = unbounded();
                         let (sender2, receiver2) = unbounded();
@@ -128,27 +130,25 @@ fn run_reactor(bots: HashMap<String, (HashSet<String>, Config)>) {
                     }
                 }
             });
-            if success {
-                let res = reactor.run();
-                match res {
-                    Ok(_) => break,
-                    Err(e) => {
-                        log_error(None, "run_reactor", &e.to_string());
-                        bots.iter().for_each(|(bot, channels)| {
-                            if let Some(senders) = senders.get(bot) {
+            let res = reactor.run();
+            match res {
+                Ok(_) => break,
+                Err(e) => {
+                    log_error(None, "run_reactor", &e.to_string());
+                    bots.iter().for_each(|(bot, channels)| {
+                        if let Some(senders) = senders.get(bot) {
+                            for sender in senders {
+                                let _ = sender.send(ThreadAction::Kill);
+                            }
+                        }
+                        for channel in channels.0.iter() {
+                            if let Some(senders) = chan_senders.get(channel) {
                                 for sender in senders {
                                     let _ = sender.send(ThreadAction::Kill);
                                 }
                             }
-                            for channel in channels.0.iter() {
-                                if let Some(senders) = chan_senders.get(channel) {
-                                    for sender in senders {
-                                        let _ = sender.send(ThreadAction::Kill);
-                                    }
-                                }
-                            }
-                        });
-                    }
+                        }
+                    });
                 }
             }
         }
@@ -334,7 +334,6 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<Connec
     let clientC = clientA.clone();
     let msg_handler = move |client: &IrcClient, irc_message: Message| -> error::Result<()> {
         match &irc_message.command {
-            Command::PING(_,_) => { let _ = client.send_pong("tmi.twitch.tv"); }
             Command::Raw(cmd, chans, _) => {
                 if cmd == "USERSTATE" {
                     let badges = get_badges(&irc_message);
