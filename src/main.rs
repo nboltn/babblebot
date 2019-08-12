@@ -118,38 +118,18 @@ fn run_reactor(bots: HashMap<String, (HashSet<String>, Config)>) {
                 match IrcClient::from_config(config) {
                     Err(e) => { log_error(None, "run_reactor", &e.to_string()); break }
                     Ok(client) => {
-                        let clientC = client.clone();
                         let client = Arc::new(client);
                         let _ = client.identify();
                         let _ = client.send("CAP REQ :twitch.tv/tags");
                         let _ = client.send("CAP REQ :twitch.tv/commands");
                         for channel in channels.0.iter() {
-                            let (sender1, receiver1) = unbounded();
-                            let (sender2, receiver2) = unbounded();
-                            let (sender3, receiver3) = unbounded();
-                            let (sender4, receiver4) = unbounded();
-                            let (sender5, receiver5) = unbounded();
-                            senders.extend([sender1,sender2,sender3,sender4,sender5].to_vec());
-                            //spawn_timers(client.clone(), channel.to_owned(), [receiver1,receiver2,receiver3,receiver4].to_vec());
                             //rename_channel_listener(client.clone(), channel.to_owned(), senders.clone());
                             //command_listener(client.clone(), channel.to_owned(), receiver5);
                         }
                         let res = run_client(client);
                         match res {
                             Ok(_) => break,
-                            Err(e) => {
-                                log_error(None, "run_reactor", &e.to_string());
-                                for sender in senders {
-                                    let _ = sender.send(ThreadAction::Kill);
-                                }
-                                for channel in channels.0.iter() {
-                                    if let Some(senders) = chan_senders.get(channel) {
-                                        for sender in senders {
-                                            let _ = sender.send(ThreadAction::Kill);
-                                        }
-                                    }
-                                }
-                            }
+                            Err(e) => { log_error(None, "run_reactor", &e.to_string()); }
                         }
                     }
                 }
