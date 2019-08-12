@@ -22,7 +22,7 @@ use clap::{App, ArgMatches};
 use bcrypt::{DEFAULT_COST, hash};
 use flexi_logger::{Criterion,Naming,Cleanup,Duplicate,Logger};
 use crossbeam_channel::{unbounded,Sender,Receiver,RecvTimeoutError,TryRecvError};
-use irc::error;
+use irc::error::IrcError;
 use irc::client::prelude::*;
 use url::Url;
 use regex::{Regex,RegexBuilder};
@@ -83,6 +83,7 @@ fn main() {
                         nickname: Some(bot.to_owned()),
                         password: Some(format!("oauth:{}", passphrase)),
                         channels: Some(channels),
+                        ping_timeout: Some(9999),
                         ..Default::default()
                     };
                     bots.insert(bot.to_owned(), (channel_hash.clone(), config));
@@ -95,6 +96,8 @@ fn main() {
             update_stats();
             update_watchtime();
             update_patreon();
+            run_notices();
+            run_commercials();
             run_reactor(bots);
         });
 
@@ -103,57 +106,56 @@ fn main() {
 }
 
 fn run_reactor(bots: HashMap<String, (HashSet<String>, Config)>) {
-    let con = Arc::new(acquire_con());
-    loop {
-        let mut chan_senders: HashMap<String, Vec<Sender<ThreadAction>>> = HashMap::new();
-        let mut senders: HashMap<String, Vec<Sender<ThreadAction>>> = HashMap::new();
-        if let Ok(mut reactor) = IrcReactor::new() {
-            bots.iter().for_each(|(bot, channels)| {
-                let res = reactor.prepare_client_and_connect(&channels.1);
-                if let Ok(client) = res {
-                    let clientC = client.clone();
-                    let client = Arc::new(client);
-                    let _ = client.identify();
-                    let _ = client.send("CAP REQ :twitch.tv/tags");
-                    let _ = client.send("CAP REQ :twitch.tv/commands");
-                    register_handler(clientC, &mut reactor, con.clone());
-                    for channel in channels.0.iter() {
-                        let (sender1, receiver1) = unbounded();
-                        let (sender2, receiver2) = unbounded();
-                        let (sender3, receiver3) = unbounded();
-                        let (sender4, receiver4) = unbounded();
-                        let (sender5, receiver5) = unbounded();
-                        senders.insert(channel.to_owned(), [sender1,sender2,sender3,sender4,sender5].to_vec());
-                        spawn_timers(client.clone(), channel.to_owned(), [receiver1,receiver2,receiver3,receiver4].to_vec());
-                        rename_channel_listener(client.clone(), channel.to_owned(), senders.clone());
-                        command_listener(client.clone(), channel.to_owned(), receiver5);
-                    }
-                }
-            });
-            let res = reactor.run();
-            match res {
-                Ok(_) => break,
-                Err(e) => {
-                    log_error(None, "run_reactor", &e.to_string());
-                    bots.iter().for_each(|(bot, channels)| {
-                        if let Some(senders) = senders.get(bot) {
-                            for sender in senders {
-                                let _ = sender.send(ThreadAction::Kill);
-                            }
-                        }
+    bots.iter().for_each(|(bot, channels)| {
+        let bot = bot.clone();
+        let channels = channels.clone();
+        thread::spawn(move || {
+            loop {
+                let con = Arc::new(acquire_con());
+                let mut chan_senders: HashMap<String, Vec<Sender<ThreadAction>>> = HashMap::new();
+                let mut senders: Vec<Sender<ThreadAction>> = Vec::new();
+                let config = (channels.1).clone();
+                match IrcClient::from_config(config) {
+                    Err(e) => { log_error(None, "run_reactor", &e.to_string()); break }
+                    Ok(client) => {
+                        let clientC = client.clone();
+                        let client = Arc::new(client);
+                        let _ = client.identify();
+                        let _ = client.send("CAP REQ :twitch.tv/tags");
+                        let _ = client.send("CAP REQ :twitch.tv/commands");
                         for channel in channels.0.iter() {
-                            if let Some(senders) = chan_senders.get(channel) {
+                            let (sender1, receiver1) = unbounded();
+                            let (sender2, receiver2) = unbounded();
+                            let (sender3, receiver3) = unbounded();
+                            let (sender4, receiver4) = unbounded();
+                            let (sender5, receiver5) = unbounded();
+                            senders.extend([sender1,sender2,sender3,sender4,sender5].to_vec());
+                            //spawn_timers(client.clone(), channel.to_owned(), [receiver1,receiver2,receiver3,receiver4].to_vec());
+                            //rename_channel_listener(client.clone(), channel.to_owned(), senders.clone());
+                            //command_listener(client.clone(), channel.to_owned(), receiver5);
+                        }
+                        let res = run_client(client);
+                        match res {
+                            Ok(_) => break,
+                            Err(e) => {
+                                log_error(None, "run_reactor", &e.to_string());
                                 for sender in senders {
                                     let _ = sender.send(ThreadAction::Kill);
                                 }
+                                for channel in channels.0.iter() {
+                                    if let Some(senders) = chan_senders.get(channel) {
+                                        for sender in senders {
+                                            let _ = sender.send(ThreadAction::Kill);
+                                        }
+                                    }
+                                }
                             }
                         }
-                    });
+                    }
                 }
             }
-        }
-        time::Duration::from_secs(20);
-    }
+        });
+    });
 }
 
 fn new_channel_listener() {
@@ -329,10 +331,9 @@ fn command_listener(client: Arc<IrcClient>, channel: String, receiver: Receiver<
     });
 }
 
-fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<Connection>) {
-    let clientA = Arc::new(client);
-    let clientC = clientA.clone();
-    let msg_handler = move |client: &IrcClient, irc_message: Message| -> error::Result<()> {
+fn run_client(client: Arc<IrcClient>) -> Result<(), IrcError> {
+    let con = Arc::new(acquire_con());
+    let res = client.for_each_incoming(|irc_message: Message| {
         match &irc_message.command {
             Command::Raw(cmd, chans, _) => {
                 if cmd == "USERSTATE" {
@@ -383,11 +384,11 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<Connec
                         let age: Result<String,_> = con.get(format!("channel:{}:moderation:age", channel));
                         if colors == "true" && msg.len() > 6 && msg.as_bytes()[0] == 1 && &msg[1..7] == "ACTION" {
                             let _ = client.send_privmsg(chan, format!("/timeout {} 1", nick));
-                            if display == "true" { send_message(con.clone(), clientC.clone(), channel.to_owned(), format!("@{} you've been timed out for posting colors", nick)); }
+                            if display == "true" { send_message(con.clone(), client.clone(), channel.to_owned(), format!("@{} you've been timed out for posting colors", nick)); }
                         }
                         if let Ok(age) = age {
                             let res: Result<i64,_> = age.parse();
-                            if let Ok(age) = res { spawn_age_check(con.clone(), clientC.clone(), channel.to_string(), nick.clone(), age, display.to_string()); }
+                            if let Ok(age) = res { spawn_age_check(con.clone(), client.clone(), channel.to_string(), nick.clone(), age, display.to_string()); }
                         }
                         if caps == "true" {
                             let limit: String = con.get(format!("channel:{}:moderation:caps:limit", channel)).expect("get:limit");
@@ -403,7 +404,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<Connec
                                     if ratio >= (limit / 100.0) {
                                         if !subscriber || subscriber && subs != "true" {
                                             let _ = client.send_privmsg(chan, format!("/timeout {} 1", nick));
-                                            if display == "true" { send_message(con.clone(), clientC.clone(), channel.to_owned(), format!("@{} you've been timed out for posting too many caps", nick)); }
+                                            if display == "true" { send_message(con.clone(), client.clone(), channel.to_owned(), format!("@{} you've been timed out for posting too many caps", nick)); }
                                         }
                                     }
                                 }
@@ -440,7 +441,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<Connec
                                                 }
                                                 if !whitelisted {
                                                     let _ = client.send_privmsg(chan, format!("/timeout {} 1", nick));
-                                                    if display == "true" { send_message(con.clone(), clientC.clone(), channel.to_owned(), format!("@{} you've been timed out for posting links", nick)); }
+                                                    if display == "true" { send_message(con.clone(), client.clone(), channel.to_owned(), format!("@{} you've been timed out for posting links", nick)); }
                                                 }
                                             }
                                         }
@@ -457,7 +458,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<Connec
                                 Ok(rgx) => {
                                     if rgx.is_match(&msg) {
                                         let _ = client.send_privmsg(chan, format!("/timeout {} {}", nick, length));
-                                        if display == "true" { send_message(con.clone(), clientC.clone(), channel.to_owned(), format!("@{} you've been timed out for posting a blacklisted phrase", nick)); }
+                                        if display == "true" { send_message(con.clone(), client.clone(), channel.to_owned(), format!("@{} you've been timed out for posting a blacklisted phrase", nick)); }
                                         break;
                                     }
                                 }
@@ -482,9 +483,9 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<Connec
                     for cmd in commands::native_commands.iter() {
                         if format!("{}{}", prefix, cmd.0) == word {
                             if args.len() == 0 {
-                                if !cmd.2 || auth { (cmd.1)(con.clone(), clientC.clone(), channel.to_owned(), args.clone(), Some(irc_message.clone())) }
+                                if !cmd.2 || auth { (cmd.1)(con.clone(), client.clone(), channel.to_owned(), args.clone(), Some(irc_message.clone())) }
                             } else {
-                                if !cmd.3 || auth { (cmd.1)(con.clone(), clientC.clone(), channel.to_owned(), args.clone(), Some(irc_message.clone())) }
+                                if !cmd.3 || auth { (cmd.1)(con.clone(), client.clone(), channel.to_owned(), args.clone(), Some(irc_message.clone())) }
                             }
                             break;
                         }
@@ -506,7 +507,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<Connec
                             let protected: String = con.hget(format!("channel:{}:commands:{}", channel, word), format!("{}_protected", protected)).expect("hget:protected");
                             if protected == "false" || auth {
                                 let _: () = con.hset(format!("channel:{}:commands:{}", channel, word), "lastrun", Utc::now().to_rfc3339()).unwrap();
-                                send_parsed_message(con.clone(), clientC.clone(), channel.to_owned(), message.to_owned(), args.clone(), Some(irc_message.clone()));
+                                send_parsed_message(con.clone(), client.clone(), channel.to_owned(), message.to_owned(), args.clone(), Some(irc_message.clone()));
                             }
                         }
                     }
@@ -524,7 +525,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<Connec
                                 let diff = Utc::now().signed_duration_since(timestamp);
                                 if diff.num_hours() < hours { break }
                             }
-                            send_parsed_message(con.clone(), clientC.clone(), channel.to_owned(), msg, Vec::new(), None);
+                            send_parsed_message(con.clone(), client.clone(), channel.to_owned(), msg, Vec::new(), None);
                             break;
                         }
                     }
@@ -534,10 +535,9 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, con: Arc<Connec
             }
             _ => {}
         }
-        Ok(())
-    };
+    });
 
-    reactor.register_client_with_handler((*clientA).clone(), msg_handler);
+    return res;
 }
 
 fn discord_handler(channel: String) {
@@ -554,6 +554,131 @@ fn discord_handler(channel: String) {
                 }
             }
             thread::sleep(time::Duration::from_secs(10));
+        }
+    });
+}
+
+fn run_notices() {
+    thread::spawn(move || {
+        let con = Arc::new(acquire_con());
+        loop {
+            let channels: Vec<String> = con.smembers("channels").unwrap_or(Vec::new());
+            for channel in channels {
+                let live: String = con.get(format!("channel:{}:live", channel)).expect("get:live");
+                if live == "true" {
+                    let keys: Vec<String> = con.keys(format!("channel:{}:notices:*:commands", channel.clone())).unwrap();
+                    let ints: Vec<&str> = keys.iter().map(|str| {
+                        let int: Vec<&str> = str.split(":").collect();
+                        return int[3];
+                    }).collect();
+
+                    for int in ints.iter() {
+                        let num: u16 = con.get(format!("channel:{}:notices:{}:countdown", channel, int)).unwrap();
+                        if num > 0 { let _: () = con.incr(format!("channel:{}:notices:{}:countdown", channel, int), -60).unwrap(); }
+                    };
+
+                    let int = ints.iter().filter(|int| {
+                        let num: u16 = con.get(format!("channel:{}:notices:{}:countdown", channel, int)).unwrap();
+                        return num <= 0;
+                    }).fold(0, |acc, int| {
+                        let int = int.parse::<u16>().unwrap();
+                        if acc > int { return acc } else { return int }
+                    });
+
+                    if int != 0 {
+                        let _: () = con.set(format!("channel:{}:notices:{}:countdown", channel, int), int.clone()).unwrap();
+                        let cmd: String = con.lpop(format!("channel:{}:notices:{}:commands", channel, int)).expect("lpop:commands");
+                        let _: () = con.rpush(format!("channel:{}:notices:{}:commands", channel, int), cmd.clone()).unwrap();
+                        let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", channel, cmd), "message");
+                        if let Ok(mut message) = res {
+                            connect_and_send_message(con.clone(), channel.clone(), message);
+                        }
+                    }
+                }
+            }
+            thread::sleep(time::Duration::from_secs(60));
+        }
+    });
+}
+
+fn run_commercials() {
+    thread::spawn(move || {
+        let con = Arc::new(acquire_con());
+        loop {
+            let channels: Vec<String> = con.smembers("channels").unwrap_or(Vec::new());
+            for channel in channels {
+                let live: String = con.get(format!("channel:{}:live", channel)).expect("get:live");
+                if live == "true" {
+                    let hourly: String = con.get(format!("channel:{}:commercials:hourly", channel)).unwrap_or("0".to_owned());
+                    let hourly: u64 = hourly.parse().unwrap();
+                    let recents: Vec<String> = con.lrange(format!("channel:{}:commercials:recent", channel), 0, -1).unwrap();
+                    let num = recents.iter().fold(hourly, |acc, lastrun| {
+                        let lastrun: Vec<&str> = lastrun.split_whitespace().collect();
+                        let timestamp = DateTime::parse_from_rfc3339(&lastrun[0]).unwrap();
+                        let diff = Utc::now().signed_duration_since(timestamp);
+                        if diff.num_minutes() < 60 {
+                            let res: Result<u64,_> = lastrun[1].parse();
+                            if let Ok(num) = res {
+                                if acc >= num {
+                                    return acc - num;
+                                } else {
+                                    return acc;
+                                }
+                            } else {
+                                return acc;
+                            }
+                        } else {
+                            return acc;
+                        }
+                    });
+
+                    if num > 0 {
+                        let mut within8 = false;
+                        let res: Result<String,_> = con.lindex(format!("channel:{}:commercials:recent", channel), 0);
+                        if let Ok(lastrun) = res {
+                            let lastrun: Vec<&str> = lastrun.split_whitespace().collect();
+                            let timestamp = DateTime::parse_from_rfc3339(&lastrun[0]).unwrap();
+                            let diff = Utc::now().signed_duration_since(timestamp);
+                            if diff.num_minutes() <= 9 {
+                                within8 = true;
+                            }
+                            if within8 {
+                                thread::sleep(time::Duration::from_secs((9 - (diff.num_minutes() as u64)) * 30));
+                            }
+                        }
+                        let id: String = con.get(format!("channel:{}:id", channel)).unwrap();
+                        let submode: String = con.get(format!("channel:{}:commercials:submode", channel)).unwrap_or("false".to_owned());
+                        let nres: Result<String,_> = con.get(format!("channel:{}:commercials:notice", channel));
+                        let length: u16 = con.llen(format!("channel:{}:commercials:recent", channel)).unwrap();
+                        let _: () = con.lpush(format!("channel:{}:commercials:recent", channel), format!("{} {}", Utc::now().to_rfc3339(), num)).unwrap();
+                        if length > 7 {
+                            let _: () = con.rpop(format!("channel:{}:commercials:recent", channel)).unwrap();
+                        }
+                        if submode == "true" {
+                            let channelC = String::from(channel.clone());
+                            connect_and_send_message(con.clone(), channel.clone(), "/subscribers".to_owned());
+                            thread::spawn(move || {
+                                let con = Arc::new(acquire_con());
+                                thread::sleep(time::Duration::from_secs(num * 30));
+                                connect_and_send_message(con, channelC, "/subscribersoff".to_owned());
+                            });
+                        }
+                        if let Ok(notice) = nres {
+                            let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", channel, notice), "message");
+                            if let Ok(message) = res {
+                                connect_and_send_message(con.clone(), channel.clone(), message);
+                            }
+                        }
+                        connect_and_send_message(con.clone(), channel.clone(), format!("{} commercials have been run", num));
+                        let future = twitch_kraken_request(con.clone(), &channel, Some("application/json"), Some(format!("{{\"length\": {}}}", num * 30).as_bytes().to_owned()), Method::POST, &format!("https://api.twitch.tv/kraken/channels/{}/commercial", &id)).send().and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() }).map_err(|e| println!("request error: {}", e)).map(move |body| {});
+                        thread::spawn(move || { tokio::run(future) });
+                    }
+
+                    thread::sleep(time::Duration::from_secs(3600));
+                } else {
+                    thread::sleep(time::Duration::from_secs(60));
+                }
+            }
         }
     });
 }
