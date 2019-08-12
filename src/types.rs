@@ -51,7 +51,8 @@ pub enum AuthError {
 }
 
 pub enum ThreadAction {
-    Kill
+    Kill,
+    Part(String)
 }
 
 #[derive(Debug, Serialize, Deserialize)]

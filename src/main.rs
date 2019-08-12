@@ -29,6 +29,8 @@ use regex::{Regex,RegexBuilder};
 use serde_json::value::Value::Number;
 use chrono::{Utc, DateTime, FixedOffset, Duration, Timelike};
 use http::header::{self,HeaderValue};
+use futures::Async;
+use futures::future::lazy;
 use reqwest::{Method,Error};
 use reqwest::r#async::{RequestBuilder,Chunk,Decoder};
 use serenity;
@@ -110,33 +112,271 @@ fn run_reactor(bots: HashMap<String, (HashSet<String>, Config)>) {
         let bot = bot.clone();
         let channels = channels.clone();
         thread::spawn(move || {
-            loop {
-                let con = Arc::new(acquire_con());
-                let mut chan_senders: HashMap<String, Vec<Sender<ThreadAction>>> = HashMap::new();
-                let mut senders: Vec<Sender<ThreadAction>> = Vec::new();
-                let config = (channels.1).clone();
-                match IrcClient::from_config(config) {
-                    Err(e) => { log_error(None, "run_reactor", &e.to_string()); break }
-                    Ok(client) => {
-                        let client = Arc::new(client);
-                        let _ = client.identify();
-                        let _ = client.send("CAP REQ :twitch.tv/tags");
-                        let _ = client.send("CAP REQ :twitch.tv/commands");
-                        for channel in channels.0.iter() {
-                            //rename_channel_listener(client.clone(), channel.to_owned(), senders.clone());
-                            //command_listener(client.clone(), channel.to_owned(), receiver5);
+            tokio::run(lazy(move || {
+                loop {
+                    let con = Arc::new(acquire_con());
+                    let config = (channels.1).clone();
+                    match IrcClient::from_config(config) {
+                        Err(e) => { log_error(None, "run_reactor", &e.to_string()); break }
+                        Ok(client) => {
+                            let client = Arc::new(client);
+                            let _ = client.identify();
+                            let _ = client.send("CAP REQ :twitch.tv/tags");
+                            let _ = client.send("CAP REQ :twitch.tv/commands");
+                            let (sender, receiver) = unbounded();
+                            for channel in channels.0.iter() {
+                                rename_channel_listener(channel.clone(), sender.clone());
+                            }
+                            let res = run_client(client, receiver);
+                            match res {
+                                None => break,
+                                Some(e) => { log_error(None, "run_reactor", &e.to_string()); }
+                            }
                         }
-                        let res = run_client(client);
-                        match res {
-                            Ok(_) => break,
-                            Err(e) => { log_error(None, "run_reactor", &e.to_string()); }
+                    }
+                }
+                Ok(())
+            }));
+        });
+    });
+}
+
+fn run_client(client: Arc<IrcClient>, receiver: Receiver<ThreadAction>) -> Option<IrcError> {
+    let mut stream = client.stream();
+    loop {
+        let rsp = receiver.recv_timeout(time::Duration::from_millis(10));
+        match rsp {
+            Ok(action) => {
+                match action {
+                    ThreadAction::Kill => break,
+                    ThreadAction::Part(chan) => { let _ = client.send_part(format!("#{}", chan)); }
+                }
+            }
+            Err(err) => {
+                match err {
+                    RecvTimeoutError::Disconnected => break,
+                    RecvTimeoutError::Timeout => {}
+                }
+            }
+        }
+
+        match stream.poll() {
+            Err(e) => { return Some(e) }
+            Ok(msg) => {
+                match msg {
+                    Async::NotReady => {}
+                    Async::Ready(None) => {}
+                    Async::Ready(Some(irc_message)) => {
+                        let con = Arc::new(acquire_con());
+                        match &irc_message.command {
+                            Command::Raw(cmd, chans, _) => {
+                                if cmd == "USERSTATE" {
+                                    let badges = get_badges(&irc_message);
+                                    match badges.get("moderator") {
+                                        Some(_) => {
+                                            for chan in chans {
+                                                let channel = &chan[1..];
+                                                let _: () = con.set(format!("channel:{}:auth", channel), true).unwrap();
+                                            }
+                                        }
+                                        None => {
+                                            for chan in chans {
+                                                let channel = &chan[1..];
+                                                let _: () = con.set(format!("channel:{}:auth", channel), false).unwrap();
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            Command::PRIVMSG(chan, msg) => {
+                                let channel = &chan[1..];
+                                let nick = get_nick(&irc_message);
+                                let prefix: String = con.hget(format!("channel:{}:settings", channel), "command:prefix").unwrap_or("!".to_owned());
+                                let mut words = msg.split_whitespace();
+
+                                // parse ircV3 badges
+                                if let Some(word) = words.next() {
+                                    let mut word = word.to_lowercase();
+                                    let mut args: Vec<String> = words.map(|w| w.to_owned()).collect();
+                                    let badges = get_badges(&irc_message);
+
+                                    let mut subscriber = false;
+                                    if let Some(value) = badges.get("subscriber") { subscriber = true }
+
+                                    let mut auth = false;
+                                    if let Some(value) = badges.get("broadcaster") { auth = true }
+                                    if let Some(value) = badges.get("moderator") { auth = true }
+
+                                    // moderate incoming messages
+                                    // TODO: symbols, length
+                                    if !auth {
+                                        let display: String = con.get(format!("channel:{}:moderation:display", channel)).unwrap_or("false".to_owned());
+                                        let caps: String = con.get(format!("channel:{}:moderation:caps", channel)).unwrap_or("false".to_owned());
+                                        let colors: String = con.get(format!("channel:{}:moderation:colors", channel)).unwrap_or("false".to_owned());
+                                        let links: Vec<String> = con.smembers(format!("channel:{}:moderation:links", channel)).unwrap_or(Vec::new());
+                                        let bkeys: Vec<String> = con.keys(format!("channel:{}:moderation:blacklist:*", channel)).unwrap();
+                                        let age: Result<String,_> = con.get(format!("channel:{}:moderation:age", channel));
+                                        if colors == "true" && msg.len() > 6 && msg.as_bytes()[0] == 1 && &msg[1..7] == "ACTION" {
+                                            let _ = client.send_privmsg(chan, format!("/timeout {} 1", nick));
+                                            if display == "true" { send_message(con.clone(), client.clone(), channel.to_owned(), format!("@{} you've been timed out for posting colors", nick)); }
+                                        }
+                                        if let Ok(age) = age {
+                                            let res: Result<i64,_> = age.parse();
+                                            if let Ok(age) = res { spawn_age_check(con.clone(), client.clone(), channel.to_string(), nick.clone(), age, display.to_string()); }
+                                        }
+                                        if caps == "true" {
+                                            let limit: String = con.get(format!("channel:{}:moderation:caps:limit", channel)).expect("get:limit");
+                                            let trigger: String = con.get(format!("channel:{}:moderation:caps:trigger", channel)).expect("get:trigger");
+                                            let subs: String = con.get(format!("channel:{}:moderation:caps:subs", channel)).unwrap_or("false".to_owned());
+                                            let limit: Result<f32,_> = limit.parse();
+                                            let trigger: Result<f32,_> = trigger.parse();
+                                            if let (Ok(limit), Ok(trigger)) = (limit, trigger) {
+                                                let len = msg.len() as f32;
+                                                if len >= trigger {
+                                                    let num = msg.chars().fold(0.0, |acc, c| if c.is_uppercase() { acc + 1.0 } else { acc });
+                                                    let ratio = num / len;
+                                                    if ratio >= (limit / 100.0) {
+                                                        if !subscriber || subscriber && subs != "true" {
+                                                            let _ = client.send_privmsg(chan, format!("/timeout {} 1", nick));
+                                                            if display == "true" { send_message(con.clone(), client.clone(), channel.to_owned(), format!("@{} you've been timed out for posting too many caps", nick)); }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        if links.len() > 0 && url_regex().is_match(&msg) {
+                                            let sublinks: String = con.get(format!("channel:{}:moderation:links:subs", channel)).unwrap_or("false".to_owned());
+                                            let permitted: Vec<String> = con.keys(format!("channel:{}:moderation:permitted:*", channel)).unwrap();
+                                            let permitted: Vec<String> = permitted.iter().map(|key| { let key: Vec<&str> = key.split(":").collect(); key[4].to_owned() }).collect();
+                                            if !(permitted.contains(&nick) || (sublinks == "true" && subscriber)) {
+                                                for word in msg.split_whitespace() {
+                                                    if url_regex().is_match(word) {
+                                                        let mut url: String = word.to_owned();
+                                                        if url.len() > 7 && url.is_char_boundary(7) && &url[..7] != "http://" && &url[..8] != "https://" { url = format!("http://{}", url) }
+                                                        match Url::parse(&url) {
+                                                            Err(_) => {}
+                                                            Ok(url) => {
+                                                                let mut whitelisted = false;
+                                                                for link in &links {
+                                                                    let link: Vec<&str> = link.split("/").collect();
+                                                                    let mut domain = url.domain().unwrap();
+                                                                    if domain.len() > 0 && &domain[..4] == "www." { domain = &domain[4..] }
+                                                                    if domain == link[0] {
+                                                                        if link.len() > 1 {
+                                                                            if url.path().len() > 1 && url.path()[1..] == link[1..].join("/") {
+                                                                                whitelisted = true;
+                                                                                break;
+                                                                            }
+                                                                        } else {
+                                                                            whitelisted = true;
+                                                                            break;
+                                                                        }
+                                                                    }
+                                                                }
+                                                                if !whitelisted {
+                                                                    let _ = client.send_privmsg(chan, format!("/timeout {} 1", nick));
+                                                                    if display == "true" { send_message(con.clone(), client.clone(), channel.to_owned(), format!("@{} you've been timed out for posting links", nick)); }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        for key in bkeys {
+                                            let key: Vec<&str> = key.split(":").collect();
+                                            let rgx: String = con.hget(format!("channel:{}:moderation:blacklist:{}", channel, key[4]), "regex").expect("hget:regex");
+                                            let length: String = con.hget(format!("channel:{}:moderation:blacklist:{}", channel, key[4]), "length").expect("hget:length");
+                                            match RegexBuilder::new(&rgx).case_insensitive(true).build() {
+                                                Err(e) => { log_error(Some(&channel), "regex_error", &e.to_string()) }
+                                                Ok(rgx) => {
+                                                    if rgx.is_match(&msg) {
+                                                        let _ = client.send_privmsg(chan, format!("/timeout {} {}", nick, length));
+                                                        if display == "true" { send_message(con.clone(), client.clone(), channel.to_owned(), format!("@{} you've been timed out for posting a blacklisted phrase", nick)); }
+                                                        break;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // expand aliases
+                                    let res: Result<String,_> = con.hget(format!("channel:{}:aliases", channel), &word);
+                                    if let Ok(alias) = res {
+                                        let mut awords = alias.split_whitespace();
+                                        if let Some(aword) = awords.next() {
+                                            let mut cargs = args.clone();
+                                            let mut awords: Vec<String> = awords.map(|w| w.to_owned()).collect();
+                                            awords.append(&mut cargs);
+                                            word = aword.to_owned();
+                                            args = awords.to_owned();
+                                        }
+                                    }
+
+                                    // parse native commands
+                                    for cmd in commands::native_commands.iter() {
+                                        if format!("{}{}", prefix, cmd.0) == word {
+                                            if args.len() == 0 {
+                                                if !cmd.2 || auth { (cmd.1)(con.clone(), client.clone(), channel.to_owned(), args.clone(), Some(irc_message.clone())) }
+                                            } else {
+                                                if !cmd.3 || auth { (cmd.1)(con.clone(), client.clone(), channel.to_owned(), args.clone(), Some(irc_message.clone())) }
+                                            }
+                                            break;
+                                        }
+                                    }
+
+                                    // parse custom commands
+                                    let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", channel.to_owned(), word), "message");
+                                    if let Ok(message) = res {
+                                        let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", channel.to_owned(), word), "lastrun");
+                                        let mut within5 = false;
+                                        if let Ok(lastrun) = res {
+                                            let timestamp = DateTime::parse_from_rfc3339(&lastrun).unwrap();
+                                            let diff = Utc::now().signed_duration_since(timestamp);
+                                            if diff.num_seconds() < 5 { within5 = true }
+                                        }
+                                        if !within5 {
+                                            let mut protected: &str = "cmd";
+                                            if args.len() > 0 { protected = "arg" }
+                                            let protected: String = con.hget(format!("channel:{}:commands:{}", channel, word), format!("{}_protected", protected)).expect("hget:protected");
+                                            if protected == "false" || auth {
+                                                let _: () = con.hset(format!("channel:{}:commands:{}", channel, word), "lastrun", Utc::now().to_rfc3339()).unwrap();
+                                                send_parsed_message(con.clone(), client.clone(), channel.to_owned(), message.to_owned(), args.clone(), Some(irc_message.clone()));
+                                            }
+                                        }
+                                    }
+
+                                    // parse greetings
+                                    let keys: Vec<String> = con.keys(format!("channel:{}:greetings:*", channel)).unwrap();
+                                    for key in keys.iter() {
+                                        let key: Vec<&str> = key.split(":").collect();
+                                        if key[3] == nick {
+                                            let msg: String = con.hget(format!("channel:{}:greetings:{}", channel, key[3]), "message").expect("hget:message");
+                                            let hours: i64 = con.hget(format!("channel:{}:greetings:{}", channel, key[3]), "hours").expect("hget:hours");
+                                            let res: Result<String,_> = con.hget(format!("channel:{}:lastseen", channel), key[3]);
+                                            if let Ok(lastseen) = res {
+                                                let timestamp = DateTime::parse_from_rfc3339(&lastseen).unwrap();
+                                                let diff = Utc::now().signed_duration_since(timestamp);
+                                                if diff.num_hours() < hours { break }
+                                            }
+                                            send_parsed_message(con.clone(), client.clone(), channel.to_owned(), msg, Vec::new(), None);
+                                            break;
+                                        }
+                                    }
+
+                                    let _: () = con.hset(format!("channel:{}:lastseen", channel), nick, Utc::now().to_rfc3339()).unwrap();
+                                }
+                            }
+                            _ => {}
                         }
                     }
                 }
             }
-        });
-    });
+        }
+    }
+    None
 }
+
 
 fn new_channel_listener() {
     let con = Arc::new(acquire_con());
@@ -160,6 +400,7 @@ fn new_channel_listener() {
             nickname: Some(bot.to_owned()),
             password: Some(format!("oauth:{}", passphrase)),
             channels: Some(channels),
+            ping_timeout: Some(9999),
             ..Default::default()
         };
         bots.insert(bot.to_owned(), (channel_hash.clone(), config));
@@ -170,7 +411,7 @@ fn new_channel_listener() {
     }
 }
 
-fn rename_channel_listener(client: Arc<IrcClient>, channel: String, senders: HashMap<String, Vec<Sender<ThreadAction>>>) {
+fn rename_channel_listener(channel: String, sender: Sender<ThreadAction>) {
     thread::spawn(move || {
         let con = Arc::new(acquire_con());
         let mut conn = acquire_con();
@@ -204,12 +445,7 @@ fn rename_channel_listener(client: Arc<IrcClient>, channel: String, senders: Has
                                 log_error(Some(&channel), "request_body", &text);
                             }
                             Ok(json) => {
-                                if let Some(senders) = senders.get(&channel) {
-                                    for sender in senders {
-                                        let _ = sender.send(ThreadAction::Kill);
-                                    }
-                                }
-                                let _ = client.send_quit("");
+                                let _ = sender.send(ThreadAction::Part(channel.clone()));
 
                                 let bot: String = con.get(format!("channel:{}:bot", &channel)).expect("get:bot");
                                 let _: () = con.srem(format!("bot:{}:channels", &bot), &channel).unwrap();
@@ -254,7 +490,8 @@ fn command_listener(client: Arc<IrcClient>, channel: String, receiver: Receiver<
             match rsp {
                 Ok(action) => {
                     match action {
-                        ThreadAction::Kill => break
+                        ThreadAction::Kill => break,
+                        ThreadAction::Part(_) => {}
                     }
                 }
                 Err(err) => {
@@ -309,215 +546,6 @@ fn command_listener(client: Arc<IrcClient>, channel: String, receiver: Receiver<
             }
         }
     });
-}
-
-fn run_client(client: Arc<IrcClient>) -> Result<(), IrcError> {
-    let con = Arc::new(acquire_con());
-    let res = client.for_each_incoming(|irc_message: Message| {
-        match &irc_message.command {
-            Command::Raw(cmd, chans, _) => {
-                if cmd == "USERSTATE" {
-                    let badges = get_badges(&irc_message);
-                    match badges.get("moderator") {
-                        Some(_) => {
-                            for chan in chans {
-                                let channel = &chan[1..];
-                                let _: () = con.set(format!("channel:{}:auth", channel), true).unwrap();
-                            }
-                        }
-                        None => {
-                            for chan in chans {
-                                let channel = &chan[1..];
-                                let _: () = con.set(format!("channel:{}:auth", channel), false).unwrap();
-                            }
-                        }
-                    }
-                }
-            }
-            Command::PRIVMSG(chan, msg) => {
-                let channel = &chan[1..];
-                let nick = get_nick(&irc_message);
-                let prefix: String = con.hget(format!("channel:{}:settings", channel), "command:prefix").unwrap_or("!".to_owned());
-                let mut words = msg.split_whitespace();
-
-                // parse ircV3 badges
-                if let Some(word) = words.next() {
-                    let mut word = word.to_lowercase();
-                    let mut args: Vec<String> = words.map(|w| w.to_owned()).collect();
-                    let badges = get_badges(&irc_message);
-
-                    let mut subscriber = false;
-                    if let Some(value) = badges.get("subscriber") { subscriber = true }
-
-                    let mut auth = false;
-                    if let Some(value) = badges.get("broadcaster") { auth = true }
-                    if let Some(value) = badges.get("moderator") { auth = true }
-
-                    // moderate incoming messages
-                    // TODO: symbols, length
-                    if !auth {
-                        let display: String = con.get(format!("channel:{}:moderation:display", channel)).unwrap_or("false".to_owned());
-                        let caps: String = con.get(format!("channel:{}:moderation:caps", channel)).unwrap_or("false".to_owned());
-                        let colors: String = con.get(format!("channel:{}:moderation:colors", channel)).unwrap_or("false".to_owned());
-                        let links: Vec<String> = con.smembers(format!("channel:{}:moderation:links", channel)).unwrap_or(Vec::new());
-                        let bkeys: Vec<String> = con.keys(format!("channel:{}:moderation:blacklist:*", channel)).unwrap();
-                        let age: Result<String,_> = con.get(format!("channel:{}:moderation:age", channel));
-                        if colors == "true" && msg.len() > 6 && msg.as_bytes()[0] == 1 && &msg[1..7] == "ACTION" {
-                            let _ = client.send_privmsg(chan, format!("/timeout {} 1", nick));
-                            if display == "true" { send_message(con.clone(), client.clone(), channel.to_owned(), format!("@{} you've been timed out for posting colors", nick)); }
-                        }
-                        if let Ok(age) = age {
-                            let res: Result<i64,_> = age.parse();
-                            if let Ok(age) = res { spawn_age_check(con.clone(), client.clone(), channel.to_string(), nick.clone(), age, display.to_string()); }
-                        }
-                        if caps == "true" {
-                            let limit: String = con.get(format!("channel:{}:moderation:caps:limit", channel)).expect("get:limit");
-                            let trigger: String = con.get(format!("channel:{}:moderation:caps:trigger", channel)).expect("get:trigger");
-                            let subs: String = con.get(format!("channel:{}:moderation:caps:subs", channel)).unwrap_or("false".to_owned());
-                            let limit: Result<f32,_> = limit.parse();
-                            let trigger: Result<f32,_> = trigger.parse();
-                            if let (Ok(limit), Ok(trigger)) = (limit, trigger) {
-                                let len = msg.len() as f32;
-                                if len >= trigger {
-                                    let num = msg.chars().fold(0.0, |acc, c| if c.is_uppercase() { acc + 1.0 } else { acc });
-                                    let ratio = num / len;
-                                    if ratio >= (limit / 100.0) {
-                                        if !subscriber || subscriber && subs != "true" {
-                                            let _ = client.send_privmsg(chan, format!("/timeout {} 1", nick));
-                                            if display == "true" { send_message(con.clone(), client.clone(), channel.to_owned(), format!("@{} you've been timed out for posting too many caps", nick)); }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        if links.len() > 0 && url_regex().is_match(&msg) {
-                            let sublinks: String = con.get(format!("channel:{}:moderation:links:subs", channel)).unwrap_or("false".to_owned());
-                            let permitted: Vec<String> = con.keys(format!("channel:{}:moderation:permitted:*", channel)).unwrap();
-                            let permitted: Vec<String> = permitted.iter().map(|key| { let key: Vec<&str> = key.split(":").collect(); key[4].to_owned() }).collect();
-                            if !(permitted.contains(&nick) || (sublinks == "true" && subscriber)) {
-                                for word in msg.split_whitespace() {
-                                    if url_regex().is_match(word) {
-                                        let mut url: String = word.to_owned();
-                                        if url.len() > 7 && url.is_char_boundary(7) && &url[..7] != "http://" && &url[..8] != "https://" { url = format!("http://{}", url) }
-                                        match Url::parse(&url) {
-                                            Err(_) => {}
-                                            Ok(url) => {
-                                                let mut whitelisted = false;
-                                                for link in &links {
-                                                    let link: Vec<&str> = link.split("/").collect();
-                                                    let mut domain = url.domain().unwrap();
-                                                    if domain.len() > 0 && &domain[..4] == "www." { domain = &domain[4..] }
-                                                    if domain == link[0] {
-                                                        if link.len() > 1 {
-                                                            if url.path().len() > 1 && url.path()[1..] == link[1..].join("/") {
-                                                                whitelisted = true;
-                                                                break;
-                                                            }
-                                                        } else {
-                                                            whitelisted = true;
-                                                            break;
-                                                        }
-                                                    }
-                                                }
-                                                if !whitelisted {
-                                                    let _ = client.send_privmsg(chan, format!("/timeout {} 1", nick));
-                                                    if display == "true" { send_message(con.clone(), client.clone(), channel.to_owned(), format!("@{} you've been timed out for posting links", nick)); }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        for key in bkeys {
-                            let key: Vec<&str> = key.split(":").collect();
-                            let rgx: String = con.hget(format!("channel:{}:moderation:blacklist:{}", channel, key[4]), "regex").expect("hget:regex");
-                            let length: String = con.hget(format!("channel:{}:moderation:blacklist:{}", channel, key[4]), "length").expect("hget:length");
-                            match RegexBuilder::new(&rgx).case_insensitive(true).build() {
-                                Err(e) => { log_error(Some(&channel), "regex_error", &e.to_string()) }
-                                Ok(rgx) => {
-                                    if rgx.is_match(&msg) {
-                                        let _ = client.send_privmsg(chan, format!("/timeout {} {}", nick, length));
-                                        if display == "true" { send_message(con.clone(), client.clone(), channel.to_owned(), format!("@{} you've been timed out for posting a blacklisted phrase", nick)); }
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // expand aliases
-                    let res: Result<String,_> = con.hget(format!("channel:{}:aliases", channel), &word);
-                    if let Ok(alias) = res {
-                        let mut awords = alias.split_whitespace();
-                        if let Some(aword) = awords.next() {
-                            let mut cargs = args.clone();
-                            let mut awords: Vec<String> = awords.map(|w| w.to_owned()).collect();
-                            awords.append(&mut cargs);
-                            word = aword.to_owned();
-                            args = awords.to_owned();
-                        }
-                    }
-
-                    // parse native commands
-                    for cmd in commands::native_commands.iter() {
-                        if format!("{}{}", prefix, cmd.0) == word {
-                            if args.len() == 0 {
-                                if !cmd.2 || auth { (cmd.1)(con.clone(), client.clone(), channel.to_owned(), args.clone(), Some(irc_message.clone())) }
-                            } else {
-                                if !cmd.3 || auth { (cmd.1)(con.clone(), client.clone(), channel.to_owned(), args.clone(), Some(irc_message.clone())) }
-                            }
-                            break;
-                        }
-                    }
-
-                    // parse custom commands
-                    let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", channel.to_owned(), word), "message");
-                    if let Ok(message) = res {
-                        let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", channel.to_owned(), word), "lastrun");
-                        let mut within5 = false;
-                        if let Ok(lastrun) = res {
-                            let timestamp = DateTime::parse_from_rfc3339(&lastrun).unwrap();
-                            let diff = Utc::now().signed_duration_since(timestamp);
-                            if diff.num_seconds() < 5 { within5 = true }
-                        }
-                        if !within5 {
-                            let mut protected: &str = "cmd";
-                            if args.len() > 0 { protected = "arg" }
-                            let protected: String = con.hget(format!("channel:{}:commands:{}", channel, word), format!("{}_protected", protected)).expect("hget:protected");
-                            if protected == "false" || auth {
-                                let _: () = con.hset(format!("channel:{}:commands:{}", channel, word), "lastrun", Utc::now().to_rfc3339()).unwrap();
-                                send_parsed_message(con.clone(), client.clone(), channel.to_owned(), message.to_owned(), args.clone(), Some(irc_message.clone()));
-                            }
-                        }
-                    }
-
-                    // parse greetings
-                    let keys: Vec<String> = con.keys(format!("channel:{}:greetings:*", channel)).unwrap();
-                    for key in keys.iter() {
-                        let key: Vec<&str> = key.split(":").collect();
-                        if key[3] == nick {
-                            let msg: String = con.hget(format!("channel:{}:greetings:{}", channel, key[3]), "message").expect("hget:message");
-                            let hours: i64 = con.hget(format!("channel:{}:greetings:{}", channel, key[3]), "hours").expect("hget:hours");
-                            let res: Result<String,_> = con.hget(format!("channel:{}:lastseen", channel), key[3]);
-                            if let Ok(lastseen) = res {
-                                let timestamp = DateTime::parse_from_rfc3339(&lastseen).unwrap();
-                                let diff = Utc::now().signed_duration_since(timestamp);
-                                if diff.num_hours() < hours { break }
-                            }
-                            send_parsed_message(con.clone(), client.clone(), channel.to_owned(), msg, Vec::new(), None);
-                            break;
-                        }
-                    }
-
-                    let _: () = con.hset(format!("channel:{}:lastseen", channel), nick, Utc::now().to_rfc3339()).unwrap();
-                }
-            }
-            _ => {}
-        }
-    });
-
-    return res;
 }
 
 fn discord_handler(channel: String) {
@@ -1071,7 +1099,8 @@ fn spawn_timers(client: Arc<IrcClient>, channel: String, receivers: Vec<Receiver
             match rsp {
                 Ok(action) => {
                     match action {
-                        ThreadAction::Kill => break
+                        ThreadAction::Kill => break,
+                        ThreadAction::Part(_) => {}
                     }
                 }
                 Err(err) => {
@@ -1112,7 +1141,8 @@ fn spawn_timers(client: Arc<IrcClient>, channel: String, receivers: Vec<Receiver
             match rsp {
                 Ok(action) => {
                     match action {
-                        ThreadAction::Kill => break
+                        ThreadAction::Kill => break,
+                        ThreadAction::Part(_) => {}
                     }
                 }
                 Err(err) => {
@@ -1258,7 +1288,8 @@ fn spawn_timers(client: Arc<IrcClient>, channel: String, receivers: Vec<Receiver
             match rsp {
                 Ok(action) => {
                     match action {
-                        ThreadAction::Kill => break
+                        ThreadAction::Kill => break,
+                        ThreadAction::Part(_) => {}
                     }
                 }
                 Err(err) => {
@@ -1346,7 +1377,8 @@ fn spawn_timers(client: Arc<IrcClient>, channel: String, receivers: Vec<Receiver
                 match rsp {
                     Ok(action) => {
                         match action {
-                            ThreadAction::Kill => break
+                            ThreadAction::Kill => break,
+                            ThreadAction::Part(_) => {}
                         }
                     }
                     Err(err) => {
@@ -1361,7 +1393,8 @@ fn spawn_timers(client: Arc<IrcClient>, channel: String, receivers: Vec<Receiver
                 match rsp {
                     Ok(action) => {
                         match action {
-                            ThreadAction::Kill => break
+                            ThreadAction::Kill => break,
+                            ThreadAction::Part(_) => {}
                         }
                     }
                     Err(err) => {

@@ -59,7 +59,7 @@
           </div>
         </form>
       </div>
-      <div class='section' id='bot' v-if='integrations.patreon.connected == "true"'>
+      <div class='section' id='bot' v-if='integrations.patreon.subscribed == "true"'>
         <div class='title is-4'>Bot</div>
         <form>
           <div class='field twitch'>
@@ -230,7 +230,7 @@
       notices: {},
       settings: {},
       blacklist: {},
-      integrations: { spotify: { token: '', connected: false } },
+      integrations: { spotify: { token: '', connected: false }, patreon: { connected: false, subscribed: false } },
       songreqs: [],
       newCmd: { name: '', message: '' },
       newNotice: { interval: '', command: ''},
@@ -241,6 +241,7 @@
     },
     created: function(){
       var vm = this;
+      window.vm = vm;
       const fetch_data = async () => {
         const data = await fetch('/api/data', {
           method: 'GET',
