@@ -61,7 +61,7 @@ fn main() {
     else {
         thread::spawn(move || { new_channel_listener() });
         thread::spawn(move || {
-            log_info!(None, "main", "starting rocket");
+            log_info(None, "main", "starting rocket");
             rocket::ignite()
               .mount("/assets", StaticFiles::from("assets"))
               .mount("/", routes![web::index, web::dashboard, web::commands, web::patreon_cb, web::patreon_refresh, web::spotify_cb, web::twitch_cb, web::twitch_cb_auth, web::public_data, web::data, web::login, web::logout, web::signup, web::password, web::title, web::game, web::new_command, web::save_command, web::trash_command, web::new_notice, web::trash_notice, web::save_setting, web::trash_setting, web::new_blacklist, web::save_blacklist, web::trash_blacklist, web::trash_song])
@@ -115,7 +115,7 @@ fn run_reactor(bots: HashMap<String, (HashSet<String>, Config)>) {
         thread::spawn(move || {
             tokio::run(lazy(move || {
                 loop {
-                    log_info(bot, "run_reactor", "connecting to irc");
+                    log_info(Some(&bot), "run_reactor", "connecting to irc");
                     let con = Arc::new(acquire_con());
                     let config = (channels.1).clone();
                     match IrcClient::from_config(config) {
@@ -128,7 +128,7 @@ fn run_reactor(bots: HashMap<String, (HashSet<String>, Config)>) {
                             let (sender, receiver) = unbounded();
                             for channel in channels.0.iter() {
                                 rename_channel_listener(channel.clone(), sender.clone());
-                                command_listener(channel.clone(), sender.clone());
+                                command_listener(channel.clone());
                             }
                             let res = run_client(client, receiver);
                             match res {
@@ -425,55 +425,58 @@ fn rename_channel_listener(channel: String, sender: Sender<ThreadAction>) {
 
         loop {
             let res = ps.get_message();
-            if let Ok(msg) = res {
-                let token: String = msg.get_payload().expect("redis:get_payload");
+            match res {
+                Err(e) => { log_error(Some(&channel), "rename_channel_listener", &e.to_string()) }
+                Ok(msg) => {
+                    let token: String = msg.get_payload().expect("redis:get_payload");
 
-                let mut settings = config::Config::default();
-                settings.merge(config::File::with_name("Settings")).unwrap();
-                settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
+                    let mut settings = config::Config::default();
+                    settings.merge(config::File::with_name("Settings")).unwrap();
+                    settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
 
-                let mut headers = header::HeaderMap::new();
-                headers.insert("Accept", HeaderValue::from_str("application/vnd.twitchtv.v5+json").unwrap());
-                headers.insert("Authorization", HeaderValue::from_str(&format!("OAuth {}", &token)).unwrap());
-                headers.insert("Client-ID", HeaderValue::from_str(&settings.get_str("client_id").unwrap()).unwrap());
+                    let mut headers = header::HeaderMap::new();
+                    headers.insert("Accept", HeaderValue::from_str("application/vnd.twitchtv.v5+json").unwrap());
+                    headers.insert("Authorization", HeaderValue::from_str(&format!("OAuth {}", &token)).unwrap());
+                    headers.insert("Client-ID", HeaderValue::from_str(&settings.get_str("client_id").unwrap()).unwrap());
 
-                let req = reqwest::Client::builder().default_headers(headers).build().unwrap();
-                let rsp = req.get("https://api.twitch.tv/kraken/user").send();
-                match rsp {
-                    Err(e) => { log_error(Some(&channel), "rename_channel_listener", &e.to_string()) }
-                    Ok(mut rsp) => {
-                        let text = rsp.text().unwrap();
-                        let json: Result<KrakenUser,_> = serde_json::from_str(&text);
-                        match json {
-                            Err(e) => {
-                                log_error(Some(&channel), "rename_channel_listener", &e.to_string());
-                                log_error(Some(&channel), "request_body", &text);
-                            }
-                            Ok(json) => {
-                                let _ = sender.send(ThreadAction::Part(channel.clone()));
+                    let req = reqwest::Client::builder().default_headers(headers).build().unwrap();
+                    let rsp = req.get("https://api.twitch.tv/kraken/user").send();
+                    match rsp {
+                        Err(e) => { log_error(Some(&channel), "rename_channel_listener", &e.to_string()) }
+                        Ok(mut rsp) => {
+                            let text = rsp.text().unwrap();
+                            let json: Result<KrakenUser,_> = serde_json::from_str(&text);
+                            match json {
+                                Err(e) => {
+                                    log_error(Some(&channel), "rename_channel_listener", &e.to_string());
+                                    log_error(Some(&channel), "request_body", &text);
+                                }
+                                Ok(json) => {
+                                    let _ = sender.send(ThreadAction::Part(channel.clone()));
 
-                                let bot: String = con.get(format!("channel:{}:bot", &channel)).expect("get:bot");
-                                let _: () = con.srem(format!("bot:{}:channels", &bot), &channel).unwrap();
-                                let _: () = con.sadd("bots", &json.name).unwrap();
-                                let _: () = con.sadd(format!("bot:{}:channels", &json.name), &channel).unwrap();
-                                let _: () = con.set(format!("bot:{}:token", &json.name), &token).unwrap();
-                                let _: () = con.set(format!("channel:{}:bot", &channel), &json.name).unwrap();
+                                    let bot: String = con.get(format!("channel:{}:bot", &channel)).expect("get:bot");
+                                    let _: () = con.srem(format!("bot:{}:channels", &bot), &channel).unwrap();
+                                    let _: () = con.sadd("bots", &json.name).unwrap();
+                                    let _: () = con.sadd(format!("bot:{}:channels", &json.name), &channel).unwrap();
+                                    let _: () = con.set(format!("bot:{}:token", &json.name), &token).unwrap();
+                                    let _: () = con.set(format!("channel:{}:bot", &channel), &json.name).unwrap();
 
-                                let mut bots: HashMap<String, (HashSet<String>, Config)> = HashMap::new();
-                                let mut channel_hash: HashSet<String> = HashSet::new();
-                                let mut channels: Vec<String> = Vec::new();
-                                channel_hash.insert(channel.to_owned());
-                                channels.extend(channel_hash.iter().cloned().map(|chan| { format!("#{}", chan) }));
-                                let config = Config {
-                                    server: Some("irc.chat.twitch.tv".to_owned()),
-                                    use_ssl: Some(true),
-                                    nickname: Some(bot.to_owned()),
-                                    password: Some(format!("oauth:{}", token)),
-                                    channels: Some(channels),
-                                    ..Default::default()
-                                };
-                                bots.insert(bot.to_owned(), (channel_hash.clone(), config));
-                                thread::spawn(move || { run_reactor(bots); });
+                                    let mut bots: HashMap<String, (HashSet<String>, Config)> = HashMap::new();
+                                    let mut channel_hash: HashSet<String> = HashSet::new();
+                                    let mut channels: Vec<String> = Vec::new();
+                                    channel_hash.insert(channel.to_owned());
+                                    channels.extend(channel_hash.iter().cloned().map(|chan| { format!("#{}", chan) }));
+                                    let config = Config {
+                                        server: Some("irc.chat.twitch.tv".to_owned()),
+                                        use_ssl: Some(true),
+                                        nickname: Some(bot.to_owned()),
+                                        password: Some(format!("oauth:{}", token)),
+                                        channels: Some(channels),
+                                        ..Default::default()
+                                    };
+                                    bots.insert(bot.to_owned(), (channel_hash.clone(), config));
+                                    thread::spawn(move || { run_reactor(bots); });
+                                }
                             }
                         }
                     }
@@ -483,68 +486,50 @@ fn rename_channel_listener(channel: String, sender: Sender<ThreadAction>) {
     });
 }
 
-fn command_listener(client: Arc<IrcClient>, channel: String, receiver: Receiver<ThreadAction>) {
+fn command_listener(channel: String) {
     thread::spawn(move || {
         let con = Arc::new(acquire_con());
         let mut conn = acquire_con();
         let mut ps = conn.as_pubsub();
-        ps.set_read_timeout(Some(time::Duration::from_secs(10)));
+        ps.subscribe(format!("channel:{}:signals:command", channel)).unwrap();
 
         loop {
-            let rsp = receiver.try_recv();
-            match rsp {
-                Ok(action) => {
-                    match action {
-                        ThreadAction::Kill => break,
-                        ThreadAction::Part(_) => {}
-                    }
-                }
-                Err(err) => {
-                    match err {
-                        TryRecvError::Disconnected => break,
-                        TryRecvError::Empty => {
-                            ps.subscribe(format!("channel:{}:signals:command", channel)).unwrap();
+            let res = ps.get_message();
+            match res {
+                Err(e) => { log_error(Some(&channel), "command_listener", &e.to_string()) }
+                Ok(msg) => {
+                    let payload: String = msg.get_payload().expect("redis:get_payload");
+                    let mut words = payload.split_whitespace();
+                    let prefix: String = con.hget(format!("channel:{}:settings", channel), "command:prefix").unwrap_or("!".to_owned());
+                    if let Some(word) = words.next() {
+                        let mut word = word.to_lowercase();
+                        let mut args: Vec<String> = words.map(|w| w.to_owned()).collect();
 
-                            let res = ps.get_message();
-                            match res {
-                                Err(_) => {}
-                                Ok(msg) => {
-                                    let payload: String = msg.get_payload().expect("redis:get_payload");
-                                    let mut words = payload.split_whitespace();
-                                    let prefix: String = con.hget(format!("channel:{}:settings", channel), "command:prefix").unwrap_or("!".to_owned());
-                                    if let Some(word) = words.next() {
-                                        let mut word = word.to_lowercase();
-                                        let mut args: Vec<String> = words.map(|w| w.to_owned()).collect();
-
-                                        // expand aliases
-                                        let res: Result<String,_> = con.hget(format!("channel:{}:aliases", channel), &word);
-                                        if let Ok(alias) = res {
-                                            let mut awords = alias.split_whitespace();
-                                            if let Some(aword) = awords.next() {
-                                                let mut cargs = args.clone();
-                                                let mut awords: Vec<String> = awords.map(|w| w.to_owned()).collect();
-                                                awords.append(&mut cargs);
-                                                word = aword.to_owned();
-                                                args = awords.to_owned();
-                                            }
-                                        }
-
-                                        // parse native commands
-                                        for cmd in commands::native_commands.iter() {
-                                            if format!("{}{}", prefix, cmd.0) == word {
-                                                (cmd.1)(con.clone(), client.clone(), channel.clone(), args.clone(), None);
-                                                break;
-                                            }
-                                        }
-
-                                        // parse custom commands
-                                        let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", channel, word), "message");
-                                        if let Ok(message) = res {
-                                            send_parsed_message(con.clone(), client.clone(), channel.clone(), message.to_owned(), args, None);
-                                        }
-                                    }
-                                }
+                        // expand aliases
+                        let res: Result<String,_> = con.hget(format!("channel:{}:aliases", channel), &word);
+                        if let Ok(alias) = res {
+                            let mut awords = alias.split_whitespace();
+                            if let Some(aword) = awords.next() {
+                                let mut cargs = args.clone();
+                                let mut awords: Vec<String> = awords.map(|w| w.to_owned()).collect();
+                                awords.append(&mut cargs);
+                                word = aword.to_owned();
+                                args = awords.to_owned();
                             }
+                        }
+
+                        // parse native commands
+                        for cmd in commands::native_commands.iter() {
+                            if format!("{}{}", prefix, cmd.0) == word {
+                                connect_and_run_command((cmd.1), con.clone(), channel.clone(), args.clone());
+                                break;
+                            }
+                        }
+
+                        // parse custom commands
+                        let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", channel, word), "message");
+                        if let Ok(message) = res {
+                            connect_and_send_message(con.clone(), channel.clone(), message);
                         }
                     }
                 }
@@ -561,7 +546,7 @@ fn discord_handler(channel: String) {
             if let Ok(token) = res {
                 let mut client = serenity::client::Client::new(&token, DiscordHandler { channel: channel.to_owned() }).unwrap();
                 client.with_framework(StandardFramework::new());
-                log_info!(channel, "discord_handler", "connecting to discord");
+                log_info(Some(&channel), "discord_handler", "connecting to discord");
                 if let Err(e) = client.start() {
                     log_error(Some(&channel), "discord_handler", &e.to_string())
                 }
@@ -682,7 +667,7 @@ fn run_commercials() {
                                 connect_and_send_message(con.clone(), channel.clone(), message);
                             }
                         }
-                        log_info(channel, "run_commercials", format!("{} commercials have been run", num));
+                        log_info(Some(&channel), "run_commercials", &format!("{} commercials have been run", num));
                         connect_and_send_message(con.clone(), channel.clone(), format!("{} commercials have been run", num));
                         let future = twitch_kraken_request(con.clone(), &channel, Some("application/json"), Some(format!("{{\"length\": {}}}", num * 30).as_bytes().to_owned()), Method::POST, &format!("https://api.twitch.tv/kraken/channels/{}/commercial", &id)).send().and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() }).map_err(|e| println!("request error: {}", e)).map(move |body| {});
                         thread::spawn(move || { tokio::run(future) });

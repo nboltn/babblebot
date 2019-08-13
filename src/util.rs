@@ -66,6 +66,28 @@ pub fn connect_and_send_message(con: Arc<Connection>, channel: String, message: 
     }
 }
 
+pub fn connect_and_run_command(cmd: fn(Arc<Connection>, Arc<IrcClient>, String, Vec<String>, Option<Message>), con: Arc<Connection>, channel: String, args: Vec<String>) {
+    let bot: String = con.get(format!("channel:{}:bot", channel)).expect("get:bot");
+    let passphrase: String = con.get(format!("bot:{}:token", bot)).expect("get:token");
+    let config = Config {
+        server: Some("irc.chat.twitch.tv".to_owned()),
+        use_ssl: Some(true),
+        nickname: Some(bot.to_owned()),
+        password: Some(format!("oauth:{}", passphrase)),
+        channels: Some(vec![format!("#{}", channel)]),
+        ping_timeout: Some(9999),
+        ..Default::default()
+    };
+
+    match IrcClient::from_config(config) {
+        Err(e) => { log_error(None, "connect_and_send_message", &e.to_string()) }
+        Ok(client) => {
+            let client = Arc::new(client);
+            (cmd)(con, client, channel, args, None);
+        }
+    }
+}
+
 pub fn send_message(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, mut message: String) {
     let auth: String = con.get(format!("channel:{}:auth", channel)).unwrap_or("false".to_owned());
     if auth == "true" {
