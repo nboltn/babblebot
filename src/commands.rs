@@ -12,9 +12,8 @@ use std::{thread,time};
 use tokio;
 use bcrypt::{DEFAULT_COST, hash};
 use regex::Regex;
-use reqwest::{Method,Error};
+use reqwest::Method;
 use reqwest::r#async::{RequestBuilder,Chunk,Decoder};
-use futures::future::Map;
 use irc::client::prelude::*;
 use chrono::{Utc, DateTime, FixedOffset, Duration};
 use humantime::format_duration;
@@ -29,7 +28,7 @@ pub const command_vars_async: [(&str, fn(Arc<Connection>, Option<Arc<IrcClient>>
 
 pub const twitch_bots: [&str; 20] = ["electricallongboard","lanfusion","cogwhistle","freddyybot","anotherttvviewer","apricotdrupefruit","skinnyseahorse","p0lizei_","xbit01","n3td3v","cachebear","icon_bot","virgoproz","v_and_k","slocool","host_giveaway","nightbot","commanderroot","p0sitivitybot","streamlabs"];
 
-fn args_var(_con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: String, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> String {
+fn args_var(_con: Arc<Connection>, _client: Option<Arc<IrcClient>>, _channel: String, _message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> String {
     if vargs.len() > 0 {
         let num: Result<usize,_> = vargs[0].parse();
         match num {
@@ -76,10 +75,9 @@ fn cmd_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: String
     "".to_owned()
 }
 
-fn uptime_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: String, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> Option<(RequestBuilder, fn(Chunk) -> String)> {
+fn uptime_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> Option<(RequestBuilder, fn(Chunk) -> String)> {
     let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
     let builder = twitch_kraken_request(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/streams?channel={}", &id));
-    let channelA = Arc::new(channel);
     let func = move |body: Chunk| -> String {
         let body = std::str::from_utf8(&body).unwrap();
         let json: Result<KrakenStreams,_> = serde_json::from_str(&body);
@@ -109,12 +107,12 @@ fn uptime_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: Str
     return Some((builder, func));
 }
 
-fn user_var(_con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: String, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> String {
+fn user_var(_con: Arc<Connection>, _client: Option<Arc<IrcClient>>, _channel: String, message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> String {
     if let Some(message) = message {
         let mut display = get_nick(&message);
         if let Some(tags) = &message.tags {
             tags.iter().for_each(|tag| {
-                if let Some(value) = &tag.1 {
+                if let Some(_value) = &tag.1 {
                     if tag.0 == "display-name" {
                         if let Some(name) = &tag.1 {
                             display = name.to_owned();
@@ -129,12 +127,12 @@ fn user_var(_con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: Stri
     }
 }
 
-fn channel_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: String, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> String {
+fn channel_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> String {
     let display: String = con.get(format!("channel:{}:display-name", channel)).expect("get:display-name");
     display
 }
 
-fn counterinc_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: String, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> String {
+fn counterinc_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, vargs: Vec<String>, _cargs: Vec<String>) -> String {
     if vargs.len() > 0 {
         let res: Result<String,_> = con.hget(format!("channel:{}:counters", channel), &vargs[0]);
         if let Ok(counter) = res {
@@ -152,7 +150,7 @@ fn counterinc_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel:
     "".to_owned()
 }
 
-fn followage_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: String, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> Option<(RequestBuilder, fn(Chunk) -> String)> {
+fn followage_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> Option<(RequestBuilder, fn(Chunk) -> String)> {
     if let Some(message) = message {
         let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
         let user_id = get_id(&message).unwrap();
@@ -161,7 +159,7 @@ fn followage_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: 
             let body = std::str::from_utf8(&body).unwrap();
             let json: Result<KrakenFollow,_> = serde_json::from_str(&body);
             match json {
-                Err(e) => { "0m".to_owned() }
+                Err(_e) => { "0m".to_owned() }
                 Ok(json) => {
                     let timestamp = DateTime::parse_from_rfc3339(&json.created_at).unwrap();
                     let diff = Utc::now().signed_duration_since(timestamp);
@@ -179,35 +177,35 @@ fn followage_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: 
     } else { None }
 }
 
-fn subcount_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: String, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> Option<(RequestBuilder, fn(Chunk) -> String)> {
+fn subcount_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> Option<(RequestBuilder, fn(Chunk) -> String)> {
     let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
     let builder = twitch_kraken_request(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/channels/{}/subscriptions", &id));
     let func = move |body: Chunk| -> String {
         let body = std::str::from_utf8(&body).unwrap();
         let json: Result<KrakenSubs,_> = serde_json::from_str(&body);
         match json {
-            Err(e) => { "0".to_owned() }
+            Err(_e) => { "0".to_owned() }
             Ok(json) => { json.total.to_string() }
         }
     };
     return Some((builder, func));
 }
 
-fn followcount_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: String, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> Option<(RequestBuilder, fn(Chunk) -> String)> {
+fn followcount_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> Option<(RequestBuilder, fn(Chunk) -> String)> {
     let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
     let builder = twitch_kraken_request(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/channels/{}/follows", &id));
     let func = move |body: Chunk| -> String {
         let body = std::str::from_utf8(&body).unwrap();
         let json: Result<KrakenFollows,_> = serde_json::from_str(&body);
         match json {
-            Err(e) => { "0".to_owned() }
+            Err(_e) => { "0".to_owned() }
             Ok(json) => { json.total.to_string() }
         }
     };
     return Some((builder, func));
 }
 
-fn counter_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: String, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> String {
+fn counter_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, vargs: Vec<String>, _cargs: Vec<String>) -> String {
     if vargs.len() > 0 {
         let res: Result<String,_> = con.hget(format!("channel:{}:counters", channel), &vargs[0]);
         if let Ok(counter) = res {
@@ -224,7 +222,7 @@ fn counter_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: St
     }
 }
 
-fn phrase_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: String, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> String {
+fn phrase_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, vargs: Vec<String>, _cargs: Vec<String>) -> String {
     if vargs.len() > 0 {
         let res: Result<String,_> = con.hget(format!("channel:{}:phrases", channel), &vargs[0]);
         if let Ok(phrase) = res {
@@ -237,7 +235,7 @@ fn phrase_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: Str
     }
 }
 
-fn date_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: String, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> String {
+fn date_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, vargs: Vec<String>, _cargs: Vec<String>) -> String {
     if vargs.len() > 0 {
         let res: Result<String,_> = con.hget(format!("channel:{}:phrases", channel), &vargs[0]);
         if let Ok(phrase) = res {
@@ -255,7 +253,7 @@ fn date_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: Strin
     }
 }
 
-fn dateinc_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: String, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> String {
+fn dateinc_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, vargs: Vec<String>, _cargs: Vec<String>) -> String {
     if vargs.len() > 1 {
         let res: Result<String,_> = con.hget(format!("channel:{}:phrases", channel), &vargs[0]);
         if let Ok(phrase) = res {
@@ -272,7 +270,7 @@ fn dateinc_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: St
     "".to_owned()
 }
 
-fn countdown_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: String, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> String {
+fn countdown_var(_con: Arc<Connection>, _client: Option<Arc<IrcClient>>, _channel: String, _message: Option<Message>, vargs: Vec<String>, _cargs: Vec<String>) -> String {
     if vargs.len() > 0 {
         let dt = DateTime::parse_from_str(&vargs[0], "%Y-%m-%dT%H:%M%z");
         if let Ok(timestamp) = dt {
@@ -296,7 +294,7 @@ fn countdown_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: 
     }
 }
 
-fn watchtime_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: String, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> String {
+fn watchtime_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> String {
     if let Some(message) = message {
         let res: Result<String,_> = con.hget(format!("channel:{}:watchtimes", channel), get_nick(&message));
         if let Ok(watchtime) = res {
@@ -321,7 +319,7 @@ fn watchtime_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: 
     }
 }
 
-fn watchrank_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: String, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> String {
+fn watchrank_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, message: Option<Message>, vargs: Vec<String>, _cargs: Vec<String>) -> String {
     if let Some(message) = message {
         let hashtimes: HashMap<String,String> = con.hgetall(format!("channel:{}:watchtimes", channel)).unwrap_or(HashMap::new());
         let mut watchtimes: Vec<(String,u64)> = Vec::new();
@@ -345,7 +343,7 @@ fn watchrank_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: 
                     } else {
                         top = watchtimes.drain(..num).collect();
                     }
-                    top.iter().map(|(n,t)| n).join(", ").to_owned()
+                    top.iter().map(|(n, _t)| n).join(", ").to_owned()
                 } else {
                     "".to_owned()
                 }
@@ -365,7 +363,7 @@ fn watchrank_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: 
     }
 }
 
-fn urlfetch_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: String, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> Option<(RequestBuilder, fn(Chunk) -> String)> {
+fn urlfetch_var(_con: Arc<Connection>, _client: Option<Arc<IrcClient>>, _channel: String, _message: Option<Message>, vargs: Vec<String>, _cargs: Vec<String>) -> Option<(RequestBuilder, fn(Chunk) -> String)> {
     if vargs.len() > 0 {
         let builder = request(Method::GET, None, &vargs[0]);
         let func = move |body: Chunk| -> String {
@@ -376,7 +374,7 @@ fn urlfetch_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: S
     } else { None }
 }
 
-fn spotify_playing_title_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: String, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> Option<(RequestBuilder, fn(Chunk) -> String)> {
+fn spotify_playing_title_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> Option<(RequestBuilder, fn(Chunk) -> String)> {
     let builder = spotify_request(con.clone(), &channel);
     let func = move |body: Chunk| -> String {
         let body = std::str::from_utf8(&body).unwrap();
@@ -393,7 +391,7 @@ fn spotify_playing_title_var(con: Arc<Connection>, client: Option<Arc<IrcClient>
     return Some((builder, func));
 }
 
-fn spotify_playing_album_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: String, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> Option<(RequestBuilder, fn(Chunk) -> String)> {
+fn spotify_playing_album_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> Option<(RequestBuilder, fn(Chunk) -> String)> {
     let builder = spotify_request(con.clone(), &channel);
     let func = move |body: Chunk| -> String {
         let body = std::str::from_utf8(&body).unwrap();
@@ -410,7 +408,7 @@ fn spotify_playing_album_var(con: Arc<Connection>, client: Option<Arc<IrcClient>
     return Some((builder, func));
 }
 
-fn spotify_playing_artist_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: String, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> Option<(RequestBuilder, fn(Chunk) -> String)> {
+fn spotify_playing_artist_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> Option<(RequestBuilder, fn(Chunk) -> String)> {
     let builder = spotify_request(con.clone(), &channel);
     let func = move |body: Chunk| -> String {
         let body = std::str::from_utf8(&body).unwrap();
@@ -427,7 +425,7 @@ fn spotify_playing_artist_var(con: Arc<Connection>, client: Option<Arc<IrcClient
     return Some((builder, func));
 }
 
-fn youtube_latest_url_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: String, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> Option<(RequestBuilder, fn(Chunk) -> String)> {
+fn youtube_latest_url_var(_con: Arc<Connection>, _client: Option<Arc<IrcClient>>, _channel: String, _message: Option<Message>, vargs: Vec<String>, _cargs: Vec<String>) -> Option<(RequestBuilder, fn(Chunk) -> String)> {
     if vargs.len() > 0 {
         let builder = request(Method::GET, None, &format!("https://decapi.me/youtube/latest_video?id={}", vargs[0]));
         let func = move |body: Chunk| -> String {
@@ -443,7 +441,7 @@ fn youtube_latest_url_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>, 
     } else { None }
 }
 
-fn youtube_latest_title_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: String, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> Option<(RequestBuilder, fn(Chunk) -> String)> {
+fn youtube_latest_title_var(_con: Arc<Connection>, _client: Option<Arc<IrcClient>>, _channel: String, _message: Option<Message>, vargs: Vec<String>, _cargs: Vec<String>) -> Option<(RequestBuilder, fn(Chunk) -> String)> {
     if vargs.len() > 0 {
         let builder = request(Method::GET, None, &format!("https://decapi.me/youtube/latest_video?id={}", vargs[0]));
         let func = move |body: Chunk| -> String {
@@ -459,56 +457,56 @@ fn youtube_latest_title_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>
     } else { None }
 }
 
-fn fortnite_wins_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: String, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> String {
+fn fortnite_wins_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> String {
     let value: String = con.hget(format!("channel:{}:stats:fortnite", channel), "wins").unwrap_or("0".to_owned());
     value
 }
 
-fn fortnite_kills_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: String, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> String {
+fn fortnite_kills_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> String {
     let value: String = con.hget(format!("channel:{}:stats:fortnite", channel), "kills").unwrap_or("0".to_owned());
     value
 }
 
-fn pubg_damage_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: String, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> String {
+fn pubg_damage_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> String {
     let value: String = con.hget(format!("channel:{}:stats:pubg", channel), "damageDealt").unwrap_or("0".to_owned());
     value
 }
 
-fn pubg_headshots_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: String, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> String {
+fn pubg_headshots_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> String {
     let value: String = con.hget(format!("channel:{}:stats:pubg", channel), "headshotKills").unwrap_or("0".to_owned());
     value
 }
 
-fn pubg_kills_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: String, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> String {
+fn pubg_kills_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> String {
     let value: String = con.hget(format!("channel:{}:stats:pubg", channel), "kills").unwrap_or("0".to_owned());
     value
 }
 
-fn pubg_roadkills_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: String, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> String {
+fn pubg_roadkills_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> String {
     let value: String = con.hget(format!("channel:{}:stats:pubg", channel), "roadKills").unwrap_or("0".to_owned());
     value
 }
 
-fn pubg_teamkills_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: String, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> String {
+fn pubg_teamkills_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> String {
     let value: String = con.hget(format!("channel:{}:stats:pubg", channel), "teamKills").unwrap_or("0".to_owned());
     value
 }
 
-fn pubg_vehicles_destroyed_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: String, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> String {
+fn pubg_vehicles_destroyed_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> String {
     let value: String = con.hget(format!("channel:{}:stats:pubg", channel), "vehicleDestroys").unwrap_or("0".to_owned());
     value
 }
 
-fn pubg_wins_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: String, message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> String {
+fn pubg_wins_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> String {
     let value: String = con.hget(format!("channel:{}:stats:pubg", channel), "wins").unwrap_or("0".to_owned());
     value
 }
 
-fn echo_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, message: Option<Message>) {
+fn echo_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, _message: Option<Message>) {
     send_message(con.clone(), client, channel, args.join(" "));
 }
 
-fn set_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, message: Option<Message>) {
+fn set_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, _message: Option<Message>) {
     match args.len() {
         0 => {}
         1 => {
@@ -522,14 +520,14 @@ fn set_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: 
     }
 }
 
-fn unset_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, message: Option<Message>) {
+fn unset_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, _message: Option<Message>) {
     if args.len() == 1 {
         let _: () = con.hdel(format!("channel:{}:settings", channel), &args[0]).unwrap();
         send_message(con.clone(), client, channel, format!("{} has been unset", &args[0]));
     }
 }
 
-fn command_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, message: Option<Message>) {
+fn command_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, _message: Option<Message>) {
     if args.len() > 1 {
         match args[0].to_lowercase().as_ref() {
             "add" => {
@@ -567,7 +565,7 @@ fn command_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, ar
     }
 }
 
-fn title_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, message: Option<Message>) {
+fn title_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, _message: Option<Message>) {
     let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
     if args.len() == 0 {
         let future = twitch_kraken_request(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/channels/{}", &id)).send()
@@ -606,7 +604,7 @@ fn title_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args
     }
 }
 
-fn game_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, message: Option<Message>) {
+fn game_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, _message: Option<Message>) {
     let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
     if args.len() == 0 {
         let future = twitch_kraken_request(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/channels/{}", &id)).send()
@@ -655,7 +653,7 @@ fn game_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args:
                                             log_error(Some(&channel), "game_cmd", &e.to_string());
                                             log_error(Some(&channel), "request_body", &body);
                                         }
-                                        Ok(json) => { send_message(con.clone(), client, channel, format!("Game is now set to: {}", &name)); }
+                                        Ok(_json) => { send_message(con.clone(), client, channel, format!("Game is now set to: {}", &name)); }
                                     }
                                 });
                             thread::spawn(move || { tokio::run(future) });
@@ -667,7 +665,7 @@ fn game_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args:
     }
 }
 
-fn notices_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, message: Option<Message>) {
+fn notices_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, _message: Option<Message>) {
     if args.len() > 1 {
         match args[0].to_lowercase().as_ref() {
             "add" => {
@@ -690,7 +688,7 @@ fn notices_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, ar
     }
 }
 
-fn moderation_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, message: Option<Message>) {
+fn moderation_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, _message: Option<Message>) {
     if args.len() > 1 {
         match args[0].to_lowercase().as_ref() {
             "links" => {
@@ -782,7 +780,7 @@ fn moderation_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String,
     }
 }
 
-fn permit_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, message: Option<Message>) {
+fn permit_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, _message: Option<Message>) {
     if args.len() > 0 {
         let nick = args[0].to_lowercase();
         let _: () = con.set(format!("channel:{}:moderation:permitted:{}", channel, nick), "").unwrap();
@@ -791,7 +789,7 @@ fn permit_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, arg
     }
 }
 
-fn clip_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, message: Option<Message>) {
+fn clip_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, _args: Vec<String>, _message: Option<Message>) {
     let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
     let future = twitch_helix_request(con.clone(), &channel, None, None, Method::POST, &format!("https://api.twitch.tv/helix/clips?broadcaster_id={}", &id)).send()
         .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
@@ -815,7 +813,7 @@ fn clip_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args:
     thread::spawn(move || { tokio::run(future) });
 }
 
-fn multi_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, message: Option<Message>) {
+fn multi_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, _message: Option<Message>) {
     if args.len() == 0 {
         let streams: HashSet<String> = con.smembers(format!("channel:{}:multi", channel)).unwrap();
         if streams.len() > 0 { let _ = client.send_privmsg(format!("#{}", channel), format!("http://multistre.am/{}/{}", channel, streams.iter().join("/"))); }
@@ -831,7 +829,7 @@ fn multi_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args
     }
 }
 
-fn counters_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, message: Option<Message>) {
+fn counters_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, _message: Option<Message>) {
     if args.len() > 1 {
         match args[0].to_lowercase().as_ref() {
             "set" => {
@@ -859,7 +857,7 @@ fn counters_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, a
     }
 }
 
-fn phrases_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, message: Option<Message>) {
+fn phrases_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, _message: Option<Message>) {
     if args.len() > 2 {
         match args[0].to_lowercase().as_ref() {
             "set" => {
@@ -871,7 +869,7 @@ fn phrases_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, ar
     }
 }
 
-fn commercials_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, message: Option<Message>) {
+fn commercials_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, _message: Option<Message>) {
     if args.len() > 1 {
         match args[0].to_lowercase().as_ref() {
             "submode" => {
@@ -899,11 +897,11 @@ fn commercials_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String
             "hourly" => {
                 let num: Result<u16,_> = args[1].parse();
                 match num {
-                    Ok(num) => {
+                    Ok(_num) => {
                         let _: () = con.set(format!("channel:{}:commercials:hourly", channel), &args[1]).unwrap();
                         send_message(con.clone(), client, channel, format!("{} commercials will be run each hour", &args[1]));
                     }
-                    Err(e) => {
+                    Err(_e) => {
                         send_message(con.clone(), client, channel, format!("{} could not be parsed as a number", &args[1]));
                     }
                 }
@@ -949,15 +947,16 @@ fn commercials_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String
                                         send_message(con.clone(), client.clone(), channel.clone(), message);
                                     }
                                 }
+                                log_info(Some(&channel), "run_commercials", &format!("{} commercials have been run", args[1]));
                                 send_message(con.clone(), client.clone(), channel.clone(), format!("{} commercials have been run", args[1]));
-                                let future = twitch_kraken_request(con.clone(), &channel, Some("application/json"), Some(format!("{{\"length\": {}}}", num * 30).as_bytes().to_owned()), Method::POST, &format!("https://api.twitch.tv/kraken/channels/{}/commercial", &id)).send().and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() }).map_err(|e| println!("request error: {}", e)).map(move |body| {});
+                                let future = twitch_kraken_request(con.clone(), &channel, Some("application/json"), Some(format!("{{\"length\": {}}}", num * 30).as_bytes().to_owned()), Method::POST, &format!("https://api.twitch.tv/kraken/channels/{}/commercial", &id)).send().and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() }).map_err(|e| println!("request error: {}", e)).map(move |_body| {});
                                 thread::spawn(move || { tokio::run(future) });
                             }
                         } else {
                             send_message(con.clone(), client.clone(), channel.clone(), format!("{} must be a number between one and six", args[1]));
                         }
                     }
-                    Err(e) => {
+                    Err(_e) => {
                         send_message(con.clone(), client.clone(), channel.clone(), format!("{} could not be parsed as a number", args[1]));
                     }
                 }
@@ -970,14 +969,13 @@ fn commercials_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String
 fn songreq_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, message: Option<Message>) {
     if let Some(message) = message {
         let nick = get_nick(&message);
-        let badges = get_badges(&message);
         if args.len() > 0 {
             match args[0].to_lowercase().as_ref() {
                 "clear" => {
                     let badges = get_badges(&message);
                     let mut auth = false;
-                    if let Some(value) = badges.get("broadcaster") { auth = true }
-                    if let Some(value) = badges.get("moderator") { auth = true }
+                    if let Some(_value) = badges.get("broadcaster") { auth = true }
+                    if let Some(_value) = badges.get("moderator") { auth = true }
                     if auth {
                         let _: () = con.del(format!("channel:{}:songreqs", channel)).unwrap();
                         let keys: Vec<String> = con.keys(format!("channel:{}:songreqs:*", channel)).unwrap();

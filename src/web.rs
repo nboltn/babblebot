@@ -69,7 +69,6 @@ pub fn dashboard(_con: RedisConnection, _auth: Auth) -> Template {
     let mut settings = config::Config::default();
     settings.merge(config::File::with_name("Settings")).unwrap();
     settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
-    let client_id = settings.get_str("client_id").unwrap_or("".to_owned());
     let context: HashMap<&str, String> = HashMap::new();
     return Template::render("dashboard", &context);
 }
@@ -124,7 +123,7 @@ pub fn twitch_cb_auth(con: RedisConnection, auth: Auth, code: String) -> Templat
 }
 
 #[get("/callbacks/twitch?<code>", rank=2)]
-pub fn twitch_cb(con: RedisConnection, code: String) -> Template {
+pub fn twitch_cb(_con: RedisConnection, code: String) -> Template {
     let mut settings = config::Config::default();
     settings.merge(config::File::with_name("Settings")).unwrap();
     settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
@@ -185,7 +184,7 @@ pub fn twitch_cb(con: RedisConnection, code: String) -> Template {
                                     context.insert("code", "".to_owned());
                                     return Template::render("index", &context);
                                 }
-                                Ok(json) => {
+                                Ok(_json) => {
                                     let mut context: HashMap<&str, String> = HashMap::new();
                                     context.insert("client_id", client_id);
                                     context.insert("code", access_token);
@@ -317,7 +316,6 @@ pub fn spotify_cb(con: RedisConnection, auth: Auth, code: String) -> Template {
     let mut settings = config::Config::default();
     settings.merge(config::File::with_name("Settings")).unwrap();
     settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
-    let client_id = settings.get_str("client_id").unwrap();
     let spotify_id = settings.get_str("spotify_id").unwrap_or("".to_owned());
     let spotify_secret = settings.get_str("spotify_secret").unwrap_or("".to_owned());
     let client = reqwest::Client::new();
@@ -426,13 +424,13 @@ pub fn data(con: RedisConnection, auth: Auth) -> Json<ApiData> {
                     integrations.insert("twitch".to_owned(), twitch);
 
                     let res: Result<String,_> = redis::cmd("GET").arg(format!("channel:{}:spotify:token", auth.channel)).query(&*con);
-                    if let Ok(token) = res { spotify.insert("connected".to_owned(), "true".to_owned()); }
+                    if let Ok(_token) = res { spotify.insert("connected".to_owned(), "true".to_owned()); }
                     else { spotify.insert("connected".to_owned(), "false".to_owned()); }
                     integrations.insert("spotify".to_owned(), spotify);
 
                     let res: Result<String,_> = redis::cmd("GET").arg(format!("channel:{}:patreon:token", auth.channel)).query(&*con);
                     let subscribed: String = redis::cmd("GET").arg(format!("channel:{}:patreon:subscribed", auth.channel)).query(&*con).unwrap_or("false".to_owned());
-                    if let Ok(token) = res { patreon.insert("connected".to_owned(), "true".to_owned()); }
+                    if let Ok(_token) = res { patreon.insert("connected".to_owned(), "true".to_owned()); }
                     else { patreon.insert("connected".to_owned(), "false".to_owned()); }
                     patreon.insert("subscribed".to_owned(), subscribed);
                     integrations.insert("patreon".to_owned(), patreon);
@@ -483,9 +481,8 @@ pub fn data(con: RedisConnection, auth: Auth) -> Json<ApiData> {
 
 #[get("/api/<channel>/public_data")]
 pub fn public_data(con: RedisConnection, channel: String) -> Json<ApiData> {
-    let id: Result<String,_> = redis::cmd("GET").arg(format!("channel:{}:id", channel)).query(&*con);
-    if let Ok(id) = id {
-        let token: String = redis::cmd("GET").arg(format!("channel:{}:token", channel)).query(&*con).unwrap();
+    let res: Result<String,_> = redis::cmd("GET").arg(format!("channel:{}:id", channel)).query(&*con);
+    if let Ok(_id) = res {
         let mut commands: HashMap<String, String> = HashMap::new();
         let fields: HashMap<String, String> = HashMap::new();
         let settings: HashMap<String, String> = HashMap::new();
@@ -658,7 +655,7 @@ pub fn title(con: RedisConnection, data: Form<ApiTitleReq>, auth: Auth) -> Json<
                     let json = ApiRsp { success: false, success_value: None, field: Some("title-field".to_owned()), error_message: Some("twitch api error".to_owned()) };
                     return Json(json);
                 }
-                Ok(json) => {
+                Ok(_json) => {
                     let json = ApiRsp { success: true, success_value: None, field: None, error_message: None };
                     return Json(json);
                 }
@@ -721,7 +718,7 @@ pub fn game(con: RedisConnection, data: Form<ApiGameReq>, auth: Auth) -> Json<Ap
                                         let json = ApiRsp { success: false, success_value: None, field: Some("game".to_owned()), error_message: Some("game not found".to_owned()) };
                                         return Json(json);
                                     }
-                                    Ok(json) => {
+                                    Ok(_json) => {
                                         let json = ApiRsp { success: true, success_value: Some(name.to_owned()), field: Some("game".to_owned()), error_message: None };
                                         return Json(json);
                                     }

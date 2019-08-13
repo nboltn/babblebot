@@ -7,13 +7,13 @@ use serenity::client::{Context, EventHandler};
 use serenity::model::channel::Message;
 use serde::{Serialize, Deserialize};
 use serde_json::Value;
-use regex::{Regex,RegexBuilder,Captures,escape};
+use regex::{Regex,Captures,escape};
 use redis::Commands;
 use rocket_contrib::database;
 use rocket_contrib::databases::redis;
 use reqwest::r#async::Decoder;
 use futures::stream::Stream;
-use futures::future::{Future,IntoFuture,join_all};
+use futures::future::{Future,join_all};
 
 pub struct DiscordHandler {
     pub channel: String
@@ -22,7 +22,6 @@ pub struct DiscordHandler {
 impl EventHandler for DiscordHandler {
     fn message(&self, ctx: Context, msg: Message) {
         let con = Arc::new(acquire_con());
-        let prefix: String = con.hget(format!("channel:{}:settings", self.channel), "command:prefix").unwrap_or("!".to_owned());
         let id: String = con.hget(format!("channel:{}:settings", self.channel), "discord:mod-channel").unwrap_or("".to_owned());
         if msg.channel_id.as_u64().to_string() == id {
             let rgx = Regex::new("<:(\\w+):\\d+>").unwrap();
@@ -31,8 +30,8 @@ impl EventHandler for DiscordHandler {
         } else {
             let mut words = msg.content.split_whitespace();
             if let Some(word) = words.next() {
-                let mut word = word.to_lowercase();
-                let mut args: Vec<String> = words.map(|w| w.to_owned()).collect();
+                let word = word.to_lowercase();
+                let args: Vec<String> = words.map(|w| w.to_owned()).collect();
                 let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", self.channel, word), "message");
                 if let Ok(mut message) = res {
                     for var in command_vars.iter() {

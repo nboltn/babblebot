@@ -6,9 +6,9 @@ use std::{thread,mem};
 use config;
 use chrono::{Utc, DateTime};
 use http::header::{self,HeaderValue};
-use reqwest::{Method,Error};
-use reqwest::r#async::{Client,RequestBuilder,Chunk,Decoder};
-use futures::future::{Future,IntoFuture,join_all};
+use reqwest::Method;
+use reqwest::r#async::{Client,RequestBuilder,Decoder};
+use futures::future::{Future,join_all};
 use irc::client::prelude::*;
 use regex::{Regex,RegexBuilder,Captures,escape};
 use redis::{self,Commands,Connection};
@@ -318,7 +318,7 @@ pub fn replace_var(var: &str, val: &str, msg: &str) -> String {
     let rgx = Regex::new(&format!("\\({}\\)", var)).unwrap();
     let mut message: String = msg.to_owned();
     for captures in rgx.captures_iter(&msg) {
-        if let Some(capture) = captures.get(0) {
+        if let Some(_capture) = captures.get(0) {
             message = rgx.replace(&message, |_: &Captures| { &val }).to_string();
         }
     }
@@ -339,7 +339,7 @@ pub fn get_id(msg: &Message) -> Option<String> {
     let mut id: Option<String> = None;
     if let Some(tags) = &msg.tags {
         tags.iter().for_each(|tag| {
-            if let Some(value) = &tag.1 {
+            if let Some(_value) = &tag.1 {
                 if tag.0 == "user-id" {
                     id = (tag.1).clone();
                 }
