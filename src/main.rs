@@ -61,6 +61,7 @@ fn main() {
     else {
         thread::spawn(move || { new_channel_listener() });
         thread::spawn(move || {
+            log_info!(None, "main", "starting rocket");
             rocket::ignite()
               .mount("/assets", StaticFiles::from("assets"))
               .mount("/", routes![web::index, web::dashboard, web::commands, web::patreon_cb, web::patreon_refresh, web::spotify_cb, web::twitch_cb, web::twitch_cb_auth, web::public_data, web::data, web::login, web::logout, web::signup, web::password, web::title, web::game, web::new_command, web::save_command, web::trash_command, web::new_notice, web::trash_notice, web::save_setting, web::trash_setting, web::new_blacklist, web::save_blacklist, web::trash_blacklist, web::trash_song])
@@ -114,6 +115,7 @@ fn run_reactor(bots: HashMap<String, (HashSet<String>, Config)>) {
         thread::spawn(move || {
             tokio::run(lazy(move || {
                 loop {
+                    log_info(bot, "run_reactor", "connecting to irc");
                     let con = Arc::new(acquire_con());
                     let config = (channels.1).clone();
                     match IrcClient::from_config(config) {
@@ -126,6 +128,7 @@ fn run_reactor(bots: HashMap<String, (HashSet<String>, Config)>) {
                             let (sender, receiver) = unbounded();
                             for channel in channels.0.iter() {
                                 rename_channel_listener(channel.clone(), sender.clone());
+                                command_listener(channel.clone(), sender.clone());
                             }
                             let res = run_client(client, receiver);
                             match res {
@@ -385,29 +388,31 @@ fn new_channel_listener() {
     ps.subscribe("new_channels").unwrap();
 
     loop {
-        let msg = ps.get_message().expect("redis:get_message");
-        let channel: String = msg.get_payload().expect("redis:get_payload");
-        let mut bots: HashMap<String, (HashSet<String>, Config)> = HashMap::new();
-        let bot: String = con.get(format!("channel:{}:bot", channel)).expect("get:bot");
-        let passphrase: String = con.get(format!("bot:{}:token", bot)).expect("get:token");
-        let mut channel_hash: HashSet<String> = HashSet::new();
-        let mut channels: Vec<String> = Vec::new();
-        channel_hash.insert(channel.to_owned());
-        channels.extend(channel_hash.iter().cloned().map(|chan| { format!("#{}", chan) }));
-        let config = Config {
-            server: Some("irc.chat.twitch.tv".to_owned()),
-            use_ssl: Some(true),
-            nickname: Some(bot.to_owned()),
-            password: Some(format!("oauth:{}", passphrase)),
-            channels: Some(channels),
-            ping_timeout: Some(9999),
-            ..Default::default()
-        };
-        bots.insert(bot.to_owned(), (channel_hash.clone(), config));
-        for channel in channel_hash.iter() {
-            discord_handler(channel.to_owned());
+        let res = ps.get_message();
+        if let Ok(msg) = res {
+            let channel: String = msg.get_payload().expect("redis:get_payload");
+            let mut bots: HashMap<String, (HashSet<String>, Config)> = HashMap::new();
+            let bot: String = con.get(format!("channel:{}:bot", channel)).expect("get:bot");
+            let passphrase: String = con.get(format!("bot:{}:token", bot)).expect("get:token");
+            let mut channel_hash: HashSet<String> = HashSet::new();
+            let mut channels: Vec<String> = Vec::new();
+            channel_hash.insert(channel.to_owned());
+            channels.extend(channel_hash.iter().cloned().map(|chan| { format!("#{}", chan) }));
+            let config = Config {
+                server: Some("irc.chat.twitch.tv".to_owned()),
+                use_ssl: Some(true),
+                nickname: Some(bot.to_owned()),
+                password: Some(format!("oauth:{}", passphrase)),
+                channels: Some(channels),
+                ping_timeout: Some(9999),
+                ..Default::default()
+            };
+            bots.insert(bot.to_owned(), (channel_hash.clone(), config));
+            for channel in channel_hash.iter() {
+                discord_handler(channel.to_owned());
+            }
+            thread::spawn(move || { run_reactor(bots); });
         }
-        thread::spawn(move || { run_reactor(bots); });
     }
 }
 
@@ -556,9 +561,9 @@ fn discord_handler(channel: String) {
             if let Ok(token) = res {
                 let mut client = serenity::client::Client::new(&token, DiscordHandler { channel: channel.to_owned() }).unwrap();
                 client.with_framework(StandardFramework::new());
-
+                log_info!(channel, "discord_handler", "connecting to discord");
                 if let Err(e) = client.start() {
-                    log_error(Some(&channel), "discord_hanler", &e.to_string())
+                    log_error(Some(&channel), "discord_handler", &e.to_string())
                 }
             }
             thread::sleep(time::Duration::from_secs(10));
@@ -677,6 +682,7 @@ fn run_commercials() {
                                 connect_and_send_message(con.clone(), channel.clone(), message);
                             }
                         }
+                        log_info(channel, "run_commercials", format!("{} commercials have been run", num));
                         connect_and_send_message(con.clone(), channel.clone(), format!("{} commercials have been run", num));
                         let future = twitch_kraken_request(con.clone(), &channel, Some("application/json"), Some(format!("{{\"length\": {}}}", num * 30).as_bytes().to_owned()), Method::POST, &format!("https://api.twitch.tv/kraken/channels/{}/commercial", &id)).send().and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() }).map_err(|e| println!("request error: {}", e)).map(move |body| {});
                         thread::spawn(move || { tokio::run(future) });
