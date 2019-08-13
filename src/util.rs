@@ -60,6 +60,7 @@ pub fn connect_and_send_message(con: Arc<Connection>, channel: String, message: 
         Err(e) => { log_error(None, "connect_and_send_message", &e.to_string()) }
         Ok(client) => {
             let client = Arc::new(client);
+            let _ = client.identify();
             send_parsed_message(con, client.clone(), channel, message, Vec::new(), None);
             let _ = client.send_quit("");
         }
@@ -83,7 +84,9 @@ pub fn connect_and_run_command(cmd: fn(Arc<Connection>, Arc<IrcClient>, String, 
         Err(e) => { log_error(None, "connect_and_send_message", &e.to_string()) }
         Ok(client) => {
             let client = Arc::new(client);
-            (cmd)(con, client, channel, args, None);
+            let _ = client.identify();
+            (cmd)(con, client.clone(), channel, args, None);
+            let _ = client.send_quit("");
         }
     }
 }
