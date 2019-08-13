@@ -682,6 +682,7 @@ fn run_commercials() {
     });
 }
 
+// TODO: refresh_patreon
 fn update_patreon() {
     thread::spawn(move || {
         let con = Arc::new(acquire_con());

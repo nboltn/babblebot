@@ -229,13 +229,13 @@ pub fn patreon_cb(con: RedisConnection, code: String, state: String) -> Template
                     let client = reqwest::Client::new();
                     let rsp = client.get("https://www.patreon.com/api/oauth2/v2/identity?include=memberships").header(header::ACCEPT, "application/vnd.api+json").header(header::AUTHORIZATION, format!("Bearer {}", &json.access_token)).send();
                     match rsp {
-                        Err(e) => { log_error(None, "patreon_refresh", &e.to_string()) }
+                        Err(e) => { log_error(None, "patreon_cb", &e.to_string()) }
                         Ok(mut rsp) => {
                             let body = rsp.text().unwrap();
                             let json: Result<PatreonIdentity,_> = serde_json::from_str(&body);
                             match json {
                                 Err(e) => {
-                                    log_error(Some(&state), "patreon_refresh", &e.to_string());
+                                    log_error(Some(&state), "patreon_cb", &e.to_string());
                                     log_error(Some(&state), "request_body", &body);
                                 }
                                 Ok(json) => {
@@ -246,7 +246,10 @@ pub fn patreon_cb(con: RedisConnection, code: String, state: String) -> Template
 
                                     let mut subscribed = false;
                                     for membership in &json.data.relationships.memberships.data {
-                                        if membership.id == patreon_id { subscribed = true }
+                                        if membership.id == patreon_id {
+                                            subscribed = true;
+                                            break;
+                                        }
                                     }
 
                                     if subscribed { redis::cmd("set").arg(format!("channel:{}:patreon:subscribed", &state)).arg("true").execute(&*con) }

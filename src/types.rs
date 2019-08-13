@@ -1,15 +1,19 @@
 use crate::util::*;
-
+use crate::commands::*;
+use std::{thread,mem};
 use std::collections::HashMap;
 use std::sync::Arc;
 use serenity::client::{Context, EventHandler};
 use serenity::model::channel::Message;
 use serde::{Serialize, Deserialize};
 use serde_json::Value;
-use regex::{Regex,RegexBuilder,Captures};
+use regex::{Regex,RegexBuilder,Captures,escape};
+use redis::Commands;
 use rocket_contrib::database;
 use rocket_contrib::databases::redis;
-use redis::Commands;
+use reqwest::r#async::Decoder;
+use futures::stream::Stream;
+use futures::future::{Future,IntoFuture,join_all};
 
 pub struct DiscordHandler {
     pub channel: String
@@ -22,7 +26,7 @@ impl EventHandler for DiscordHandler {
         let id: String = con.hget(format!("channel:{}:settings", self.channel), "discord:mod-channel").unwrap_or("".to_owned());
         if msg.channel_id.as_u64().to_string() == id {
             let rgx = Regex::new("<:(\\w+):\\d+>").unwrap();
-            let content = rgx.replace_all(&msg.content, |caps: &Captures| { if let Some(emote) = caps.get(1) { emote.as_str() } else { "" } }).to_string();
+            let content = rgx.replace_all(&msg.content, |caps: &Captures| { if let Some(emote) = caps.get(1) { emote.as_str().to_owned() } else { "".to_owned() } }).to_string();
             let _: () = con.publish(format!("channel:{}:signals:command", self.channel), content).unwrap();
         } else {
             let mut words = msg.content.split_whitespace();
@@ -30,11 +34,36 @@ impl EventHandler for DiscordHandler {
                 let mut word = word.to_lowercase();
                 let mut args: Vec<String> = words.map(|w| w.to_owned()).collect();
                 let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", self.channel, word), "message");
-                if let Ok(message) = res {
-                    let mut message = message;
-                    // TODO: reimplement
-                    // message = parse_message(&message, self.pool.clone(), con.clone(), None, &self.channel, None, args);
-                    let _ = msg.channel_id.say(&ctx.http, message);
+                if let Ok(mut message) = res {
+                    for var in command_vars.iter() {
+                        message = parse_var(var, &message, con.clone(), None, self.channel.clone(), None, args.clone());
+                    }
+
+                    let mut futures = Vec::new();
+                    let mut regexes: Vec<String> = Vec::new();
+                    for var in command_vars_async.iter() {
+                        let rgx = Regex::new(&format!("\\({} ?((?:[\\w\\-\\?\\._:/&!= ]+)*)\\)", var.0)).unwrap();
+                        for captures in rgx.captures_iter(&message) {
+                            if let (Some(capture), Some(vargs)) = (captures.get(0), captures.get(1)) {
+                                let vargs: Vec<String> = vargs.as_str().split_whitespace().map(|str| str.to_owned()).collect();
+                                if let Some((builder, func)) = (var.1)(con.clone(), None, self.channel.clone(), None, vargs.clone(), args.clone()) {
+                                    let future = builder.send().and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() }).map(func);
+                                    futures.push(future);
+                                    regexes.push(capture.as_str().to_owned());
+                                }
+                            }
+                        }
+                    }
+
+                    thread::spawn(move || {
+                        let mut core = tokio_core::reactor::Core::new().unwrap();
+                        let work = join_all(futures);
+                        for (i,res) in core.run(work).unwrap().into_iter().enumerate() {
+                            let rgx = Regex::new(&escape(&regexes[i])).unwrap();
+                            message = rgx.replace(&message, |_: &Captures| { &res }).to_string();
+                        }
+                        let _ = msg.channel_id.say(&ctx.http, message);
+                    });
                 }
             }
         }

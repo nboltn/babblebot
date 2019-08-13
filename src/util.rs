@@ -16,8 +16,8 @@ use redis::{self,Commands,Connection};
 pub fn log_info(channel: Option<&str>, descriptor: &str, content: &str) {
     let timestamp = Utc::now().to_rfc3339();
     match channel {
-        None => info!("[{}] [{}] [{}]", timestamp, descriptor, content),
-        Some(channel) => info!("[{}] [{}] [{}] [{}]", timestamp, channel, descriptor, content)
+        None => info!("[{}] [{}] {}", timestamp, descriptor, content),
+        Some(channel) => info!("[{}] [{}] [{}] {}", timestamp, channel, descriptor, content)
     }
 }
 
