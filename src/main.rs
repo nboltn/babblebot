@@ -742,7 +742,7 @@ fn refresh_patreon() {
                 let channelC = channel.clone();
                 let res: Result<String,_> = con.get(format!("channel:{}:patreon:refresh", &channel));
                 if let Ok(token) = res {
-                    let future = spotify_refresh(con.clone(), &channel, Method::POST, "https://www.patreon.com/api/oauth2/token", Some(format!("grant_type=refresh_token&refresh_token={}", token).as_bytes().to_owned())).send()
+                    let future = patreon_refresh(con.clone(), &channel, Method::POST, "https://www.patreon.com/api/oauth2/token", Some(format!("grant_type=refresh_token&refresh_token={}", token).as_bytes().to_owned())).send()
                         .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                         .map_err(move |e| log_error(Some(&channelC), "refresh_patreon", &e.to_string()))
                         .map(move |body| {
@@ -751,7 +751,7 @@ fn refresh_patreon() {
                             let json: Result<PatreonRsp,_> = serde_json::from_str(&body);
                             match json {
                                 Err(e) => {
-                                    log_error(Some(&channel), "update_patreon", &e.to_string());
+                                    log_error(Some(&channel), "refresh_patreon", &e.to_string());
                                     log_error(Some(&channel), "request_body", &body);
                                 }
                                 Ok(json) => {
