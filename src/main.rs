@@ -756,7 +756,7 @@ fn refresh_patreon() {
                                 }
                                 Ok(json) => {
                                     let _: () = con.set(format!("channel:{}:patreon:token", &channel), &json.access_token).unwrap();
-                                    let _: () = con.set(format!("channel:{}:patreon:token", &channel), &json.refresh_token).unwrap();
+                                    let _: () = con.set(format!("channel:{}:patreon:refresh", &channel), &json.refresh_token).unwrap();
                                 }
                             }
                         });

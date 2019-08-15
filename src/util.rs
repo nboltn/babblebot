@@ -231,7 +231,6 @@ pub fn twitch_helix_request(con: Arc<Connection>, channel: &str, content: Option
 pub fn patreon_request(con: Arc<Connection>, channel: &str, method: Method, url: &str) -> RequestBuilder {
     let token: String = con.get(format!("channel:{}:patreon:token", channel)).unwrap_or("".to_owned());
     let mut headers = header::HeaderMap::new();
-    headers.insert("Accept", HeaderValue::from_str("application/vnd.api+json").unwrap());
     headers.insert("Authorization", HeaderValue::from_str(&format!("Bearer {}", token)).unwrap());
 
     let client = Client::builder().default_headers(headers).build().unwrap();
