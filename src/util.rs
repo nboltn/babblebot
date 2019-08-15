@@ -3,6 +3,7 @@ use crate::commands::*;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::{thread,mem};
+use base64;
 use config;
 use chrono::{Utc, DateTime};
 use http::header::{self,HeaderValue};
@@ -243,6 +244,26 @@ pub fn spotify_request(con: Arc<Connection>, channel: &str, method: Method, url:
     let mut headers = header::HeaderMap::new();
     headers.insert("Accept", HeaderValue::from_str("application/vnd.api+json").unwrap());
     headers.insert("Authorization", HeaderValue::from_str(&format!("Bearer {}", token)).unwrap());
+
+    let client = Client::builder().default_headers(headers).build().unwrap();
+    let mut builder = client.request(method, url);
+    if let Some(body) = body { builder = builder.body(body); }
+    return builder;
+}
+
+pub fn spotify_refresh(con: Arc<Connection>, channel: &str, method: Method, url: &str, body: Option<Vec<u8>>) -> RequestBuilder {
+    let mut settings = config::Config::default();
+    settings.merge(config::File::with_name("Settings")).unwrap();
+    settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
+    let r1 = settings.get_str("spotify_id");
+    let r2 = settings.get_str("spotify_secret");
+
+    let mut headers = header::HeaderMap::new();
+    if let (Ok(id), Ok(secret)) = (r1, r2) {
+        headers.insert("Authorization", HeaderValue::from_str(&format!("Basic {}", base64::encode(&format!("{}:{}",id,secret)))).unwrap());
+    }
+    headers.insert("Accept", HeaderValue::from_str("application/vnd.api+json").unwrap());
+
 
     let client = Client::builder().default_headers(headers).build().unwrap();
     let mut builder = client.request(method, url);

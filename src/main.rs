@@ -742,13 +742,7 @@ fn update_spotify() {
                 let channelC = channel.clone();
                 let res: Result<String,_> = con.get(format!("channel:{}:spotify:refresh", &channel));
                 if let Ok(token) = res {
-                    let mut settings = config::Config::default();
-                    settings.merge(config::File::with_name("Settings")).unwrap();
-                    settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
-                    let spotify_id = settings.get_str("spotify_id").unwrap_or("".to_owned());
-                    let spotify_secret = settings.get_str("spotify_secret").unwrap_or("".to_owned());
-
-                    let future = spotify_request(con.clone(), &channel, Method::POST, "https://accounts.spotify.com/api/token", Some(format!("grant_type=refresh_token&refresh_token={}&client_id={}&client_secret={}", token, spotify_id, spotify_secret).as_bytes().to_owned())).send()
+                    let future = spotify_refresh(con.clone(), &channel, Method::POST, "https://accounts.spotify.com/api/token", Some(format!("grant_type=refresh_token&refresh_token={}", token).as_bytes().to_owned())).send()
                         .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                         .map_err(move |e| log_error(Some(&channelC), "update_spotify", &e.to_string()))
                         .map(move |body| {
