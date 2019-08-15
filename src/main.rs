@@ -681,7 +681,6 @@ fn run_commercials() {
     });
 }
 
-// TODO: refresh_patreon
 fn update_patreon() {
     thread::spawn(move || {
         let con = Arc::new(acquire_con());
@@ -743,7 +742,7 @@ fn refresh_patreon() {
                 let channelC = channel.clone();
                 let res: Result<String,_> = con.get(format!("channel:{}:patreon:refresh", &channel));
                 if let Ok(token) = res {
-                    let future = spotify_refresh(con.clone(), &channel, Method::POST, "www.patreon.com/api/oauth2/token", Some(format!("grant_type=refresh_token&refresh_token={}", token).as_bytes().to_owned())).send()
+                    let future = spotify_refresh(con.clone(), &channel, Method::POST, "https://www.patreon.com/api/oauth2/token", Some(format!("grant_type=refresh_token&refresh_token={}", token).as_bytes().to_owned())).send()
                         .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                         .map_err(move |e| log_error(Some(&channelC), "refresh_patreon", &e.to_string()))
                         .map(move |body| {
