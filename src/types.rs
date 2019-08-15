@@ -117,7 +117,6 @@ pub struct TwitchRsp {
     pub access_token: String,
     pub token_type: String,
     pub scope: Vec<String>,
-    pub expires_in: i64,
     pub refresh_token: String
 }
 
@@ -126,7 +125,6 @@ pub struct SpotifyRsp {
     pub access_token: String,
     pub token_type: String,
     pub scope: String,
-    pub expires_in: i64,
     pub refresh_token: String
 }
 
@@ -134,8 +132,7 @@ pub struct SpotifyRsp {
 pub struct SpotifyRefresh {
     pub access_token: String,
     pub token_type: String,
-    pub scope: String,
-    pub expires_in: i64
+    pub scope: String
 }
 
 #[derive(Debug, Deserialize)]
@@ -143,7 +140,6 @@ pub struct PatreonRsp {
     pub access_token: String,
     pub token_type: String,
     pub scope: String,
-    pub expires_in: i64,
     pub refresh_token: String
 }
 

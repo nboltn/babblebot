@@ -96,8 +96,9 @@ fn main() {
             update_live();
             update_stats();
             update_watchtime();
-            update_patreon();
             update_spotify();
+            update_patreon();
+            refresh_patreon();
             run_notices();
             run_commercials();
             run_reactor(bots);
@@ -729,6 +730,41 @@ fn update_patreon() {
                 }
             }
             thread::sleep(time::Duration::from_secs(3600));
+        }
+    });
+}
+
+fn refresh_patreon() {
+    thread::spawn(move || {
+        let con = Arc::new(acquire_con());
+        loop {
+            let channels: Vec<String> = con.smembers("channels").unwrap_or(Vec::new());
+            for channel in channels {
+                let channelC = channel.clone();
+                let res: Result<String,_> = con.get(format!("channel:{}:patreon:refresh", &channel));
+                if let Ok(token) = res {
+                    let future = spotify_refresh(con.clone(), &channel, Method::POST, "www.patreon.com/api/oauth2/token", Some(format!("grant_type=refresh_token&refresh_token={}", token).as_bytes().to_owned())).send()
+                        .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
+                        .map_err(move |e| log_error(Some(&channelC), "refresh_patreon", &e.to_string()))
+                        .map(move |body| {
+                            let con = Arc::new(acquire_con());
+                            let body = std::str::from_utf8(&body).unwrap();
+                            let json: Result<PatreonRsp,_> = serde_json::from_str(&body);
+                            match json {
+                                Err(e) => {
+                                    log_error(Some(&channel), "update_patreon", &e.to_string());
+                                    log_error(Some(&channel), "request_body", &body);
+                                }
+                                Ok(json) => {
+                                    let _: () = con.set(format!("channel:{}:patreon:token", &channel), &json.access_token).unwrap();
+                                    let _: () = con.set(format!("channel:{}:patreon:token", &channel), &json.refresh_token).unwrap();
+                                }
+                            }
+                        });
+                    thread::spawn(move || { tokio::run(future) });
+                }
+            }
+            thread::sleep(time::Duration::from_secs(2592000));
         }
     });
 }

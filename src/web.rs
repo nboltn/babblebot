@@ -259,7 +259,6 @@ pub fn patreon_cb(con: RedisConnection, code: String, state: String) -> Template
 
                     redis::cmd("set").arg(format!("channel:{}:patreon:token", &state)).arg(&json.access_token).execute(&*con);
                     redis::cmd("set").arg(format!("channel:{}:patreon:refresh", &state)).arg(&json.refresh_token).execute(&*con);
-                    redis::cmd("set").arg(format!("channel:{}:patreon:expires", &state)).arg(&json.expires_in.to_string()).execute(&*con);
                     let context: HashMap<&str, String> = HashMap::new();
                     return Template::render("dashboard", &context);
                 }
@@ -339,7 +338,6 @@ pub fn spotify_cb(con: RedisConnection, auth: Auth, code: String) -> Template {
                 Ok(json) => {
                     redis::cmd("set").arg(format!("channel:{}:spotify:token", &auth.channel)).arg(&json.access_token).execute(&*con);
                     redis::cmd("set").arg(format!("channel:{}:spotify:refresh", &auth.channel)).arg(&json.refresh_token).execute(&*con);
-                    redis::cmd("set").arg(format!("channel:{}:spotify:expires", &auth.channel)).arg(&json.expires_in.to_string()).execute(&*con);
                     let context: HashMap<&str, String> = HashMap::new();
                     return Template::render("dashboard", &context);
                 }

@@ -239,6 +239,24 @@ pub fn patreon_request(con: Arc<Connection>, channel: &str, method: Method, url:
     return builder;
 }
 
+pub fn patreon_refresh(con: Arc<Connection>, channel: &str, method: Method, url: &str, body: Option<Vec<u8>>) -> RequestBuilder {
+    let mut settings = config::Config::default();
+    settings.merge(config::File::with_name("Settings")).unwrap();
+    settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
+    let id = settings.get_str("patreon_id").unwrap_or("".to_owned());
+    let secret = settings.get_str("patreon_secret").unwrap_or("".to_owned());
+
+    let mut headers = header::HeaderMap::new();
+    headers.insert("Content-Type", HeaderValue::from_str("application/x-www-form-urlencoded").unwrap());
+    headers.insert("Authorization", HeaderValue::from_str(&format!("Basic {}", base64::encode(&format!("{}:{}",id,secret)))).unwrap());
+
+
+    let client = Client::builder().default_headers(headers).build().unwrap();
+    let mut builder = client.request(method, url);
+    if let Some(body) = body { builder = builder.body(body); }
+    return builder;
+}
+
 pub fn spotify_request(con: Arc<Connection>, channel: &str, method: Method, url: &str, body: Option<Vec<u8>>) -> RequestBuilder {
     let token: String = con.get(format!("channel:{}:spotify:token", channel)).unwrap_or("".to_owned());
     let mut headers = header::HeaderMap::new();
