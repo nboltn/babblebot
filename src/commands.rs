@@ -375,7 +375,7 @@ fn urlfetch_var(_con: Arc<Connection>, _client: Option<Arc<IrcClient>>, _channel
 }
 
 fn spotify_playing_title_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> Option<(RequestBuilder, fn(Chunk) -> String)> {
-    let builder = spotify_request(con.clone(), &channel);
+    let builder = spotify_request(con.clone(), &channel, Method::GET, "https://api.spotify.com/v1/me/player/currently-playing", None);
     let func = move |body: Chunk| -> String {
         let body = std::str::from_utf8(&body).unwrap();
         let json: Result<SpotifyPlaying,_> = serde_json::from_str(&body);
@@ -392,7 +392,7 @@ fn spotify_playing_title_var(con: Arc<Connection>, _client: Option<Arc<IrcClient
 }
 
 fn spotify_playing_album_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> Option<(RequestBuilder, fn(Chunk) -> String)> {
-    let builder = spotify_request(con.clone(), &channel);
+    let builder = spotify_request(con.clone(), &channel, Method::GET, "https://api.spotify.com/v1/me/player/currently-playing", None);
     let func = move |body: Chunk| -> String {
         let body = std::str::from_utf8(&body).unwrap();
         let json: Result<SpotifyPlaying,_> = serde_json::from_str(&body);
@@ -409,7 +409,7 @@ fn spotify_playing_album_var(con: Arc<Connection>, _client: Option<Arc<IrcClient
 }
 
 fn spotify_playing_artist_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> Option<(RequestBuilder, fn(Chunk) -> String)> {
-    let builder = spotify_request(con.clone(), &channel);
+    let builder = spotify_request(con.clone(), &channel, Method::GET, "https://api.spotify.com/v1/me/player/currently-playing", None);
     let func = move |body: Chunk| -> String {
         let body = std::str::from_utf8(&body).unwrap();
         let json: Result<SpotifyPlaying,_> = serde_json::from_str(&body);

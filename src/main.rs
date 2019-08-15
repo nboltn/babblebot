@@ -97,6 +97,7 @@ fn main() {
             update_stats();
             update_watchtime();
             update_patreon();
+            update_spotify();
             run_notices();
             run_commercials();
             run_reactor(bots);
@@ -721,6 +722,40 @@ fn update_patreon() {
                                             let _: () = con.publish(format!("channel:{}:signals:rename", &channel), token).unwrap();
                                         }
                                     }
+                                }
+                            }
+                        });
+                    thread::spawn(move || { tokio::run(future) });
+                }
+            }
+            thread::sleep(time::Duration::from_secs(3600));
+        }
+    });
+}
+
+fn update_spotify() {
+    thread::spawn(move || {
+        let con = Arc::new(acquire_con());
+        loop {
+            let channels: Vec<String> = con.smembers("channels").unwrap_or(Vec::new());
+            for channel in channels {
+                let channelC = channel.clone();
+                let res: Result<String,_> = con.get(format!("channel:{}:spotify:refresh", &channel));
+                if let Ok(token) = res {
+                    let future = spotify_request(con.clone(), &channel, Method::POST, "https://accounts.spotify.com/api/token", Some(format!("grant_type=refresh_token&refresh_token={}", token).as_bytes().to_owned())).send()
+                        .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
+                        .map_err(move |e| log_error(Some(&channelC), "update_spotify", &e.to_string()))
+                        .map(move |body| {
+                            let con = Arc::new(acquire_con());
+                            let body = std::str::from_utf8(&body).unwrap();
+                            let json: Result<SpotifyRefresh,_> = serde_json::from_str(&body);
+                            match json {
+                                Err(e) => {
+                                    log_error(Some(&channel), "update_spotify", &e.to_string());
+                                    log_error(Some(&channel), "request_body", &body);
+                                }
+                                Ok(json) => {
+                                    let _: () = con.set(format!("channel:{}:spotify:token", &channel), &json.access_token).unwrap();
                                 }
                             }
                         });

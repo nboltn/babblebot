@@ -238,14 +238,15 @@ pub fn patreon_request(con: Arc<Connection>, channel: &str, method: Method, url:
     return builder;
 }
 
-pub fn spotify_request(con: Arc<Connection>, channel: &str) -> RequestBuilder {
+pub fn spotify_request(con: Arc<Connection>, channel: &str, method: Method, url: &str, body: Option<Vec<u8>>) -> RequestBuilder {
     let token: String = con.get(format!("channel:{}:spotify:token", channel)).unwrap_or("".to_owned());
     let mut headers = header::HeaderMap::new();
     headers.insert("Accept", HeaderValue::from_str("application/vnd.api+json").unwrap());
     headers.insert("Authorization", HeaderValue::from_str(&format!("Bearer {}", token)).unwrap());
 
     let client = Client::builder().default_headers(headers).build().unwrap();
-    let builder = client.get("https://api.spotify.com/v1/me/player/currently-playing");
+    let mut builder = client.request(method, url);
+    if let Some(body) = body { builder = builder.body(body); }
     return builder;
 }
 
