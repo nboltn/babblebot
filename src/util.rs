@@ -255,14 +255,12 @@ pub fn spotify_refresh(con: Arc<Connection>, channel: &str, method: Method, url:
     let mut settings = config::Config::default();
     settings.merge(config::File::with_name("Settings")).unwrap();
     settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
-    let r1 = settings.get_str("spotify_id");
-    let r2 = settings.get_str("spotify_secret");
+    let id = settings.get_str("spotify_id").unwrap_or("".to_owned());
+    let secret = settings.get_str("spotify_secret").unwrap_or("".to_owned());
 
     let mut headers = header::HeaderMap::new();
-    if let (Ok(id), Ok(secret)) = (r1, r2) {
-        headers.insert("Authorization", HeaderValue::from_str(&format!("Basic {}", base64::encode(&format!("{}:{}",id,secret)))).unwrap());
-    }
-    headers.insert("Accept", HeaderValue::from_str("application/vnd.api+json").unwrap());
+    headers.insert("Content-Type", HeaderValue::from_str("application/x-www-form-urlencoded").unwrap());
+    headers.insert("Authorization", HeaderValue::from_str(&format!("Basic {}", base64::encode(&format!("{}:{}",id,secret)))).unwrap());
 
 
     let client = Client::builder().default_headers(headers).build().unwrap();
