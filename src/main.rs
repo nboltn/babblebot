@@ -639,37 +639,36 @@ fn run_commercials() {
                             if diff.num_minutes() <= 9 {
                                 within8 = true;
                             }
-                            if within8 {
-                                thread::sleep(time::Duration::from_secs((9 - (diff.num_minutes() as u64)) * 30));
+                        }
+                        if !within8 {
+                            let id: String = con.get(format!("channel:{}:id", channel)).unwrap();
+                            let submode: String = con.get(format!("channel:{}:commercials:submode", channel)).unwrap_or("false".to_owned());
+                            let nres: Result<String,_> = con.get(format!("channel:{}:commercials:notice", channel));
+                            let length: u16 = con.llen(format!("channel:{}:commercials:recent", channel)).unwrap();
+                            let _: () = con.lpush(format!("channel:{}:commercials:recent", channel), format!("{} {}", Utc::now().to_rfc3339(), num)).unwrap();
+                            if length > 7 {
+                                let _: () = con.rpop(format!("channel:{}:commercials:recent", channel)).unwrap();
                             }
-                        }
-                        let id: String = con.get(format!("channel:{}:id", channel)).unwrap();
-                        let submode: String = con.get(format!("channel:{}:commercials:submode", channel)).unwrap_or("false".to_owned());
-                        let nres: Result<String,_> = con.get(format!("channel:{}:commercials:notice", channel));
-                        let length: u16 = con.llen(format!("channel:{}:commercials:recent", channel)).unwrap();
-                        let _: () = con.lpush(format!("channel:{}:commercials:recent", channel), format!("{} {}", Utc::now().to_rfc3339(), num)).unwrap();
-                        if length > 7 {
-                            let _: () = con.rpop(format!("channel:{}:commercials:recent", channel)).unwrap();
-                        }
-                        if submode == "true" {
-                            let channelC = String::from(channel.clone());
-                            connect_and_send_message(con.clone(), channel.clone(), "/subscribers".to_owned());
-                            thread::spawn(move || {
-                                let con = Arc::new(acquire_con());
-                                thread::sleep(time::Duration::from_secs(num * 30));
-                                connect_and_send_message(con, channelC, "/subscribersoff".to_owned());
-                            });
-                        }
-                        if let Ok(notice) = nres {
-                            let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", channel, notice), "message");
-                            if let Ok(message) = res {
-                                connect_and_send_message(con.clone(), channel.clone(), message);
+                            if submode == "true" {
+                                let channelC = String::from(channel.clone());
+                                connect_and_send_message(con.clone(), channel.clone(), "/subscribers".to_owned());
+                                thread::spawn(move || {
+                                    let con = Arc::new(acquire_con());
+                                    thread::sleep(time::Duration::from_secs(num * 30));
+                                    connect_and_send_message(con, channelC, "/subscribersoff".to_owned());
+                                });
                             }
+                            if let Ok(notice) = nres {
+                                let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", channel, notice), "message");
+                                if let Ok(message) = res {
+                                    connect_and_send_message(con.clone(), channel.clone(), message);
+                                }
+                            }
+                            log_info(Some(&channel), "run_commercials", &format!("{} commercials have been run", num));
+                            connect_and_send_message(con.clone(), channel.clone(), format!("{} commercials have been run", num));
+                            let future = twitch_kraken_request(con.clone(), &channel, Some("application/json"), Some(format!("{{\"length\": {}}}", num * 30).as_bytes().to_owned()), Method::POST, &format!("https://api.twitch.tv/kraken/channels/{}/commercial", &id)).send().and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() }).map_err(|e| println!("request error: {}", e)).map(move |_body| {});
+                            thread::spawn(move || { tokio::run(future) });
                         }
-                        log_info(Some(&channel), "run_commercials", &format!("{} commercials have been run", num));
-                        connect_and_send_message(con.clone(), channel.clone(), format!("{} commercials have been run", num));
-                        let future = twitch_kraken_request(con.clone(), &channel, Some("application/json"), Some(format!("{{\"length\": {}}}", num * 30).as_bytes().to_owned()), Method::POST, &format!("https://api.twitch.tv/kraken/channels/{}/commercial", &id)).send().and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() }).map_err(|e| println!("request error: {}", e)).map(move |_body| {});
-                        thread::spawn(move || { tokio::run(future) });
                     }
                 }
             }
