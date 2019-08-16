@@ -671,12 +671,9 @@ fn run_commercials() {
                         let future = twitch_kraken_request(con.clone(), &channel, Some("application/json"), Some(format!("{{\"length\": {}}}", num * 30).as_bytes().to_owned()), Method::POST, &format!("https://api.twitch.tv/kraken/channels/{}/commercial", &id)).send().and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() }).map_err(|e| println!("request error: {}", e)).map(move |_body| {});
                         thread::spawn(move || { tokio::run(future) });
                     }
-
-                    thread::sleep(time::Duration::from_secs(3600));
-                } else {
-                    thread::sleep(time::Duration::from_secs(60));
                 }
             }
+            thread::sleep(time::Duration::from_secs(600));
         }
     });
 }

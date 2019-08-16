@@ -226,7 +226,7 @@ pub fn patreon_cb(con: RedisConnection, code: String, state: String) -> Template
                 }
                 Ok(json) => {
                     let client = reqwest::Client::new();
-                    let rsp = client.get("https://www.patreon.com/api/oauth2/v2/identity?include=memberships").header(header::ACCEPT, "application/vnd.api+json").header(header::AUTHORIZATION, format!("Bearer {}", &json.access_token)).send();
+                    let rsp = client.get("https://www.patreon.com/api/oauth2/v2/identity?include=memberships").header(header::AUTHORIZATION, format!("Bearer {}", &json.access_token)).send();
                     match rsp {
                         Err(e) => { log_error(None, "patreon_cb", &e.to_string()) }
                         Ok(mut rsp) => {
