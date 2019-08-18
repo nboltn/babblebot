@@ -254,6 +254,7 @@
         }).then(res => res.json());
 
         vm.channel = data.channel;
+        vm.state = data.state;
         vm.fields = data.fields;
         vm.songreqs = data.songreqs;
         vm.integrations = data.integrations;
@@ -333,11 +334,11 @@
         submitForm();
       },
       refreshTwitch: function(e){
-        var url = "https://id.twitch.tv/oauth2/authorize?response_type=code&client_id=" + this.integrations.twitch.client_id + "&redirect_uri=https://www.babblebot.io/callbacks/twitch&scope=user_read+channel_editor+channel_commercial+channel_subscriptions+channel_check_subscription+analytics:read:extensions+clips:edit+bits:read+analytics:read:games+user:edit:broadcast+user:read:broadcast+chat:read"
+        var url = "https://id.twitch.tv/oauth2/authorize?response_type=code&state=" + this.state + "&client_id=" + this.integrations.twitch.client_id + "&redirect_uri=https://www.babblebot.io/callbacks/twitch&scope=user_read+channel_editor+channel_commercial+channel_subscriptions+channel_check_subscription+analytics:read:extensions+clips:edit+bits:read+analytics:read:games+user:edit:broadcast+user:read:broadcast+chat:read"
         location.href = url
       },
       connectTwitch: function(e){
-        var url = "https://id.twitch.tv/oauth2/authorize?response_type=code&client_id=" + this.integrations.twitch.client_id + "&redirect_uri=https://www.babblebot.io/callbacks/twitch&scope=user_read+channel:moderate+chat:read+chat:edit+whispers:read+whispers:edit"
+        var url = "https://id.twitch.tv/oauth2/authorize?response_type=code&state=" + this.state + "&client_id=" + this.integrations.twitch.client_id + "&redirect_uri=https://www.babblebot.io/callbacks/twitch&scope=user_read+channel:moderate+chat:read+chat:edit+whispers:read+whispers:edit"
         location.href = url
       },
       connectPatreon: function(e){

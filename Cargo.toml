@@ -6,6 +6,7 @@ edition = "2018"
 
 [dependencies]
 bcrypt = "0.5"
+rand = "0.7"
 base64 = "0.10"
 config = "0.9"
 clap = { version = "2.33", features = ["yaml"] }
