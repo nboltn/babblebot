@@ -254,6 +254,16 @@ pub fn twitch_helix_request(con: Arc<Connection>, channel: &str, content: Option
     return builder;
 }
 
+pub fn twitch_refresh(con: Arc<Connection>, method: Method, url: &str, body: Option<Vec<u8>>) -> RequestBuilder {
+    let mut headers = header::HeaderMap::new();
+    headers.insert("Content-Type", HeaderValue::from_str("application/x-www-form-urlencoded").unwrap());
+
+    let client = Client::builder().default_headers(headers).build().unwrap();
+    let mut builder = client.request(method, url);
+    if let Some(body) = body { builder = builder.body(body); }
+    return builder;
+}
+
 pub fn patreon_request(con: Arc<Connection>, channel: &str, method: Method, url: &str) -> RequestBuilder {
     let token: String = con.get(format!("channel:{}:patreon:token", channel)).unwrap_or("".to_owned());
     let mut headers = header::HeaderMap::new();

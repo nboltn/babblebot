@@ -81,7 +81,8 @@ pub fn index(_con: RedisConnection) -> Template {
     let client_id = settings.get_str("client_id").unwrap_or("".to_owned());
     let mut context: HashMap<&str, String> = HashMap::new();
     context.insert("client_id", client_id);
-    context.insert("code", "".to_owned());
+    context.insert("token", "".to_owned());
+    context.insert("refresh", "".to_owned());
     return Template::render("index", &context);
 }
 
@@ -105,15 +106,49 @@ pub fn twitch_cb_auth(con: RedisConnection, auth: Auth, code: String) -> Templat
             let json: Result<TwitchRsp,_> = serde_json::from_str(&body);
             match json {
                 Err(e) => {
-                    log_error(None, "twitch_cb", &e.to_string());
-                    log_error(None, "request_body", &body);
+                    log_error(Some(&auth.channel), "twitch_cb_auth", &e.to_string());
+                    log_error(Some(&auth.channel), "request_body", &body);
                     let mut context: HashMap<&str, String> = HashMap::new();
                     context.insert("client_id", client_id);
-                    context.insert("code", "".to_owned());
+                    context.insert("token", "".to_owned());
+                    context.insert("refresh", "".to_owned());
                     return Template::render("index", &context);
                 }
                 Ok(json) => {
-                    redis::cmd("publish").arg(format!("channel:{}:signals:rename", &auth.channel)).arg(&json.access_token).execute(&*con);
+                    if json.scope.contains(&"channel_editor".to_owned()) {
+                        let mut settings = config::Config::default();
+                        settings.merge(config::File::with_name("Settings")).unwrap();
+                        settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
+
+                        let mut headers = header::HeaderMap::new();
+                        headers.insert("Accept", HeaderValue::from_str("application/vnd.twitchtv.v5+json").unwrap());
+                        headers.insert("Authorization", HeaderValue::from_str(&format!("OAuth {}", &json.access_token)).unwrap());
+                        headers.insert("Client-ID", HeaderValue::from_str(&settings.get_str("client_id").unwrap()).unwrap());
+
+                        let req = reqwest::Client::builder().default_headers(headers).build().unwrap();
+                        let rsp = req.get("https://api.twitch.tv/kraken/user").send();
+                        match rsp {
+                            Err(e) => { log_error(Some(&auth.channel), "twitch_cb_auth", &e.to_string()) }
+                            Ok(mut rsp) => {
+                                let text = rsp.text().unwrap();
+                                let res: Result<KrakenUser,_> = serde_json::from_str(&text);
+                                match res {
+                                    Err(e) => {
+                                        log_error(Some(&auth.channel), "twitch_cb_auth", &e.to_string());
+                                        log_error(Some(&auth.channel), "request_body", &text);
+                                    }
+                                    Ok(json2) => {
+                                        if json2.name == auth.channel {
+                                            redis::cmd("set").arg(format!("channel:{}:token", &auth.channel)).arg(&json.access_token).execute(&*con);
+                                            redis::cmd("set").arg(format!("channel:{}:refresh", &auth.channel)).arg(&json.refresh_token).execute(&*con);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        redis::cmd("publish").arg(format!("channel:{}:signals:rename", &auth.channel)).arg(format!("{} {}", &json.access_token, &json.refresh_token)).execute(&*con);
+                    }
                     let context: HashMap<&str, String> = HashMap::new();
                     return Template::render("dashboard", &context);
                 }
@@ -136,7 +171,8 @@ pub fn twitch_cb(_con: RedisConnection, code: String) -> Template {
             log_error(None, "twitch_cb", &e.to_string());
             let mut context: HashMap<&str, String> = HashMap::new();
             context.insert("client_id", client_id);
-            context.insert("code", "".to_owned());
+            context.insert("token", "".to_owned());
+            context.insert("refresh", "".to_owned());
             return Template::render("index", &context);
         }
         Ok(mut rsp) => {
@@ -148,11 +184,13 @@ pub fn twitch_cb(_con: RedisConnection, code: String) -> Template {
                     log_error(None, "request_body", &body);
                     let mut context: HashMap<&str, String> = HashMap::new();
                     context.insert("client_id", client_id);
-                    context.insert("code", "".to_owned());
+                    context.insert("token", "".to_owned());
+                    context.insert("refresh", "".to_owned());
                     return Template::render("index", &context);
                 }
                 Ok(json) => {
                     let access_token = json.access_token.clone();
+                    let refresh_token = json.refresh_token.clone();
                     let mut settings = config::Config::default();
                     settings.merge(config::File::with_name("Settings")).unwrap();
                     settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
@@ -169,7 +207,8 @@ pub fn twitch_cb(_con: RedisConnection, code: String) -> Template {
                             log_error(None, "twitch_cb", &e.to_string());
                             let mut context: HashMap<&str, String> = HashMap::new();
                             context.insert("client_id", client_id);
-                            context.insert("code", "".to_owned());
+                            context.insert("token", "".to_owned());
+                            context.insert("refresh", "".to_owned());
                             return Template::render("index", &context);
                         }
                         Ok(mut rsp) => {
@@ -181,13 +220,15 @@ pub fn twitch_cb(_con: RedisConnection, code: String) -> Template {
                                     log_error(None, "request_body", &body);
                                     let mut context: HashMap<&str, String> = HashMap::new();
                                     context.insert("client_id", client_id);
-                                    context.insert("code", "".to_owned());
+                                    context.insert("token", "".to_owned());
+                                    context.insert("refresh", "".to_owned());
                                     return Template::render("index", &context);
                                 }
                                 Ok(_json) => {
                                     let mut context: HashMap<&str, String> = HashMap::new();
                                     context.insert("client_id", client_id);
-                                    context.insert("code", access_token);
+                                    context.insert("token", access_token);
+                                    context.insert("refresh", refresh_token);
                                     return Template::render("index", &context);
                                 }
                             }
@@ -587,6 +628,7 @@ pub fn signup(con: RedisConnection, mut cookies: Cookies, data: Form<ApiSignupRe
                         redis::cmd("SADD").arg(format!("bot:{}:channels", &bot_name)).arg(&json.data[0].login).execute(&*con);
                         redis::cmd("SET").arg(format!("channel:{}:bot", &json.data[0].login)).arg(&bot_name).execute(&*con);
                         redis::cmd("SET").arg(format!("channel:{}:token", &json.data[0].login)).arg(&data.token).execute(&*con);
+                        redis::cmd("SET").arg(format!("channel:{}:refresh", &json.data[0].login)).arg(&data.refresh).execute(&*con);
                         redis::cmd("SET").arg(format!("channel:{}:password", &json.data[0].login)).arg(hash(&data.password, DEFAULT_COST).unwrap()).execute(&*con);
                         redis::cmd("SET").arg(format!("channel:{}:live", &json.data[0].login)).arg(false).execute(&*con);
                         redis::cmd("SET").arg(format!("channel:{}:id", &json.data[0].login)).arg(&json.data[0].id).execute(&*con);

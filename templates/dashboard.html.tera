@@ -206,6 +206,10 @@
     </div>
     <div class='pane' id='integrations'>
       <div class="integration">
+        <div class='title is-4'>Twitch</div>
+        <div><a class='button is-success' style='width:105px' v-on:click='refreshTwitch()' v-on:mouseover='twitchOver()' v-on:mouseleave='twitchLeave()'>{%raw%}{{twitchText}}{%endraw%}</a></div>
+      </div>
+      <div class="integration">
         <div class='title is-4'>Patreon</div>
         <div v-if='integrations.patreon.connected == "true"'><a class='button is-success'>Connected</a></div>
         <div v-else><a class='button is-link'  v-on:click='connectPatreon()'>Connect</a></div>
@@ -237,7 +241,8 @@
       newSetting: { name: '', value: '' },
       newBlacklist: { regex: '', length: '' },
       error: '',
-      player: null
+      player: null,
+      twitchText: 'Connected'
     },
     created: function(){
       var vm = this;
@@ -327,6 +332,10 @@
 
         submitForm();
       },
+      refreshTwitch: function(e){
+        var url = "https://id.twitch.tv/oauth2/authorize?response_type=code&client_id=" + this.integrations.twitch.client_id + "&redirect_uri=https://www.babblebot.io/callbacks/twitch&scope=user_read+channel_editor+channel_commercial+channel_subscriptions+channel_check_subscription+analytics:read:extensions+clips:edit+bits:read+analytics:read:games+user:edit:broadcast+user:read:broadcast+chat:read"
+        location.href = url
+      },
       connectTwitch: function(e){
         var url = "https://id.twitch.tv/oauth2/authorize?response_type=code&client_id=" + this.integrations.twitch.client_id + "&redirect_uri=https://www.babblebot.io/callbacks/twitch&scope=user_read+channel:moderate+chat:read+chat:edit+whispers:read+whispers:edit"
         location.href = url
@@ -338,6 +347,12 @@
       connectSpotify: function(e){
         var url = "https://accounts.spotify.com/authorize?client_id=" + this.integrations.spotify.client_id + "&response_type=code&redirect_uri=https%3A%2F%2Fwww.babblebot.io%2Fcallbacks%2Fspotify&scope=user-read-currently-playing"
         location.href = url;
+      },
+      twitchOver: function(e){
+        this.twitchText = "Refresh"
+      },
+      twitchLeave: function(e){
+        this.twitchText = "Connected"
       },
       submitNewCmd: function(e){
         var vm = this;

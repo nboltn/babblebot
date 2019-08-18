@@ -83,7 +83,8 @@
         <div class='field token'>
           <label class='label'>access token</label>
           <div class='control has-icons-right'>
-            <input class='input' type='text' name='token' placeholder='access token' value='{{code}}' readonly>
+            <input class='input' type='text' name='token' placeholder='access token' value='{{token}}' readonly>
+            <input type='hidden' name='refresh' value='{{refresh}}' readonly>
             <span class='icon is-small is-right hidden'>
               <i class='fas fa-exclamation-triangle'></i>
             </span>
@@ -109,7 +110,7 @@
   u.ready = function (fn) { document.readyState !== 'loading'? fn(): u(document).on('DOMContentLoaded', fn) }
 
   u.ready(function(){
-    if ("{{code}}" != "") {
+    if ("{{token}}" != "") {
       u('#signup-modal').addClass('is-active')
     }
   })

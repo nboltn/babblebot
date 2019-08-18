@@ -121,6 +121,12 @@ pub struct TwitchRsp {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct TwitchRefresh {
+    pub access_token: String,
+    pub refresh_token: String
+}
+
+#[derive(Debug, Deserialize)]
 pub struct SpotifyRsp {
     pub access_token: String,
     pub token_type: String,
@@ -423,6 +429,7 @@ pub struct ApiLoginReq {
 #[derive(FromForm)]
 pub struct ApiSignupReq {
     pub token: String,
+    pub refresh: String,
     pub password: String
 }
 
