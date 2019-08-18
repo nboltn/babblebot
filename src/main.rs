@@ -714,6 +714,7 @@ fn update_patreon() {
                                     } else {
                                         let _: () = con.set(format!("channel:{}:patreon:subscribed", &channel), false).unwrap();
                                         let token = settings.get_str("bot_token").unwrap();
+                                        // TODO: grandfather
                                         if patreon_sub == "true" {
                                             let _: () = con.publish(format!("channel:{}:signals:rename", &channel), token).unwrap();
                                         }
@@ -868,8 +869,8 @@ fn update_live() {
                         let json: Result<KrakenStreams,_> = serde_json::from_str(&body);
                         match json {
                             Err(e) => {
-                                log_error(Some(&channels[0]), "update_live", &e.to_string());
-                                log_error(Some(&channels[0]), "request_body", &body);
+                                log_error(None, "update_live", &e.to_string());
+                                log_error(None, "request_body", &body);
                             }
                             Ok(json) => {
                                 let live_channels: Vec<String> = json.streams.iter().map(|stream| stream.channel.name.to_owned()).collect();

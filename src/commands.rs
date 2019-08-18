@@ -624,7 +624,7 @@ fn game_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args:
             });
         thread::spawn(move || { tokio::run(future) });
     } else {
-        let future = twitch_kraken_request(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/helix/games?name={}", args.join(" "))).send()
+        let future = twitch_helix_request(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/helix/games?name={}", args.join(" "))).send()
             .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
             .map_err(|e| println!("request error: {}", e))
             .map(move |body| {
