@@ -651,11 +651,11 @@ fn run_commercials() {
                             }
                             if submode == "true" {
                                 let channelC = String::from(channel.clone());
-                                connect_and_send_message(con.clone(), channel.clone(), "/subscribers".to_owned());
+                                connect_and_send_privmsg(con.clone(), channel.clone(), "/subscribers".to_owned());
                                 thread::spawn(move || {
                                     let con = Arc::new(acquire_con());
                                     thread::sleep(time::Duration::from_secs(num * 30));
-                                    connect_and_send_message(con, channelC, "/subscribersoff".to_owned());
+                                    connect_and_send_privmsg(con, channelC, "/subscribersoff".to_owned());
                                 });
                             }
                             if let Ok(notice) = nres {
