@@ -450,7 +450,11 @@ pub fn data(con: RedisConnection, auth: Auth) -> Json<ApiData> {
                     integrations.insert("spotify".to_owned(), spotify);
 
                     let res: Result<String,_> = redis::cmd("GET").arg(format!("channel:{}:patreon:token", auth.channel)).query(&*con);
-                    let subscribed: String = redis::cmd("GET").arg(format!("channel:{}:patreon:subscribed", auth.channel)).query(&*con).unwrap_or("false".to_owned());
+                    let mut subscribed: String = redis::cmd("GET").arg(format!("channel:{}:patreon:subscribed", auth.channel)).query(&*con).unwrap_or("false".to_owned());
+                    if subscribed == "false" {
+                        let grandfather: String = redis::cmd("GET").arg(format!("channel:{}:grandfather", auth.channel)).query(&*con).unwrap_or("false".to_owned());
+                        if grandfather == "true" { subscribed = "true".to_owned() }
+                    }
                     if let Ok(_token) = res { patreon.insert("connected".to_owned(), "true".to_owned()); }
                     else { patreon.insert("connected".to_owned(), "false".to_owned()); }
                     patreon.insert("subscribed".to_owned(), subscribed);
