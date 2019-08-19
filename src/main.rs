@@ -776,7 +776,7 @@ fn refresh_twitch_bots() {
                             let json: Result<KrakenUser,_> = serde_json::from_str(&body);
                             match json {
                                 Err(_e) => {
-                                    log_error(Some(&bot), "refresh_twitch", "refreshing twitch token");
+                                    log_info(Some(&bot), "refresh_twitch", "refreshing twitch token");
 
                                     let mut settings = config::Config::default();
                                     settings.merge(config::File::with_name("Settings")).unwrap();
