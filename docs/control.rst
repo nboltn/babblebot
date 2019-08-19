@@ -4,7 +4,7 @@ Control Panel
 
 .. rubric:: Dashboard
 
-Change stream and account related settings here. If you have an active patreon subscription you'll be able to connect a twitch account to use as a custom username for the bot.
+Change stream and account related settings here. If you have an active `patreon subscription <https://www.patreon.com/toovs>`_ you'll be able to connect a twitch account to use as a custom username for the bot.
 
 
 .. rubric:: Notices
