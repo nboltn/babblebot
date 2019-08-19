@@ -254,6 +254,22 @@ pub fn twitch_helix_request(con: Arc<Connection>, channel: &str, content: Option
     return builder;
 }
 
+pub fn twitch_user_request(con: Arc<Connection>, key: &str, method: Method, url: &str) -> RequestBuilder {
+    let mut settings = config::Config::default();
+    settings.merge(config::File::with_name("Settings")).unwrap();
+    settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
+    let token: String = con.get(key).expect("get:key");
+
+    let mut headers = header::HeaderMap::new();
+    headers.insert("Accept", HeaderValue::from_str("application/vnd.twitchtv.v5+json").unwrap());
+    headers.insert("Authorization", HeaderValue::from_str(&format!("OAuth {}", token)).unwrap());
+    headers.insert("Client-ID", HeaderValue::from_str(&settings.get_str("client_id").unwrap()).unwrap());
+
+    let client = Client::builder().default_headers(headers).build().unwrap();
+    let builder = client.request(method, url);
+    return builder;
+}
+
 pub fn twitch_refresh(con: Arc<Connection>, method: Method, url: &str, body: Option<Vec<u8>>) -> RequestBuilder {
     let mut headers = header::HeaderMap::new();
     headers.insert("Content-Type", HeaderValue::from_str("application/x-www-form-urlencoded").unwrap());

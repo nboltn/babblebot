@@ -100,7 +100,6 @@ fn main() {
             refresh_twitch_bots();
             refresh_twitch_channels();
             refresh_spotify();
-            refresh_patreon();
             run_notices();
             run_commercials();
             run_reactor(bots);
@@ -702,6 +701,30 @@ fn update_patreon() {
                                 Err(e) => {
                                     log_error(Some(&channel), "update_patreon", &e.to_string());
                                     log_error(Some(&channel), "request_body", &body);
+
+                                    let res: Result<String,_> = con.get(format!("channel:{}:patreon:refresh", &channel));
+                                    if let Ok(token) = res {
+                                        let channelC = channel.clone();
+                                        let future = patreon_refresh(con.clone(), &channel, Method::POST, "https://www.patreon.com/api/oauth2/token", Some(format!("grant_type=refresh_token&refresh_token={}", token).as_bytes().to_owned())).send()
+                                            .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
+                                            .map_err(move |e| log_error(Some(&channelC), "update_patreon", &e.to_string()))
+                                            .map(move |body| {
+                                                let con = Arc::new(acquire_con());
+                                                let body = std::str::from_utf8(&body).unwrap();
+                                                let json: Result<PatreonRsp,_> = serde_json::from_str(&body);
+                                                match json {
+                                                    Err(e) => {
+                                                        log_error(Some(&channel), "update_patreon", &e.to_string());
+                                                        log_error(Some(&channel), "request_body", &body);
+                                                    }
+                                                    Ok(json) => {
+                                                        let _: () = con.set(format!("channel:{}:patreon:token", &channel), &json.access_token).unwrap();
+                                                        let _: () = con.set(format!("channel:{}:patreon:refresh", &channel), &json.refresh_token).unwrap();
+                                                    }
+                                                }
+                                            });
+                                        thread::spawn(move || { tokio::run(future) });
+                                    }
                                 }
                                 Ok(json) => {
                                     let mut settings = config::Config::default();
@@ -731,42 +754,7 @@ fn update_patreon() {
                     thread::spawn(move || { tokio::run(future) });
                 }
             }
-            thread::sleep(time::Duration::from_secs(3600));
-        }
-    });
-}
-
-fn refresh_patreon() {
-    thread::spawn(move || {
-        let con = Arc::new(acquire_con());
-        loop {
-            let channels: Vec<String> = con.smembers("channels").unwrap_or(Vec::new());
-            for channel in channels {
-                let channelC = channel.clone();
-                let res: Result<String,_> = con.get(format!("channel:{}:patreon:refresh", &channel));
-                if let Ok(token) = res {
-                    let future = patreon_refresh(con.clone(), &channel, Method::POST, "https://www.patreon.com/api/oauth2/token", Some(format!("grant_type=refresh_token&refresh_token={}", token).as_bytes().to_owned())).send()
-                        .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
-                        .map_err(move |e| log_error(Some(&channelC), "refresh_patreon", &e.to_string()))
-                        .map(move |body| {
-                            let con = Arc::new(acquire_con());
-                            let body = std::str::from_utf8(&body).unwrap();
-                            let json: Result<PatreonRsp,_> = serde_json::from_str(&body);
-                            match json {
-                                Err(e) => {
-                                    log_error(Some(&channel), "refresh_patreon", &e.to_string());
-                                    log_error(Some(&channel), "request_body", &body);
-                                }
-                                Ok(json) => {
-                                    let _: () = con.set(format!("channel:{}:patreon:token", &channel), &json.access_token).unwrap();
-                                    let _: () = con.set(format!("channel:{}:patreon:refresh", &channel), &json.refresh_token).unwrap();
-                                }
-                            }
-                        });
-                    thread::spawn(move || { tokio::run(future) });
-                }
-            }
-            thread::sleep(time::Duration::from_secs(2592000));
+            thread::sleep(time::Duration::from_secs(86400));
         }
     });
 }
@@ -780,34 +768,51 @@ fn refresh_twitch_bots() {
                 let botC = bot.clone();
                 let res: Result<String,_> = con.get(format!("bot:{}:refresh", &bot));
                 if let Ok(token) = res {
-                    let mut settings = config::Config::default();
-                    settings.merge(config::File::with_name("Settings")).unwrap();
-                    settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
-                    let id = settings.get_str("client_id").unwrap_or("".to_owned());
-                    let secret = settings.get_str("client_secret").unwrap_or("".to_owned());
-
-                    let future = twitch_refresh(con.clone(), Method::POST, "https://id.twitch.tv/oauth2/token", Some(format!("grant_type=refresh_token&refresh_token={}&client_id={}&client_secret={}", token, id, secret).as_bytes().to_owned())).send()
+                    let future = twitch_user_request(con.clone(), &format!("bot:{}:token", &bot), Method::GET, "https://api.twitch.tv/kraken/user").send()
                         .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
-                        .map_err(move |e| log_error(Some(&botC), "refresh_twitch", &e.to_string()))
+                        .map_err(|e| println!("request error: {}", e))
                         .map(move |body| {
                             let con = Arc::new(acquire_con());
                             let body = std::str::from_utf8(&body).unwrap();
-                            let json: Result<TwitchRefresh,_> = serde_json::from_str(&body);
+                            let json: Result<KrakenUser,_> = serde_json::from_str(&body);
                             match json {
                                 Err(e) => {
                                     log_error(Some(&bot), "refresh_twitch", &e.to_string());
                                     log_error(Some(&bot), "request_body", &body);
+
+                                    let mut settings = config::Config::default();
+                                    settings.merge(config::File::with_name("Settings")).unwrap();
+                                    settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
+                                    let id = settings.get_str("client_id").unwrap_or("".to_owned());
+                                    let secret = settings.get_str("client_secret").unwrap_or("".to_owned());
+
+                                    let future = twitch_refresh(con.clone(), Method::POST, "https://id.twitch.tv/oauth2/token", Some(format!("grant_type=refresh_token&refresh_token={}&client_id={}&client_secret={}", token, id, secret).as_bytes().to_owned())).send()
+                                        .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
+                                        .map_err(move |e| log_error(Some(&botC), "refresh_twitch", &e.to_string()))
+                                        .map(move |body| {
+                                            let con = Arc::new(acquire_con());
+                                            let body = std::str::from_utf8(&body).unwrap();
+                                            let json: Result<TwitchRefresh,_> = serde_json::from_str(&body);
+                                            match json {
+                                                Err(e) => {
+                                                    log_error(Some(&bot), "refresh_twitch", &e.to_string());
+                                                    log_error(Some(&bot), "request_body", &body);
+                                                }
+                                                Ok(json) => {
+                                                    let _: () = con.set(format!("bot:{}:token", &bot), &json.access_token).unwrap();
+                                                    let _: () = con.set(format!("bot:{}:refresh", &bot), &json.refresh_token).unwrap();
+                                                }
+                                            }
+                                        });
+                                    thread::spawn(move || { tokio::run(future) });
                                 }
-                                Ok(json) => {
-                                    let _: () = con.set(format!("bot:{}:token", &bot), &json.access_token).unwrap();
-                                    let _: () = con.set(format!("bot:{}:refresh", &bot), &json.refresh_token).unwrap();
-                                }
+                                Ok(_) => {}
                             }
                         });
                     thread::spawn(move || { tokio::run(future) });
                 }
             }
-            thread::sleep(time::Duration::from_secs(86400));
+            thread::sleep(time::Duration::from_secs(600));
         }
     });
 }
@@ -821,34 +826,51 @@ fn refresh_twitch_channels() {
                 let channelC = channel.clone();
                 let res: Result<String,_> = con.get(format!("channel:{}:refresh", &channel));
                 if let Ok(token) = res {
-                    let mut settings = config::Config::default();
-                    settings.merge(config::File::with_name("Settings")).unwrap();
-                    settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
-                    let id = settings.get_str("client_id").unwrap_or("".to_owned());
-                    let secret = settings.get_str("client_secret").unwrap_or("".to_owned());
-
-                    let future = twitch_refresh(con.clone(), Method::POST, "https://id.twitch.tv/oauth2/token", Some(format!("grant_type=refresh_token&refresh_token={}&client_id={}&client_secret={}", token, id, secret).as_bytes().to_owned())).send()
+                    let future = twitch_user_request(con.clone(), &format!("channel:{}:token", &channel), Method::GET, "https://api.twitch.tv/kraken/user").send()
                         .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
-                        .map_err(move |e| log_error(Some(&channelC), "refresh_twitch", &e.to_string()))
+                        .map_err(|e| println!("request error: {}", e))
                         .map(move |body| {
                             let con = Arc::new(acquire_con());
                             let body = std::str::from_utf8(&body).unwrap();
-                            let json: Result<TwitchRefresh,_> = serde_json::from_str(&body);
+                            let json: Result<KrakenUser,_> = serde_json::from_str(&body);
                             match json {
                                 Err(e) => {
                                     log_error(Some(&channel), "refresh_twitch", &e.to_string());
                                     log_error(Some(&channel), "request_body", &body);
+
+                                    let mut settings = config::Config::default();
+                                    settings.merge(config::File::with_name("Settings")).unwrap();
+                                    settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
+                                    let id = settings.get_str("client_id").unwrap_or("".to_owned());
+                                    let secret = settings.get_str("client_secret").unwrap_or("".to_owned());
+
+                                    let future = twitch_refresh(con.clone(), Method::POST, "https://id.twitch.tv/oauth2/token", Some(format!("grant_type=refresh_token&refresh_token={}&client_id={}&client_secret={}", token, id, secret).as_bytes().to_owned())).send()
+                                        .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
+                                        .map_err(move |e| log_error(Some(&channelC), "refresh_twitch", &e.to_string()))
+                                        .map(move |body| {
+                                            let con = Arc::new(acquire_con());
+                                            let body = std::str::from_utf8(&body).unwrap();
+                                            let json: Result<TwitchRefresh,_> = serde_json::from_str(&body);
+                                            match json {
+                                                Err(e) => {
+                                                    log_error(Some(&channel), "refresh_twitch", &e.to_string());
+                                                    log_error(Some(&channel), "request_body", &body);
+                                                }
+                                                Ok(json) => {
+                                                    let _: () = con.set(format!("channel:{}:token", &channel), &json.access_token).unwrap();
+                                                    let _: () = con.set(format!("channel:{}:refresh", &channel), &json.refresh_token).unwrap();
+                                                }
+                                            }
+                                        });
+                                    thread::spawn(move || { tokio::run(future) });
                                 }
-                                Ok(json) => {
-                                    let _: () = con.set(format!("channel:{}:token", &channel), &json.access_token).unwrap();
-                                    let _: () = con.set(format!("channel:{}:refresh", &channel), &json.refresh_token).unwrap();
-                                }
+                                Ok(_) => {}
                             }
                         });
                     thread::spawn(move || { tokio::run(future) });
                 }
             }
-            thread::sleep(time::Duration::from_secs(86400));
+            thread::sleep(time::Duration::from_secs(600));
         }
     });
 }
