@@ -121,7 +121,7 @@
 
   u('#login').on('click', function(){ u('#login-modal').addClass('is-active') })
   u('#signup').on('click', function(){
-    var url = "https://id.twitch.tv/oauth2/authorize?response_type=code&state={{state}}&client_id={{client_id}}&redirect_uri=https://www.babblebot.io/callbacks/twitch&scope=user_read+channel_editor+channel_commercial+channel_subscriptions+channel_check_subscription+analytics:read:extensions+clips:edit+bits:read+analytics:read:games+user:edit:broadcast+user:read:broadcast+chat:read"
+    var url = "https://id.twitch.tv/oauth2/authorize?force_verify=true&response_type=code&state={{state}}&client_id={{client_id}}&redirect_uri=https://www.babblebot.io/callbacks/twitch&scope=user_read+channel_editor+channel_commercial+channel_subscriptions+channel_check_subscription+analytics:read:extensions+clips:edit+bits:read+analytics:read:games+user:edit:broadcast+user:read:broadcast+chat:read"
     location.href = url
   })
   u('#login-modal .mclose').on('click', function(){ u('#login-modal').removeClass('is-active') })

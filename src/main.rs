@@ -743,7 +743,6 @@ fn update_patreon() {
                                     } else {
                                         let _: () = con.set(format!("channel:{}:patreon:subscribed", &channel), false).unwrap();
                                         let token = settings.get_str("bot_token").unwrap();
-                                        // TODO: grandfather
                                         if patreon_sub == "true" {
                                             let _: () = con.publish(format!("channel:{}:signals:rename", &channel), token).unwrap();
                                         }
