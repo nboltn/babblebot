@@ -15,18 +15,40 @@ use regex::{Regex,RegexBuilder,Captures,escape};
 use redis::{self,Commands,Connection};
 
 pub fn log_info(channel: Option<&str>, descriptor: &str, content: &str) {
+    let con = acquire_con();
     let timestamp = Utc::now().to_rfc3339();
     match channel {
-        None => info!("[{}] [{}] {}", timestamp, descriptor, content),
-        Some(channel) => info!("[{}] [{}] [{}] {}", timestamp, channel, descriptor, content)
+        None => {
+            let str = format!("[{}] [{}] {}", timestamp, descriptor, content);
+            info!("{}", str);
+            let _: () = con.lpush("logs", str).unwrap();
+            let _: () = con.ltrim("logs", 0, 9999).unwrap();
+        }
+        Some(channel) => {
+            let str = format!("[{}] [{}] [{}] {}", timestamp, channel, descriptor, content);
+            info!("{}", str);
+            let _: () = con.lpush(format!("channel:{}:logs", &channel), str).unwrap();
+            let _: () = con.ltrim(format!("channel:{}:logs", &channel), 0, 9999).unwrap();
+        }
     }
 }
 
 pub fn log_error(channel: Option<&str>, descriptor: &str, content: &str) {
+    let con = acquire_con();
     let timestamp = Utc::now().to_rfc3339();
     match channel {
-        None => error!("[{}] [{}] {}", timestamp, descriptor, content),
-        Some(channel) => error!("[{}] [{}] [{}] {}", timestamp, channel, descriptor, content)
+        None => {
+            let str = format!("[{}] [{}] {}", timestamp, descriptor, content);
+            error!("{}", &str);
+            let _: () = con.lpush("logs", str).unwrap();
+            let _: () = con.ltrim("logs", 0, 9999).unwrap();
+        }
+        Some(channel) => {
+            let str = format!("[{}] [{}] [{}] {}", timestamp, channel, descriptor, content);
+            error!("{}", &str);
+            let _: () = con.lpush(format!("channel:{}:logs", &channel), str).unwrap();
+            let _: () = con.ltrim(format!("channel:{}:logs", &channel), 0, 9999).unwrap();
+        }
     }
 }
 
