@@ -775,9 +775,8 @@ fn refresh_twitch_bots() {
                             let body = std::str::from_utf8(&body).unwrap();
                             let json: Result<KrakenUser,_> = serde_json::from_str(&body);
                             match json {
-                                Err(e) => {
-                                    log_error(Some(&bot), "refresh_twitch", &e.to_string());
-                                    log_error(Some(&bot), "request_body", &body);
+                                Err(_e) => {
+                                    log_error(Some(&bot), "refresh_twitch", "refreshing twitch token");
 
                                     let mut settings = config::Config::default();
                                     settings.merge(config::File::with_name("Settings")).unwrap();
@@ -833,9 +832,8 @@ fn refresh_twitch_channels() {
                             let body = std::str::from_utf8(&body).unwrap();
                             let json: Result<KrakenUser,_> = serde_json::from_str(&body);
                             match json {
-                                Err(e) => {
-                                    log_error(Some(&channel), "refresh_twitch", &e.to_string());
-                                    log_error(Some(&channel), "request_body", &body);
+                                Err(_e) => {
+                                    log_info(Some(&channel), "refresh_twitch", "refreshing twitch token");
 
                                     let mut settings = config::Config::default();
                                     settings.merge(config::File::with_name("Settings")).unwrap();
