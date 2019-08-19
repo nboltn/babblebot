@@ -8,6 +8,7 @@ Documentation
    :glob:
 
    installation
+   control
    settings/index
    commands/index
    variables/index
