@@ -114,7 +114,6 @@ pub fn acquire_con() -> redis::Connection {
     } else {
         client = redis::Client::open(&format!("redis://{}", &redis_host)[..]).unwrap();
     }
-    let client = redis::Client::open(&redis_host[..]).unwrap();
     loop {
         match client.get_connection() {
             Err(e) => log_error(None, "acquire_con", &e.to_string()),
