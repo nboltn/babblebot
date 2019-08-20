@@ -27,7 +27,6 @@ fn main() {
             Err(e) => { println!("response error: {}", &e.to_string()); }
             Ok(mut rsp) => {
                 let text = rsp.text().unwrap();
-                println!("{}",format!("https://{}/api/login", domain));
                 let json: Result<ApiRsp,_> = serde_json::from_str(&text);
                 match json {
                     Err(e) => {
@@ -35,10 +34,16 @@ fn main() {
                     }
                     Ok(json) => {
                         if json.success {
-                            let redis_host = settings.get_str("redis_host").unwrap_or("redis://127.0.0.1".to_owned());
-                            let client = redis::Client::open(&redis_host[..]).unwrap();
+                            let mut client: redis::Client;
+                            let redis_host = settings.get_str("redis_host").unwrap_or(domain.clone());
+                            let res = settings.get_str("redis_pass");
+                            if let Ok(redis_pass) = res {
+                                client = redis::Client::open(&format!("redis://:{}@{}", &redis_pass, &redis_host)[..]).unwrap();
+                            } else {
+                                client = redis::Client::open(&format!("redis://{}", &redis_host)[..]).unwrap();
+                            }
                             match client.get_connection() {
-                                Err(e) => println!("redis error: {}", &e.to_string()),
+                                Err(e) => { println!("4"); println!("redis error: {}", &e.to_string()) },
                                 Ok(mut con) => {
                                     let mut ps = con.as_pubsub();
                                     ps.subscribe(format!("channel:{}:signals:agent", &channel)).unwrap();
@@ -52,6 +57,7 @@ fn main() {
                                                 match res {
                                                     Err(e) => println!("redis error: {}", &e.to_string()),
                                                     Ok(payload) => {
+                                                        let payload: Vec<&str> = payload.split_whitespace().collect();
                                                     }
                                                 }
                                             }

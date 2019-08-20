@@ -1,3 +1,5 @@
 channel = "not_toovs"
 password = "bowser"
 domain = "babblebot.io"
+redis_host = "babblebot.io"
+redis_pass = "password"
