@@ -648,7 +648,7 @@ pub fn logs(con: RedisConnection, data: Form<ApiLogsReq>, auth: Auth) -> Json<Ap
         let res: Result<i16,_> = data.num.parse();
         if let Ok(num) = res {
             let logs: Vec<String> = redis::cmd("lrange").arg(format!("channel:{}:logs", &auth.channel)).arg(0).arg(num-1).query(&*con).unwrap();
-            let json = ApiRsp { success: true, success_value: Some(format!("\n{}", logs.join("\n"))), field: Some("logs".to_owned()), error_message: None };
+            let json = ApiRsp { success: true, success_value: Some(logs.join("\n")), field: Some("logs".to_owned()), error_message: None };
             return Json(json);
         } else {
             let json = ApiRsp { success: false, success_value: None, field: Some("logs".to_owned()), error_message: Some("invalid input".to_owned()) };

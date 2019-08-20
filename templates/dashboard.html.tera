@@ -216,7 +216,7 @@
               <i class='fas fa-exclamation-triangle'></i>
             </span>
           </div>
-          <a class='button is-link' v-on:click='triggerSubmitF("logs")'><i class='far fa-check-circle'></i></a>
+          <a class='button is-link' v-on:click='triggerSubmitF("logs")'><i class='fas fa-chevron-circle-right'></i></a>
           <p class='help is-danger hidden'>{%raw%}{{error}}{%endraw%}</p>
         </div>
       </form>
@@ -342,7 +342,7 @@
               Vue.set(vm.fields, data.field, data.success_value);
               if (data.field == "logs") {
                 u('#logviewer').html('');
-                var str = "<pre> <code class='language-shell-session'>" + data.success_value + "</code> </pre>";
+                var str = "<pre><code class='language-none'>" + data.success_value + "</code></pre>";
                 u('#logviewer').append(str);
                 Prism.highlightAll(true);
               }
