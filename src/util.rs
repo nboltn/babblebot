@@ -25,9 +25,10 @@ pub fn log_info(channel: Option<&str>, descriptor: &str, content: &str) {
             let _: () = con.ltrim("logs", 0, 9999).unwrap();
         }
         Some(channel) => {
-            let str = format!("[{}] [{}] [{}] {}", timestamp, channel, descriptor, content);
-            info!("{}", str);
-            let _: () = con.lpush(format!("channel:{}:logs", &channel), str).unwrap();
+            let str1 = format!("[{}] [{}] [{}] {}", timestamp, channel, descriptor, content);
+            let str2 = format!("[{}] [{}] {}", timestamp, descriptor, content);
+            info!("{}", str1);
+            let _: () = con.lpush(format!("channel:{}:logs", &channel), str2).unwrap();
             let _: () = con.ltrim(format!("channel:{}:logs", &channel), 0, 9999).unwrap();
         }
     }
@@ -44,9 +45,10 @@ pub fn log_error(channel: Option<&str>, descriptor: &str, content: &str) {
             let _: () = con.ltrim("logs", 0, 9999).unwrap();
         }
         Some(channel) => {
-            let str = format!("[{}] [{}] [{}] {}", timestamp, channel, descriptor, content);
-            error!("{}", &str);
-            let _: () = con.lpush(format!("channel:{}:logs", &channel), str).unwrap();
+            let str1 = format!("[{}] [{}] [{}] {}", timestamp, channel, descriptor, content);
+            let str2 = format!("[{}] [{}] {}", timestamp, descriptor, content);
+            error!("{}", &str1);
+            let _: () = con.lpush(format!("channel:{}:logs", &channel), str2).unwrap();
             let _: () = con.ltrim(format!("channel:{}:logs", &channel), 0, 9999).unwrap();
         }
     }

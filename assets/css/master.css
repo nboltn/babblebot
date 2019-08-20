@@ -145,23 +145,23 @@ html.funky {
 #panes .pane .section {
   margin-bottom: 60px;
 }
-#panes .pane .section form {
+#panes .pane form {
   margin-bottom: 10px;
 }
-#panes .pane .section form .field .control {
+#panes .pane form .field .control {
   display: inline-block;
   width: 400px;
 }
-#panes .pane .section form .field .is-link {
+#panes .pane form .field .is-link {
   margin-left: 4px;
   opacity: 0.4;
   transition: background-color 200ms linear, opacity 200ms linear;
 }
-#panes .pane .section form .field .is-link.success {
+#panes .pane form .field .is-link.success {
   background-color: #22c65b;
   opacity: 1;
 }
-#panes .pane .section form .field .is-link:hover {
+#panes .pane form .field .is-link:hover {
   opacity: 1;
 }
 #panes .pane .table .name {

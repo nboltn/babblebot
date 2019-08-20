@@ -422,6 +422,11 @@ pub struct ApiRsp {
 }
 
 #[derive(FromForm)]
+pub struct ApiLogsReq {
+    pub num: String
+}
+
+#[derive(FromForm)]
 pub struct ApiLoginReq {
     pub channel: String,
     pub password: String

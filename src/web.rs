@@ -638,6 +638,24 @@ pub fn signup(con: RedisConnection, mut cookies: Cookies, data: Form<ApiSignupRe
     }
 }
 
+#[post("/api/logs", data="<data>")]
+pub fn logs(con: RedisConnection, data: Form<ApiLogsReq>, auth: Auth) -> Json<ApiRsp> {
+    if data.num.is_empty() {
+        let json = ApiRsp { success: false, success_value: None, field: Some("logs".to_owned()), error_message: Some("empty input".to_owned()) };
+        return Json(json);
+    } else {
+        let res: Result<i16,_> = data.num.parse();
+        if let Ok(num) = res {
+            let logs: Vec<String> = redis::cmd("lrange").arg(format!("channel:{}:logs", &auth.channel)).arg(0).arg(num-1).query(&*con).unwrap();
+            let json = ApiRsp { success: true, success_value: Some(format!("\n{}", logs.join("\n"))), field: Some("logs".to_owned()), error_message: None };
+            return Json(json);
+        } else {
+            let json = ApiRsp { success: false, success_value: None, field: Some("logs".to_owned()), error_message: Some("invalid input".to_owned()) };
+            return Json(json);
+        }
+    }
+}
+
 #[post("/api/password", data="<data>")]
 pub fn password(con: RedisConnection, data: Form<ApiPasswordReq>, auth: Auth) -> Json<ApiRsp> {
     if data.password.is_empty() {

@@ -11,6 +11,7 @@
     <div class='pane' v-on:click='pane("settings", $event)'>Settings</div>
     <div class='pane' v-on:click='pane("songrequests", $event)'>Song Requests</div>
     <div class='pane' v-on:click='pane("integrations", $event)'>Integrations</div>
+    <div class='pane' v-on:click='pane("logs", $event)'>Logs</div>
     <div class='pane' v-on:click='logout'>Logout</div>
   </div><div id='panes'>
     <div class='pane active' id='dashboard'>
@@ -204,6 +205,23 @@
         </tbody>
       </table>
     </div>
+    <div class='pane' id='logs'>
+      <div class='title is-4'>Logs</div>
+      <form id='logs-form' endpoint='/api/logs' v-on:submit='submitField'>
+        <div class='field logs'>
+          <label class='label'>Fetch Recent Lines</label>
+          <div class='control has-icons-right'>
+            <input class='input' type='text' name='num' id='lognum' placeholder='32'>
+            <span class='icon is-small is-right hidden'>
+              <i class='fas fa-exclamation-triangle'></i>
+            </span>
+          </div>
+          <a class='button is-link' v-on:click='triggerSubmitF("logs")'><i class='far fa-check-circle'></i></a>
+          <p class='help is-danger hidden'>{%raw%}{{error}}{%endraw%}</p>
+        </div>
+      </form>
+      <div id='logviewer'></div>
+    </div>
     <div class='pane' id='integrations'>
       <div class="integration">
         <div class='title is-4'>Twitch</div>
@@ -241,6 +259,7 @@
       newSetting: { name: '', value: '' },
       newBlacklist: { regex: '', length: '' },
       error: '',
+      logs: 'test',
       player: null,
       twitchText: 'Connected',
       patreonText: 'Connected',
@@ -320,7 +339,13 @@
               u(id + ' .field .is-link').removeClass('success');
             }, 4000);
             if (data['success_value']) {
-              vm.fields[data.field] = data.success_value;
+              Vue.set(vm.fields, data.field, data.success_value);
+              if (data.field == "logs") {
+                u('#logviewer').html('');
+                var str = "<pre> <code class='language-shell-session'>" + data.success_value + "</code> </pre>";
+                u('#logviewer').append(str);
+                Prism.highlightAll(true);
+              }
             }
             if (e.target.attributes.endpoint.value == '/api/password') {
               vm.fields.password = '';
