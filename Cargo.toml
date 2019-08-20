@@ -33,3 +33,8 @@ log = "0.4"
 tokio = "0.1"
 tokio-core = "0.1"
 futures = "0.1"
+winapi = { version = "0.3", features = ["winuser"] }
+
+[[bin]]
+name = "agent"
+path = "src/agent.rs"

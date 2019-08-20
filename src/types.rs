@@ -426,7 +426,7 @@ pub struct ApiLogsReq {
     pub num: String
 }
 
-#[derive(FromForm)]
+#[derive(Serialize, FromForm)]
 pub struct ApiLoginReq {
     pub channel: String,
     pub password: String

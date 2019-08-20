@@ -5,3 +5,4 @@ cd "$DIR"
 
 cargo build --release
 cp "target/release/babblebot" bin
+cp "target/release/agent" bin
