@@ -25,3 +25,8 @@ This audio player will play through the current song request queue.
 .. rubric:: Integrations
 
 Manage your social integrations. If you just subscribed to patreon and still don't see the custom username option on the main dashboard, try refreshing your patreon integration here.
+
+
+.. rubric:: Logs
+
+Use this for debugging purposes and to inspect recent log output generated from the bot.
