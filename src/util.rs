@@ -38,7 +38,7 @@ pub fn log_info(id: Option<Either<&str, Vec<&str>>>, descriptor: &str, content: 
                     info!("{}", str);
 
                     for channel in channels {
-                        let str = format!("[{}] [{}] [{}] {}", timestamp, channel, descriptor, content);
+                        let str = format!("[{}] [{}] {}", timestamp, descriptor, content);
                         let _: () = con.lpush(format!("channel:{}:logs", &channel), str).unwrap();
                         let _: () = con.ltrim(format!("channel:{}:logs", &channel), 0, 9999).unwrap();
                     }
@@ -50,7 +50,7 @@ pub fn log_info(id: Option<Either<&str, Vec<&str>>>, descriptor: &str, content: 
                         info!("{}", str);
 
                         for channel in channels {
-                            let str = format!("[{}] [{}] [{}] {}", timestamp, channel, descriptor, content);
+                            let str = format!("[{}] [{}] {}", timestamp, descriptor, content);
                             let _: () = con.lpush(format!("channel:{}:logs", &channel), str).unwrap();
                             let _: () = con.ltrim(format!("channel:{}:logs", &channel), 0, 9999).unwrap();
                         }
