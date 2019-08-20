@@ -5,6 +5,7 @@ authors = ["toovs <toovs@tutamail.com>"]
 edition = "2018"
 
 [dependencies]
+either = "1.5"
 bcrypt = "0.5"
 rand = "0.7"
 base64 = "0.10"
