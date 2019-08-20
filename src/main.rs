@@ -117,7 +117,11 @@ fn run_reactor(bots: HashMap<String, (HashSet<String>, Config)>) {
         thread::spawn(move || {
             tokio::run(lazy(move || {
                 loop {
-                    log_info(Some(Left(&bot)), "run_reactor", "connecting to irc");
+                    let mut chans: Vec<&str> = Vec::new();
+                    for chan in (channels.0).iter() {
+                        chans.push(chan);
+                    }
+                    log_info(Some(Right(chans)), "run_reactor", "connecting to irc");
                     let config = (channels.1).clone();
                     match IrcClient::from_config(config) {
                         Err(e) => { log_error(None, "run_reactor", &e.to_string()); break }
@@ -292,7 +296,7 @@ fn run_client(client: Arc<IrcClient>, receiver: Receiver<ThreadAction>) -> Optio
                                             let rgx: String = con.hget(format!("channel:{}:moderation:blacklist:{}", channel, key[4]), "regex").expect("hget:regex");
                                             let length: String = con.hget(format!("channel:{}:moderation:blacklist:{}", channel, key[4]), "length").expect("hget:length");
                                             match RegexBuilder::new(&rgx).case_insensitive(true).build() {
-                                                Err(e) => { log_error(Some(Right(&channel)), "regex_error", &e.to_string()) }
+                                                Err(e) => { log_error(Some(Right(vec![&channel])), "regex_error", &e.to_string()) }
                                                 Ok(rgx) => {
                                                     if rgx.is_match(&msg) {
                                                         let _ = client.send_privmsg(chan, format!("/timeout {} {}", nick, length));
@@ -427,7 +431,7 @@ fn rename_channel_listener(channel: String, sender: Sender<ThreadAction>) {
         loop {
             let res = ps.get_message();
             match res {
-                Err(e) => { log_error(Some(Right(&channel)), "rename_channel_listener", &e.to_string()) }
+                Err(e) => { log_error(Some(Right(vec![&channel])), "rename_channel_listener", &e.to_string()) }
                 Ok(msg) => {
                     let payload: String = msg.get_payload().expect("redis:get_payload");
                     let tokens: Vec<&str> = payload.split_whitespace().collect();
@@ -446,14 +450,14 @@ fn rename_channel_listener(channel: String, sender: Sender<ThreadAction>) {
                     let req = reqwest::Client::builder().default_headers(headers).build().unwrap();
                     let rsp = req.get("https://api.twitch.tv/kraken/user").send();
                     match rsp {
-                        Err(e) => { log_error(Some(Right(&channel)), "rename_channel_listener", &e.to_string()) }
+                        Err(e) => { log_error(Some(Right(vec![&channel])), "rename_channel_listener", &e.to_string()) }
                         Ok(mut rsp) => {
                             let text = rsp.text().unwrap();
                             let json: Result<KrakenUser,_> = serde_json::from_str(&text);
                             match json {
                                 Err(e) => {
-                                    log_error(Some(Right(&channel)), "rename_channel_listener", &e.to_string());
-                                    log_error(Some(Right(&channel)), "request_body", &text);
+                                    log_error(Some(Right(vec![&channel])), "rename_channel_listener", &e.to_string());
+                                    log_error(Some(Right(vec![&channel])), "request_body", &text);
                                 }
                                 Ok(json) => {
                                     let _ = sender.send(ThreadAction::Part(channel.clone()));
@@ -501,7 +505,7 @@ fn command_listener(channel: String) {
         loop {
             let res = ps.get_message();
             match res {
-                Err(e) => { log_error(Some(Right(&channel)), "command_listener", &e.to_string()) }
+                Err(e) => { log_error(Some(Right(vec![&channel])), "command_listener", &e.to_string()) }
                 Ok(msg) => {
                     let payload: String = msg.get_payload().expect("redis:get_payload");
                     let mut words = payload.split_whitespace();
@@ -551,9 +555,9 @@ fn discord_handler(channel: String) {
             if let Ok(token) = res {
                 let mut client = serenity::client::Client::new(&token, DiscordHandler { channel: channel.to_owned() }).unwrap();
                 client.with_framework(StandardFramework::new());
-                log_info(Some(Right(&channel)), "discord_handler", "connecting to discord");
+                log_info(Some(Right(vec![&channel])), "discord_handler", "connecting to discord");
                 if let Err(e) = client.start() {
-                    log_error(Some(Right(&channel)), "discord_handler", &e.to_string())
+                    log_error(Some(Right(vec![&channel])), "discord_handler", &e.to_string())
                 }
             }
             thread::sleep(time::Duration::from_secs(10));
@@ -670,7 +674,7 @@ fn run_commercials() {
                                     connect_and_send_message(con.clone(), channel.clone(), message);
                                 }
                             }
-                            log_info(Some(Right(&channel)), "run_commercials", &format!("{} commercials have been run", num));
+                            log_info(Some(Right(vec![&channel])), "run_commercials", &format!("{} commercials have been run", num));
                             connect_and_send_message(con.clone(), channel.clone(), format!("{} commercials have been run", num));
                             let future = twitch_kraken_request(con.clone(), &channel, Some("application/json"), Some(format!("{{\"length\": {}}}", num * 30).as_bytes().to_owned()), Method::POST, &format!("https://api.twitch.tv/kraken/channels/{}/commercial", &id)).send().and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() }).map_err(|e| println!("request error: {}", e)).map(move |_body| {});
                             thread::spawn(move || { tokio::run(future) });
@@ -700,23 +704,23 @@ fn update_patreon() {
                             let json: Result<PatreonIdentity,_> = serde_json::from_str(&body);
                             match json {
                                 Err(e) => {
-                                    log_error(Some(Right(&channel)), "update_patreon", &e.to_string());
-                                    log_error(Some(Right(&channel)), "request_body", &body);
+                                    log_error(Some(Right(vec![&channel])), "update_patreon", &e.to_string());
+                                    log_error(Some(Right(vec![&channel])), "request_body", &body);
 
                                     let res: Result<String,_> = con.get(format!("channel:{}:patreon:refresh", &channel));
                                     if let Ok(token) = res {
                                         let channelC = channel.clone();
                                         let future = patreon_refresh(con.clone(), &channel, Method::POST, "https://www.patreon.com/api/oauth2/token", Some(format!("grant_type=refresh_token&refresh_token={}", token).as_bytes().to_owned())).send()
                                             .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
-                                            .map_err(move |e| log_error(Some(Right(&channelC)), "update_patreon", &e.to_string()))
+                                            .map_err(move |e| log_error(Some(Right(vec![&channelC])), "update_patreon", &e.to_string()))
                                             .map(move |body| {
                                                 let con = Arc::new(acquire_con());
                                                 let body = std::str::from_utf8(&body).unwrap();
                                                 let json: Result<PatreonRsp,_> = serde_json::from_str(&body);
                                                 match json {
                                                     Err(e) => {
-                                                        log_error(Some(Right(&channel)), "update_patreon", &e.to_string());
-                                                        log_error(Some(Right(&channel)), "request_body", &body);
+                                                        log_error(Some(Right(vec![&channel])), "update_patreon", &e.to_string());
+                                                        log_error(Some(Right(vec![&channel])), "request_body", &body);
                                                     }
                                                     Ok(json) => {
                                                         let _: () = con.set(format!("channel:{}:patreon:token", &channel), &json.access_token).unwrap();
@@ -834,7 +838,7 @@ fn refresh_twitch_channels() {
                             let json: Result<KrakenUser,_> = serde_json::from_str(&body);
                             match json {
                                 Err(_e) => {
-                                    log_info(Some(Right(&channel)), "refresh_twitch", "refreshing twitch token");
+                                    log_info(Some(Right(vec![&channel])), "refresh_twitch", "refreshing twitch token");
 
                                     let mut settings = config::Config::default();
                                     settings.merge(config::File::with_name("Settings")).unwrap();
@@ -844,15 +848,15 @@ fn refresh_twitch_channels() {
 
                                     let future = twitch_refresh(con.clone(), Method::POST, "https://id.twitch.tv/oauth2/token", Some(format!("grant_type=refresh_token&refresh_token={}&client_id={}&client_secret={}", token, id, secret).as_bytes().to_owned())).send()
                                         .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
-                                        .map_err(move |e| log_error(Some(Right(&channelC)), "refresh_twitch", &e.to_string()))
+                                        .map_err(move |e| log_error(Some(Right(vec![&channelC])), "refresh_twitch", &e.to_string()))
                                         .map(move |body| {
                                             let con = Arc::new(acquire_con());
                                             let body = std::str::from_utf8(&body).unwrap();
                                             let json: Result<TwitchRefresh,_> = serde_json::from_str(&body);
                                             match json {
                                                 Err(e) => {
-                                                    log_error(Some(Right(&channel)), "refresh_twitch", &e.to_string());
-                                                    log_error(Some(Right(&channel)), "request_body", &body);
+                                                    log_error(Some(Right(vec![&channel])), "refresh_twitch", &e.to_string());
+                                                    log_error(Some(Right(vec![&channel])), "request_body", &body);
                                                 }
                                                 Ok(json) => {
                                                     let _: () = con.set(format!("channel:{}:token", &channel), &json.access_token).unwrap();
@@ -884,15 +888,15 @@ fn refresh_spotify() {
                 if let Ok(token) = res {
                     let future = spotify_refresh(con.clone(), &channel, Method::POST, "https://accounts.spotify.com/api/token", Some(format!("grant_type=refresh_token&refresh_token={}", token).as_bytes().to_owned())).send()
                         .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
-                        .map_err(move |e| log_error(Some(Right(&channelC)), "update_spotify", &e.to_string()))
+                        .map_err(move |e| log_error(Some(Right(vec![&channelC])), "update_spotify", &e.to_string()))
                         .map(move |body| {
                             let con = Arc::new(acquire_con());
                             let body = std::str::from_utf8(&body).unwrap();
                             let json: Result<SpotifyRefresh,_> = serde_json::from_str(&body);
                             match json {
                                 Err(e) => {
-                                    log_error(Some(Right(&channel)), "update_spotify", &e.to_string());
-                                    log_error(Some(Right(&channel)), "request_body", &body);
+                                    log_error(Some(Right(vec![&channel])), "update_spotify", &e.to_string());
+                                    log_error(Some(Right(vec![&channel])), "request_body", &body);
                                 }
                                 Ok(json) => {
                                     let _: () = con.set(format!("channel:{}:spotify:token", &channel), &json.access_token).unwrap();
@@ -925,8 +929,8 @@ fn update_watchtime() {
                             let json: Result<TmiChatters,_> = serde_json::from_str(&body);
                             match json {
                                 Err(e) => {
-                                    log_error(Some(Right(&channel)), "update_watchtime", &e.to_string());
-                                    log_error(Some(Right(&channel)), "request_body", &body);
+                                    log_error(Some(Right(vec![&channel])), "update_watchtime", &e.to_string());
+                                    log_error(Some(Right(vec![&channel])), "request_body", &body);
                                 }
                                 Ok(json) => {
                                     let mut nicks: Vec<String> = Vec::new();
@@ -1066,8 +1070,8 @@ fn update_stats() {
                                     let json: Result<PubgPlayer,_> = serde_json::from_str(&body);
                                     match json {
                                         Err(e) => {
-                                            log_error(Some(Right(&channel)), "update_pubg", &e.to_string());
-                                            log_error(Some(Right(&channel)), "request_body", &body);
+                                            log_error(Some(Right(vec![&channel])), "update_pubg", &e.to_string());
+                                            log_error(Some(Right(vec![&channel])), "request_body", &body);
                                         }
                                         Ok(json) => {
                                             if json.data.relationships.matches.data.len() > 0 {
@@ -1087,8 +1091,8 @@ fn update_stats() {
                                                                 let json: Result<PubgMatch,_> = serde_json::from_str(&body);
                                                                 match json {
                                                                     Err(e) => {
-                                                                        log_error(Some(Right(&channelC)), "update_pubg", &e.to_string());
-                                                                        log_error(Some(Right(&channelC)), "request_body", &body);
+                                                                        log_error(Some(Right(vec![&channelC])), "update_pubg", &e.to_string());
+                                                                        log_error(Some(Right(vec![&channelC])), "request_body", &body);
                                                                     }
                                                                     Ok(json) => {
                                                                         for p in json.included.iter().filter(|i| i.type_ == "participant") {
@@ -1143,8 +1147,8 @@ fn update_stats() {
                                     let json: Result<PubgPlayers,_> = serde_json::from_str(&body);
                                     match json {
                                         Err(e) => {
-                                            log_error(Some(Right(&channel)), "update_pubg", &e.to_string());
-                                            log_error(Some(Right(&channel)), "request_body", &body);
+                                            log_error(Some(Right(vec![&channel])), "update_pubg", &e.to_string());
+                                            log_error(Some(Right(vec![&channel])), "request_body", &body);
                                         }
                                         Ok(json) => {
                                             if json.data.len() > 0 {
@@ -1196,8 +1200,8 @@ fn update_stats() {
                                 let json: Result<FortniteApi,_> = serde_json::from_str(&body);
                                 match json {
                                     Err(e) => {
-                                        log_error(Some(Right(&channel)), "update_fortnite", &e.to_string());
-                                        log_error(Some(Right(&channel)), "request_body", &body);
+                                        log_error(Some(Right(vec![&channel])), "update_fortnite", &e.to_string());
+                                        log_error(Some(Right(vec![&channel])), "request_body", &body);
                                     }
                                     Ok(json) => {
                                         if json.recentMatches.len() > 0 {
@@ -1317,8 +1321,8 @@ fn spawn_timers(client: Arc<IrcClient>, channel: String, receivers: Vec<Receiver
                         let json: Result<KrakenHosts,_> = serde_json::from_str(&body);
                         match json {
                             Err(e) => {
-                                log_error(Some(Right(&channelC)), "auto_shoutouts", &e.to_string());
-                                log_error(Some(Right(&channelC)), "request_body", &body);
+                                log_error(Some(Right(vec![&channelC])), "auto_shoutouts", &e.to_string());
+                                log_error(Some(Right(vec![&channelC])), "request_body", &body);
                             }
                             Ok(json) => {
                                 let list: String = con.hget(format!("channel:{}:settings", &channelC), "autohost:blacklist").unwrap_or("".to_owned()); // UNDOCUMENTED
@@ -1341,8 +1345,8 @@ fn spawn_timers(client: Arc<IrcClient>, channel: String, receivers: Vec<Receiver
                                                 let json: Result<KrakenStreams,_> = serde_json::from_str(&body);
                                                 match json {
                                                     Err(e) => {
-                                                        log_error(Some(Right(&channel)), "auto_shoutouts", &e.to_string());
-                                                        log_error(Some(Right(&channel)), "request_body", &body);
+                                                        log_error(Some(Right(vec![&channel])), "auto_shoutouts", &e.to_string());
+                                                        log_error(Some(Right(vec![&channel])), "request_body", &body);
                                                     }
                                                     Ok(json) => {
                                                         if !blacklist.contains(&host.host_id) {
@@ -1366,8 +1370,8 @@ fn spawn_timers(client: Arc<IrcClient>, channel: String, receivers: Vec<Receiver
                                                                             let json: Result<KrakenChannel,_> = serde_json::from_str(&body);
                                                                             match json {
                                                                                 Err(e) => {
-                                                                                    log_error(Some(Right(&channel)), "auto_shoutouts", &e.to_string());
-                                                                                    log_error(Some(Right(&channel)), "request_body", &body);
+                                                                                    log_error(Some(Right(vec![&channel])), "auto_shoutouts", &e.to_string());
+                                                                                    log_error(Some(Right(vec![&channel])), "request_body", &body);
                                                                                 }
                                                                                 Ok(json) => {
                                                                                     let mut message: String = autom.to_owned();

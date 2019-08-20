@@ -578,8 +578,8 @@ fn title_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args
                 let json: Result<KrakenChannel,_> = serde_json::from_str(&body);
                 match json {
                     Err(e) => {
-                        log_error(Some(Right(&channel)), "title_cmd", &e.to_string());
-                        log_error(Some(Right(&channel)), "request_body", &body);
+                        log_error(Some(Right(vec![&channel])), "title_cmd", &e.to_string());
+                        log_error(Some(Right(vec![&channel])), "request_body", &body);
                     }
                     Ok(json) => { let _ = send_message(con.clone(), client, channel, json.status); }
                 }
@@ -595,8 +595,8 @@ fn title_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args
                 let json: Result<KrakenChannel,_> = serde_json::from_str(&body);
                 match json {
                     Err(e) => {
-                        log_error(Some(Right(&channel)), "title_cmd", &e.to_string());
-                        log_error(Some(Right(&channel)), "request_body", &body);
+                        log_error(Some(Right(vec![&channel])), "title_cmd", &e.to_string());
+                        log_error(Some(Right(vec![&channel])), "request_body", &body);
                     }
                     Ok(json) => { send_message(con.clone(), client, channel, format!("Title is now set to: {}", json.status)); }
                 }
@@ -617,8 +617,8 @@ fn game_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args:
                 let json: Result<KrakenChannel,_> = serde_json::from_str(&body);
                 match json {
                     Err(e) => {
-                        log_error(Some(Right(&channel)), "game_cmd", &e.to_string());
-                        log_error(Some(Right(&channel)), "request_body", &body);
+                        log_error(Some(Right(vec![&channel])), "game_cmd", &e.to_string());
+                        log_error(Some(Right(vec![&channel])), "request_body", &body);
                     }
                     Ok(json) => { let _ = send_message(con.clone(), client, channel, json.game); }
                 }
@@ -634,8 +634,8 @@ fn game_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args:
                 let json: Result<HelixGames,_> = serde_json::from_str(&body);
                 match json {
                     Err(e) => {
-                        log_error(Some(Right(&channel)), "game_cmd", &e.to_string());
-                        log_error(Some(Right(&channel)), "request_body", &body);
+                        log_error(Some(Right(vec![&channel])), "game_cmd", &e.to_string());
+                        log_error(Some(Right(vec![&channel])), "request_body", &body);
                     }
                     Ok(json) => {
                         if json.data.len() == 0 {
@@ -651,8 +651,8 @@ fn game_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args:
                                     let json: Result<KrakenChannel,_> = serde_json::from_str(&body);
                                     match json {
                                         Err(e) => {
-                                            log_error(Some(Right(&channel)), "game_cmd", &e.to_string());
-                                            log_error(Some(Right(&channel)), "request_body", &body);
+                                            log_error(Some(Right(vec![&channel])), "game_cmd", &e.to_string());
+                                            log_error(Some(Right(vec![&channel])), "request_body", &body);
                                         }
                                         Ok(_json) => { send_message(con.clone(), client, channel, format!("Game is now set to: {}", &name)); }
                                     }
@@ -801,8 +801,8 @@ fn clip_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, _args
             let json: Result<HelixClips,_> = serde_json::from_str(&body);
             match json {
                 Err(e) => {
-                    log_error(Some(Right(&channel)), "clip_cmd", &e.to_string());
-                    log_error(Some(Right(&channel)), "request_body", &body);
+                    log_error(Some(Right(vec![&channel])), "clip_cmd", &e.to_string());
+                    log_error(Some(Right(vec![&channel])), "request_body", &body);
                 }
                 Ok(json) => {
                     if json.data.len() > 0 {
@@ -948,7 +948,7 @@ fn commercials_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String
                                         send_message(con.clone(), client.clone(), channel.clone(), message);
                                     }
                                 }
-                                log_info(Some(Right(&channel)), "run_commercials", &format!("{} commercials have been run", args[1]));
+                                log_info(Some(Right(vec![&channel])), "run_commercials", &format!("{} commercials have been run", args[1]));
                                 send_message(con.clone(), client.clone(), channel.clone(), format!("{} commercials have been run", args[1]));
                                 let future = twitch_kraken_request(con.clone(), &channel, Some("application/json"), Some(format!("{{\"length\": {}}}", num * 30).as_bytes().to_owned()), Method::POST, &format!("https://api.twitch.tv/kraken/channels/{}/commercial", &id)).send().and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() }).map_err(|e| println!("request error: {}", e)).map(move |_body| {});
                                 thread::spawn(move || { tokio::run(future) });

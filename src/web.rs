@@ -242,8 +242,8 @@ pub fn patreon_cb(con: RedisConnection, code: String, state: String) -> Template
             let json: Result<PatreonRsp,_> = serde_json::from_str(&body);
             match json {
                 Err(e) => {
-                    log_error(Some(Right(&state)), "patreon_cb", &e.to_string());
-                    log_error(Some(Right(&state)), "request_body", &body);
+                    log_error(Some(Right(vec![&state])), "patreon_cb", &e.to_string());
+                    log_error(Some(Right(vec![&state])), "request_body", &body);
                     let context: HashMap<&str, String> = HashMap::new();
                     return Template::render("dashboard", &context);
                 }
@@ -257,8 +257,8 @@ pub fn patreon_cb(con: RedisConnection, code: String, state: String) -> Template
                             let json: Result<PatreonIdentity,_> = serde_json::from_str(&body);
                             match json {
                                 Err(e) => {
-                                    log_error(Some(Right(&state)), "patreon_cb", &e.to_string());
-                                    log_error(Some(Right(&state)), "request_body", &body);
+                                    log_error(Some(Right(vec![&state])), "patreon_cb", &e.to_string());
+                                    log_error(Some(Right(vec![&state])), "request_body", &body);
                                 }
                                 Ok(json) => {
                                     let patreon_id = settings.get_str("patreon_id").unwrap_or("".to_owned());
@@ -302,8 +302,8 @@ pub fn patreon_refresh(con: RedisConnection, auth: Auth) -> Template {
                 let json: Result<PatreonIdentity,_> = serde_json::from_str(&body);
                 match json {
                     Err(e) => {
-                        log_error(Some(Right(&auth.channel)), "patreon_refresh", &e.to_string());
-                        log_error(Some(Right(&auth.channel)), "request_body", &body);
+                        log_error(Some(Right(vec![&auth.channel])), "patreon_refresh", &e.to_string());
+                        log_error(Some(Right(vec![&auth.channel])), "request_body", &body);
                     }
                     Ok(json) => {
                         let mut settings = config::Config::default();
@@ -350,8 +350,8 @@ pub fn spotify_cb(con: RedisConnection, auth: Auth, code: String) -> Template {
             let json: Result<SpotifyRsp,_> = serde_json::from_str(&body);
             match json {
                 Err(e) => {
-                    log_error(Some(Right(&auth.channel)), "spotify_cb", &e.to_string());
-                    log_error(Some(Right(&auth.channel)), "request_body", &body);
+                    log_error(Some(Right(vec![&auth.channel])), "spotify_cb", &e.to_string());
+                    log_error(Some(Right(vec![&auth.channel])), "request_body", &body);
                     let context: HashMap<&str, String> = HashMap::new();
                     return Template::render("dashboard", &context);
                 }
@@ -396,7 +396,7 @@ pub fn data(con: RedisConnection, auth: Auth) -> Json<ApiData> {
 
     match rsp {
         Err(e) => {
-            log_error(Some(Right(&auth.channel)), "data", &e.to_string());
+            log_error(Some(Right(vec![&auth.channel])), "data", &e.to_string());
             let fields: HashMap<String, String> = HashMap::new();
             let commands: HashMap<String, String> = HashMap::new();
             let notices: HashMap<String, Vec<String>> = HashMap::new();
@@ -411,7 +411,7 @@ pub fn data(con: RedisConnection, auth: Auth) -> Json<ApiData> {
             let json: Result<KrakenChannel,_> = rsp.json();
             match json {
                 Err(e) => {
-                    log_error(Some(Right(&auth.channel)), "data", &e.to_string());
+                    log_error(Some(Right(vec![&auth.channel])), "data", &e.to_string());
                     let fields: HashMap<String, String> = HashMap::new();
                     let commands: HashMap<String, String> = HashMap::new();
                     let notices: HashMap<String, Vec<String>> = HashMap::new();

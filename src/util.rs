@@ -15,7 +15,7 @@ use irc::client::prelude::*;
 use regex::{Regex,RegexBuilder,Captures,escape};
 use redis::{self,Commands,Connection};
 
-pub fn log_info(id: Option<Either<&str, &str>>, descriptor: &str, content: &str) {
+pub fn log_info(id: Option<Either<&str, Vec<&str>>>, descriptor: &str, content: &str) {
     let con = acquire_con();
     let timestamp = Utc::now().to_rfc3339();
     match id {
@@ -33,20 +33,28 @@ pub fn log_info(id: Option<Either<&str, &str>>, descriptor: &str, content: &str)
                         let cbot: String = con.get(format!("channel:{}:bot", channel)).unwrap_or("".to_owned());
                         if cbot == bot { channels.push(channel); }
                     }
+
+                    let str = format!("[{}] [{}] [{}] {}", timestamp, bot, descriptor, content);
+                    info!("{}", str);
+
                     for channel in channels {
-                        let str1 = format!("[{}] [{}] [{}] {}", timestamp, channel, descriptor, content);
-                        let str2 = format!("[{}] [{}] {}", timestamp, descriptor, content);
-                        info!("{}", str1);
-                        let _: () = con.lpush(format!("channel:{}:logs", &channel), str2).unwrap();
+                        let str = format!("[{}] [{}] [{}] {}", timestamp, channel, descriptor, content);
+                        let _: () = con.lpush(format!("channel:{}:logs", &channel), str).unwrap();
                         let _: () = con.ltrim(format!("channel:{}:logs", &channel), 0, 9999).unwrap();
                     }
                 }
-                Right(channel) => {
-                    let str1 = format!("[{}] [{}] [{}] {}", timestamp, channel, descriptor, content);
-                    let str2 = format!("[{}] [{}] {}", timestamp, descriptor, content);
-                    info!("{}", str1);
-                    let _: () = con.lpush(format!("channel:{}:logs", &channel), str2).unwrap();
-                    let _: () = con.ltrim(format!("channel:{}:logs", &channel), 0, 9999).unwrap();
+                Right(channels) => {
+                    if channels.len() > 0 {
+                        let bot: String = con.smembers(format!("channel:{}:bot", &channels[0])).unwrap_or("".to_owned());
+                        let str = format!("[{}] [{}] [{}] {}", timestamp, bot, descriptor, content);
+                        info!("{}", str);
+
+                        for channel in channels {
+                            let str = format!("[{}] [{}] [{}] {}", timestamp, channel, descriptor, content);
+                            let _: () = con.lpush(format!("channel:{}:logs", &channel), str).unwrap();
+                            let _: () = con.ltrim(format!("channel:{}:logs", &channel), 0, 9999).unwrap();
+                        }
+                    }
 
                 }
             }
@@ -54,7 +62,7 @@ pub fn log_info(id: Option<Either<&str, &str>>, descriptor: &str, content: &str)
     }
 }
 
-pub fn log_error(id: Option<Either<&str, &str>>, descriptor: &str, content: &str) {
+pub fn log_error(id: Option<Either<&str, Vec<&str>>>, descriptor: &str, content: &str) {
     let con = acquire_con();
     let timestamp = Utc::now().to_rfc3339();
     match id {
@@ -80,12 +88,14 @@ pub fn log_error(id: Option<Either<&str, &str>>, descriptor: &str, content: &str
                         let _: () = con.ltrim(format!("channel:{}:logs", &channel), 0, 9999).unwrap();
                     }
                 }
-                Right(channel) => {
-                    let str1 = format!("[{}] [{}] [{}] {}", timestamp, channel, descriptor, content);
-                    let str2 = format!("[{}] [{}] {}", timestamp, descriptor, content);
-                    error!("{}", &str1);
-                    let _: () = con.lpush(format!("channel:{}:logs", &channel), str2).unwrap();
-                    let _: () = con.ltrim(format!("channel:{}:logs", &channel), 0, 9999).unwrap();
+                Right(channels) => {
+                    for channel in channels {
+                        let str1 = format!("[{}] [{}] [{}] {}", timestamp, channel, descriptor, content);
+                        let str2 = format!("[{}] [{}] {}", timestamp, descriptor, content);
+                        error!("{}", &str1);
+                        let _: () = con.lpush(format!("channel:{}:logs", &channel), str2).unwrap();
+                        let _: () = con.ltrim(format!("channel:{}:logs", &channel), 0, 9999).unwrap();
+                    }
                 }
             }
         }
@@ -252,8 +262,8 @@ pub fn spawn_age_check(con: Arc<Connection>, client: Arc<IrcClient>, channel: St
                 let json: Result<KrakenUsers,_> = serde_json::from_str(&body);
                 match json {
                     Err(e) => {
-                        log_error(Some(Right(&channel)), "spawn_age_check", &e.to_string());
-                        log_error(Some(Right(&channel)), "request_body", &body);
+                        log_error(Some(Right(vec![&channel])), "spawn_age_check", &e.to_string());
+                        log_error(Some(Right(vec![&channel])), "request_body", &body);
                     }
                     Ok(json) => {
                         if json.total > 0 {
