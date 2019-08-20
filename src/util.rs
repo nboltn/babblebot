@@ -17,7 +17,7 @@ use redis::{self,Commands,Connection};
 
 pub fn log_info(id: Option<Either<&str, Vec<&str>>>, descriptor: &str, content: &str) {
     let con = acquire_con();
-    let timestamp = Utc::now().format("%YT%H:%M:%S%z");
+    let timestamp = Utc::now().format("%Y-%m-%dT%H:%M:%S%z");
     match id {
         None => {
             let str = format!("[{}] [{}] {}", timestamp, descriptor, content);
