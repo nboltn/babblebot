@@ -1,4 +1,4 @@
-redis_pass = "password"
+redis_uri = "redis://127.0.0.1"
 
 bot_name = "babblerbot"
 bot_token = "z1wrfn4tz91fgsm3x96pnkvxy9ix6n"

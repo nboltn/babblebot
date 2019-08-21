@@ -103,17 +103,11 @@ pub fn log_error(id: Option<Either<&str, Vec<&str>>>, descriptor: &str, content:
 }
 
 pub fn acquire_con() -> redis::Connection {
-    let mut client: redis::Client;
     let mut settings = config::Config::default();
     settings.merge(config::File::with_name("Settings")).unwrap();
     settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
-    let redis_host = settings.get_str("redis_host").unwrap_or("127.0.0.1".to_owned());
-    let res = settings.get_str("redis_pass");
-    if let Ok(redis_pass) = res {
-        client = redis::Client::open(&format!("redis://:{}@{}", &redis_pass, &redis_host)[..]).unwrap();
-    } else {
-        client = redis::Client::open(&format!("redis://{}", &redis_host)[..]).unwrap();
-    }
+    let redis_uri = settings.get_str("redis_uri").unwrap_or("redis://127.0.0.1".to_owned());
+    let client = redis::Client::open(&redis_uri[..]).unwrap();
     loop {
         match client.get_connection() {
             Err(e) => log_error(None, "acquire_con", &e.to_string()),
