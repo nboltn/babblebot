@@ -56,49 +56,55 @@ fn main() {
                                         match action.as_ref() {
                                             "INPUT" => {
                                                 for arg in args.clone() {
-                                                    let mut input_u: INPUT_u = unsafe { std::mem::zeroed() };
-                                                    unsafe {
-                                                        *input_u.ki_mut() = KEYBDINPUT {
-                                                            wVk: 0,
-                                                            dwFlags: 0,
-                                                            dwExtraInfo: 0,
-                                                            wScan: 0,
-                                                            time: 0
+                                                    let res: Result<u16,_> = arg.parse();
+                                                    if let Ok(num) = res {
+                                                        let mut input_u: INPUT_u = unsafe { std::mem::zeroed() };
+                                                        unsafe {
+                                                            *input_u.ki_mut() = KEYBDINPUT {
+                                                                wVk: num,
+                                                                dwFlags: 0,
+                                                                dwExtraInfo: 0,
+                                                                wScan: 0,
+                                                                time: 0
+                                                            }
                                                         }
+
+                                                        let mut input = INPUT {
+                                                            type_: INPUT_KEYBOARD,
+                                                            u: input_u
+                                                        };
+                                                        let ipsize = std::mem::size_of::<INPUT>() as i32;
+
+                                                        unsafe {
+                                                            SendInput(1, &mut input, ipsize);
+                                                        };
                                                     }
-
-                                                    let mut input = INPUT {
-                                                        type_: INPUT_KEYBOARD,
-                                                        u: input_u
-                                                    };
-                                                    let ipsize = std::mem::size_of::<INPUT>() as i32;
-
-                                                    unsafe {
-                                                        SendInput(1, &mut input, ipsize);
-                                                    };
                                                 }
 
                                                 for arg in args.clone() {
-                                                    let mut input_u: INPUT_u = unsafe { std::mem::zeroed() };
-                                                    unsafe {
-                                                        *input_u.ki_mut() = KEYBDINPUT {
-                                                            wVk: KEYUP,
-                                                            dwFlags: 0,
-                                                            dwExtraInfo: 0,
-                                                            wScan: 0,
-                                                            time: 0
+                                                    let res: Result<u16,_> = arg.parse();
+                                                    if let Ok(num) = res {
+                                                        let mut input_u: INPUT_u = unsafe { std::mem::zeroed() };
+                                                        unsafe {
+                                                            *input_u.ki_mut() = KEYBDINPUT {
+                                                                wVk: num,
+                                                                dwFlags: KEYUP,
+                                                                dwExtraInfo: 0,
+                                                                wScan: 0,
+                                                                time: 0
+                                                            }
                                                         }
+
+                                                        let mut input = INPUT {
+                                                            type_: INPUT_KEYBOARD,
+                                                            u: input_u
+                                                        };
+                                                        let ipsize = std::mem::size_of::<INPUT>() as i32;
+
+                                                        unsafe {
+                                                            SendInput(1, &mut input, ipsize);
+                                                        };
                                                     }
-
-                                                    let mut input = INPUT {
-                                                        type_: INPUT_KEYBOARD,
-                                                        u: input_u
-                                                    };
-                                                    let ipsize = std::mem::size_of::<INPUT>() as i32;
-
-                                                    unsafe {
-                                                        SendInput(1, &mut input, ipsize);
-                                                    };
                                                 }
                                             }
                                             _ => {}
