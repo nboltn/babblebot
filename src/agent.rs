@@ -1,4 +1,4 @@
-#[cfg(windows)] extern crate winapi;
+#[cfg(windows)] use winapi::um::winuser::{INPUT_u, INPUT, INPUT_KEYBOARD, KEYBDINPUT, SendInput};
 use config;
 use redis::{self,Commands};
 use http::header::{self,HeaderValue};
@@ -18,6 +18,10 @@ pub struct AgentRsp {
     pub args: Option<Vec<String>>
 }
 
+#[cfg(not(windows))]
+fn main() {}
+
+#[cfg(windows)]
 fn main() {
     let mut settings = config::Config::default();
     settings.merge(config::File::with_name("Config")).unwrap();
@@ -43,15 +47,64 @@ fn main() {
                         if VERSION >= json.version {
                             if json.success {
                                 if let (Some(action), Some(args)) = (json.action, json.args) {
+                                    println!("received action: {}", action);
                                     match action.as_ref() {
                                         "INPUT" => {
+                                            let mut inputs = Vec::new();
+                                            for arg in args {
+                                                let mut input_u: INPUT_u = unsafe { std::mem::zeroed() };
+                                                unsafe {
+                                                    *input_u.ki_mut() = KEYBDINPUT {
+                                                        wVk: key,
+                                                        dwFlags: 0,
+                                                        dwExtraInfo: 0,
+                                                        wScan: 0,
+                                                        time: 0
+                                                    }
+                                                }
+
+                                                let mut input = INPUT {
+                                                    type_: INPUT_KEYBOARD,
+                                                    u: input_u
+                                                };
+                                                inputs.push(input);
+                                                let ipsize = std::mem::size_of::<INPUT>() as i32;
+                                            }
+
+                                            unsafe {
+                                                SendInput(args.len(), inputs, ipsize);
+                                            };
                                         }
                                         _ => {}
                                     }
                                 }
                             }
                         } else {
-                            println!("version error: your client is out of date")
+                            let r1 = settings.get_str("github_owner");
+                            let r2 = settings.get_str("github_name");
+                            if let (Ok(owner), Ok(name)) = (r1, r2) {
+                                let res = self_update::backends::github::Update::configure()
+                                    .repo_owner(&owner)
+                                    .repo_name(&name)
+                                    .bin_name("babblebot")
+                                    .show_download_progress(true)
+                                    .current_version(cargo_crate_version!())
+                                    .build();
+                                match res {
+                                    Err(e) => println!("update error: {}", &e.to_string()),
+                                    Ok(update) => {
+                                        match update.update() {
+                                            Err(e) => println!("update error: {}", &e.to_string()),
+                                            Ok(status) => {
+                                                println!("updated to version: {}", status.version());
+                                            }
+                                        }
+                                    }
+                                }
+
+                            } else {
+                                println!("version error: your client is out of date");
+                            }
                         }
                     }
                 }
