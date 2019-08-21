@@ -460,31 +460,33 @@ fn rename_channel_listener(channel: String, sender: Sender<ThreadAction>) {
                                     log_error(Some(Right(vec![&channel])), "request_body", &text);
                                 }
                                 Ok(json) => {
-                                    let _ = sender.send(ThreadAction::Part(channel.clone()));
+                                    if json.name != channel {
+                                        let _ = sender.send(ThreadAction::Part(channel.clone())); // TODO: not 100% reliable?
 
-                                    let bot: String = con.get(format!("channel:{}:bot", &channel)).expect("get:bot");
-                                    let _: () = con.srem(format!("bot:{}:channels", &bot), &channel).unwrap();
-                                    let _: () = con.sadd("bots", &json.name).unwrap();
-                                    let _: () = con.sadd(format!("bot:{}:channels", &json.name), &channel).unwrap();
-                                    let _: () = con.set(format!("bot:{}:token", &json.name), &token).unwrap();
-                                    let _: () = con.set(format!("bot:{}:refresh", &json.name), &refresh).unwrap();
-                                    let _: () = con.set(format!("channel:{}:bot", &channel), &json.name).unwrap();
+                                        let bot: String = con.get(format!("channel:{}:bot", &channel)).expect("get:bot");
+                                        let _: () = con.srem(format!("bot:{}:channels", &bot), &channel).unwrap();
+                                        let _: () = con.sadd("bots", &json.name).unwrap();
+                                        let _: () = con.sadd(format!("bot:{}:channels", &json.name), &channel).unwrap();
+                                        let _: () = con.set(format!("bot:{}:token", &json.name), &token).unwrap();
+                                        let _: () = con.set(format!("bot:{}:refresh", &json.name), &refresh).unwrap();
+                                        let _: () = con.set(format!("channel:{}:bot", &channel), &json.name).unwrap();
 
-                                    let mut bots: HashMap<String, (HashSet<String>, Config)> = HashMap::new();
-                                    let mut channel_hash: HashSet<String> = HashSet::new();
-                                    let mut channels: Vec<String> = Vec::new();
-                                    channel_hash.insert(channel.to_owned());
-                                    channels.extend(channel_hash.iter().cloned().map(|chan| { format!("#{}", chan) }));
-                                    let config = Config {
-                                        server: Some("irc.chat.twitch.tv".to_owned()),
-                                        use_ssl: Some(true),
-                                        nickname: Some(bot.to_owned()),
-                                        password: Some(format!("oauth:{}", token)),
-                                        channels: Some(channels),
-                                        ..Default::default()
-                                    };
-                                    bots.insert(bot.to_owned(), (channel_hash.clone(), config));
-                                    thread::spawn(move || { run_reactor(bots); });
+                                        let mut bots: HashMap<String, (HashSet<String>, Config)> = HashMap::new();
+                                        let mut channel_hash: HashSet<String> = HashSet::new();
+                                        let mut channels: Vec<String> = Vec::new();
+                                        channel_hash.insert(channel.to_owned());
+                                        channels.extend(channel_hash.iter().cloned().map(|chan| { format!("#{}", chan) }));
+                                        let config = Config {
+                                            server: Some("irc.chat.twitch.tv".to_owned()),
+                                            use_ssl: Some(true),
+                                            nickname: Some(bot.to_owned()),
+                                            password: Some(format!("oauth:{}", token)),
+                                            channels: Some(channels),
+                                            ..Default::default()
+                                        };
+                                        bots.insert(bot.to_owned(), (channel_hash.clone(), config));
+                                        thread::spawn(move || { run_reactor(bots); });
+                                    }
                                 }
                             }
                         }
@@ -781,7 +783,7 @@ fn refresh_twitch_bots() {
                             let json: Result<KrakenUser,_> = serde_json::from_str(&body);
                             match json {
                                 Err(_e) => {
-                                    log_info(Some(Left(&bot)), "refresh_twitch", "refreshing twitch token");
+                                    log_info(Some(Left(&bot)), "refresh_twitch_bot", "refreshing twitch token");
 
                                     let mut settings = config::Config::default();
                                     settings.merge(config::File::with_name("Settings")).unwrap();

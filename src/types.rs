@@ -421,6 +421,15 @@ pub struct ApiRsp {
     pub error_message: Option<String>
 }
 
+#[derive(Deserialize)]
+pub struct AgentRsp {
+    pub success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub action: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub args: Option<Vec<String>>
+}
+
 #[derive(FromForm)]
 pub struct ApiLogsReq {
     pub num: String

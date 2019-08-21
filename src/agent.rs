@@ -1,13 +1,16 @@
 #[cfg(windows)] extern crate winapi;
-use std::io::Error;
 use config;
 use redis::{self,Commands};
 use http::header::{self,HeaderValue};
 use reqwest::Client;
-use serde::{Serialize, Deserialize};
+use serde::Deserialize;
+use self_update::{self, cargo_crate_version};
+
+const VERSION: u8 = 0;
 
 #[derive(Deserialize)]
 pub struct AgentRsp {
+    pub version: u8,
     pub success: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub action: Option<String>,
@@ -37,16 +40,18 @@ fn main() {
                         println!("response error: {}", &e.to_string());
                     }
                     Ok(json) => {
-                        if json.success {
-                            if let (Some(action), Some(args)) = (json.action, json.args) {
-                                match action.as_ref() {
-                                    "UPDATE" => {
+                        if VERSION >= json.version {
+                            if json.success {
+                                if let (Some(action), Some(args)) = (json.action, json.args) {
+                                    match action.as_ref() {
+                                        "INPUT" => {
+                                        }
+                                        _ => {}
                                     }
-                                    "INPUT" => {
-                                    }
-                                    _ => {}
                                 }
                             }
+                        } else {
+                            println!("version error: your client is out of date")
                         }
                     }
                 }

@@ -45,9 +45,14 @@ pub fn log_info(id: Option<Either<&str, Vec<&str>>>, descriptor: &str, content: 
                 }
                 Right(channels) => {
                     if channels.len() > 0 {
-                        let bot: String = con.smembers(format!("channel:{}:bot", &channels[0])).unwrap_or("".to_owned());
-                        let str = format!("[{}] [{}] [{}] {}", timestamp, bot, descriptor, content);
-                        info!("{}", str);
+                        if channels.len() > 1 {
+                            let bot: String = con.get(format!("channel:{}:bot", &channels[0])).unwrap_or("".to_owned());
+                            let str = format!("[{}] [{}] [{}] {}", timestamp, bot, descriptor, content);
+                            info!("{}", str);
+                        } else {
+                            let str = format!("[{}] [{}] [{}] {}", timestamp, &channels[0], descriptor, content);
+                            info!("{}", str);
+                        }
 
                         for channel in channels {
                             let str = format!("[{}] [{}] {}", timestamp, descriptor, content);

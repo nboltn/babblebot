@@ -1,6 +1,6 @@
 [package]
 name = "babblebot"
-version = "0.1.0"
+version = "1.0.0"
 authors = ["toovs <toovs@tutamail.com>"]
 edition = "2018"
 
@@ -34,6 +34,7 @@ tokio = "0.1"
 tokio-core = "0.1"
 futures = "0.1"
 winapi = { version = "0.3", features = ["winuser"] }
+self_update = "0.6"
 
 [[bin]]
 name = "agent"

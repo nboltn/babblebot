@@ -1,3 +1,6 @@
 channel = "not_toovs"
 password = "bowser"
 base_url = "https://www.babblebot.io"
+
+github_owner = "toovs"
+github_name = "babblebot"
