@@ -7,6 +7,7 @@ use serde::Deserialize;
 use self_update::{self, cargo_crate_version};
 
 const VERSION: u8 = 0;
+const KEYUP: u32 = 0x0002;
 
 #[derive(Deserialize)]
 pub struct AgentRsp {
@@ -50,12 +51,11 @@ fn main() {
                                     println!("received action: {}", action);
                                     match action.as_ref() {
                                         "INPUT" => {
-                                            let mut inputs = Vec::new();
                                             for arg in args {
                                                 let mut input_u: INPUT_u = unsafe { std::mem::zeroed() };
                                                 unsafe {
                                                     *input_u.ki_mut() = KEYBDINPUT {
-                                                        wVk: key,
+                                                        wVk: 0,
                                                         dwFlags: 0,
                                                         dwExtraInfo: 0,
                                                         wScan: 0,
@@ -67,13 +67,35 @@ fn main() {
                                                     type_: INPUT_KEYBOARD,
                                                     u: input_u
                                                 };
-                                                inputs.push(input);
                                                 let ipsize = std::mem::size_of::<INPUT>() as i32;
+
+                                                unsafe {
+                                                    SendInput(1, input, ipsize);
+                                                };
                                             }
 
-                                            unsafe {
-                                                SendInput(args.len(), inputs, ipsize);
-                                            };
+                                            for arg in args {
+                                                let mut input_u: INPUT_u = unsafe { std::mem::zeroed() };
+                                                unsafe {
+                                                    *input_u.ki_mut() = KEYBDINPUT {
+                                                        wVk: KEYUP,
+                                                        dwFlags: 0,
+                                                        dwExtraInfo: 0,
+                                                        wScan: 0,
+                                                        time: 0
+                                                    }
+                                                }
+
+                                                let mut input = INPUT {
+                                                    type_: INPUT_KEYBOARD,
+                                                    u: input_u
+                                                };
+                                                let ipsize = std::mem::size_of::<INPUT>() as i32;
+
+                                                unsafe {
+                                                    SendInput(1, input, ipsize);
+                                                };
+                                            }
                                         }
                                         _ => {}
                                     }
