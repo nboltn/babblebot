@@ -421,7 +421,7 @@ pub struct ApiRsp {
     pub error_message: Option<String>
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize)]
 pub struct AgentRsp {
     pub version: u8,
     pub success: bool,

@@ -19,6 +19,8 @@ use rocket_contrib::json::Json;
 use rocket_contrib::templates::Template;
 use jwt::{encode, decode, Header, Validation};
 
+const AGENT_VERSION: u8 = 0;
+
 impl<'a, 'r> FromRequest<'a, 'r> for Auth {
     type Error = AuthError;
 
@@ -542,7 +544,7 @@ pub fn public_data(con: RedisConnection, channel: String) -> Json<ApiData> {
 }
 
 #[post("/api/agent", data="<data>")]
-pub fn agent(con: RedisConnection, data: Form<ApiLoginReq>, mut cookies: Cookies) -> Json<ApiRsp> {
+pub fn agent(con: RedisConnection, data: Form<ApiLoginReq>, mut cookies: Cookies) -> Json<AgentRsp> {
     let mut settings = config::Config::default();
     settings.merge(config::File::with_name("Settings")).unwrap();
     settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
@@ -555,30 +557,30 @@ pub fn agent(con: RedisConnection, data: Form<ApiLoginReq>, mut cookies: Cookies
             let res: Result<String,_> = redis::cmd("lpop").arg(format!("channel:{}:agent:actions", data.channel.to_lowercase())).query(&*con);
             match res {
                 Err(e) => {
-                    let json = AgentRsp { success: true, action: None, args: None, error_message: None };
+                    let json = AgentRsp { version: AGENT_VERSION, success: true, action: None, args: None, error_message: None };
                     return Json(json);
                 }
                 Ok(res) => {
                     let mut words = res.split_whitespace();
                     match words.next() {
                         None => {
-                            let json = AgentRsp { success: true, action: None, args: None, error_message: None };
+                            let json = AgentRsp { version: AGENT_VERSION, success: true, action: None, args: None, error_message: None };
                             return Json(json);
                         }
                         Some(action) => {
                             let args: Vec<String> = words.map(|w| w.to_owned()).collect();
-                            let json = AgentRsp { success: true, action: Some(action), args: Some(args), error_message: None };
+                            let json = AgentRsp { version: AGENT_VERSION, success: true, action: Some(action.to_string()), args: Some(args), error_message: None };
                             return Json(json);
                         }
                     }
                 }
             }
         } else {
-            let json = AgentRsp { success: false, action: None, args: None, error_message: Some("invalid password") };
+            let json = AgentRsp { version: AGENT_VERSION, success: false, action: None, args: None, error_message: Some("invalid password".to_owned()) };
             return Json(json);
         }
     } else {
-        let json = AgentRsp { success: false, action: None, args: None, error_message: Some("channel doesn't exist") };
+        let json = AgentRsp { version: AGENT_VERSION, success: false, action: None, args: None, error_message: Some("channel doesn't exist".to_owned()) };
         return Json(json);
     }
 }
