@@ -14,6 +14,8 @@ pub struct AgentRsp {
     pub version: u8,
     pub success: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub action: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub args: Option<Vec<String>>
@@ -99,6 +101,10 @@ fn main() {
                                         }
                                         _ => {}
                                     }
+                                }
+                            } else {
+                                if let Some(msg) = json.error_message {
+                                    println!("response error: {}", msg);
                                 }
                             }
                         } else {

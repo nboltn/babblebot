@@ -423,7 +423,10 @@ pub struct ApiRsp {
 
 #[derive(Deserialize)]
 pub struct AgentRsp {
+    pub version: u8,
     pub success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_message: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub action: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

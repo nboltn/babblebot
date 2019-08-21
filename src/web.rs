@@ -541,6 +541,48 @@ pub fn public_data(con: RedisConnection, channel: String) -> Json<ApiData> {
     }
 }
 
+#[post("/api/agent", data="<data>")]
+pub fn agent(con: RedisConnection, data: Form<ApiLoginReq>, mut cookies: Cookies) -> Json<ApiRsp> {
+    let mut settings = config::Config::default();
+    settings.merge(config::File::with_name("Settings")).unwrap();
+    settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
+
+    let exists: bool = redis::cmd("SISMEMBER").arg("channels").arg(data.channel.to_lowercase()).query(&*con).unwrap();
+    if exists {
+        let hashed: String = redis::cmd("GET").arg(format!("channel:{}:password", data.channel.to_lowercase())).query(&*con).unwrap();
+        let authed: bool = verify(&data.password, &hashed).unwrap();
+        if authed {
+            let res: Result<String,_> = redis::cmd("lpop").arg(format!("channel:{}:agent:actions", data.channel.to_lowercase())).query(&*con);
+            match res {
+                Err(e) => {
+                    let json = AgentRsp { success: true, action: None, args: None, error_message: None };
+                    return Json(json);
+                }
+                Ok(res) => {
+                    let mut words = res.split_whitespace();
+                    match words.next() {
+                        None => {
+                            let json = AgentRsp { success: true, action: None, args: None, error_message: None };
+                            return Json(json);
+                        }
+                        Some(action) => {
+                            let args: Vec<String> = words.map(|w| w.to_owned()).collect();
+                            let json = AgentRsp { success: true, action: Some(action), args: Some(args), error_message: None };
+                            return Json(json);
+                        }
+                    }
+                }
+            }
+        } else {
+            let json = AgentRsp { success: false, action: None, args: None, error_message: Some("invalid password") };
+            return Json(json);
+        }
+    } else {
+        let json = AgentRsp { success: false, action: None, args: None, error_message: Some("channel doesn't exist") };
+        return Json(json);
+    }
+}
+
 #[post("/api/login", data="<data>")]
 pub fn login(con: RedisConnection, data: Form<ApiLoginReq>, mut cookies: Cookies) -> Json<ApiRsp> {
     let mut settings = config::Config::default();
