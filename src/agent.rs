@@ -8,7 +8,7 @@ use serde::Deserialize;
 use self_update::{self, cargo_crate_version};
 
 const VERSION: u8 = 0;
-const KEYUP: u16 = 0x0002;
+const KEYUP: u32 = 0x0002;
 
 #[derive(Deserialize)]
 pub struct AgentRsp {
