@@ -51,7 +51,7 @@ fn main() {
                                     println!("received action: {}", action);
                                     match action.as_ref() {
                                         "INPUT" => {
-                                            for arg in args {
+                                            for arg in args.clone() {
                                                 let mut input_u: INPUT_u = unsafe { std::mem::zeroed() };
                                                 unsafe {
                                                     *input_u.ki_mut() = KEYBDINPUT {
@@ -74,7 +74,7 @@ fn main() {
                                                 };
                                             }
 
-                                            for arg in args {
+                                            for arg in args.clone() {
                                                 let mut input_u: INPUT_u = unsafe { std::mem::zeroed() };
                                                 unsafe {
                                                     *input_u.ki_mut() = KEYBDINPUT {
