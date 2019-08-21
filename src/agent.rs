@@ -7,7 +7,7 @@ use serde::Deserialize;
 use self_update::{self, cargo_crate_version};
 
 const VERSION: u8 = 0;
-const KEYUP: u32 = 0x0002;
+const KEYUP: u16 = 0x0002;
 
 #[derive(Deserialize)]
 pub struct AgentRsp {
@@ -70,7 +70,7 @@ fn main() {
                                                 let ipsize = std::mem::size_of::<INPUT>() as i32;
 
                                                 unsafe {
-                                                    SendInput(1, input, ipsize);
+                                                    SendInput(1, &mut input, ipsize);
                                                 };
                                             }
 
@@ -93,7 +93,7 @@ fn main() {
                                                 let ipsize = std::mem::size_of::<INPUT>() as i32;
 
                                                 unsafe {
-                                                    SendInput(1, input, ipsize);
+                                                    SendInput(1, &mut input, ipsize);
                                                 };
                                             }
                                         }
