@@ -53,6 +53,8 @@ fn main() {
                             let r2 = Version::parse(&json.version);
                             if let (Ok(v1), Ok(v2)) = (r1, r2) {
                                 if v2 > v1 {
+                                    println!("version error: your client is out of date");
+                                } else {
                                     if json.success {
                                         if let (Some(action), Some(args)) = (json.action, json.args) {
                                             println!("received action: {}", action);
@@ -118,8 +120,6 @@ fn main() {
                                             println!("response error: {}", msg);
                                         }
                                     }
-                                } else {
-                                    println!("version error: your client is out of date");
                                 }
                             }
                         }
