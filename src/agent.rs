@@ -80,7 +80,7 @@ fn main() {
                                                         };
                                                     }
                                                 }
-                                                thread::sleep(time::Duration::from_millis(10));
+                                                thread::sleep(time::Duration::from_millis(100));
                                                 for arg in args.clone() {
                                                     let res: Result<u16,_> = arg.parse();
                                                     if let Ok(num) = res {
