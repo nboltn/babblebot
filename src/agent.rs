@@ -23,7 +23,13 @@ pub struct AgentRsp {
 }
 
 #[cfg(not(windows))]
-fn main() {}
+fn main() {
+    println!("os error: windows not detected");
+    println!("");
+    println!("press enter to exit");
+    let mut input = String::new();
+    io::stdin().read_line(&mut input);
+}
 
 #[cfg(windows)]
 fn main() {
@@ -135,7 +141,7 @@ fn main() {
     }
 
     println!("");
-    println!("press any key to exit");
+    println!("press enter to exit");
     let mut input = String::new();
     io::stdin().read_line(&mut input);
 }
