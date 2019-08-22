@@ -544,16 +544,15 @@ pub fn public_data(con: RedisConnection, channel: String) -> Json<ApiData> {
 }
 
 #[post("/api/agent", data="<data>")]
-pub fn agent(con: RedisConnection, data: Form<ApiLoginReq>, mut cookies: Cookies) -> Json<AgentRsp> {
+pub fn agent(con: RedisConnection, data: Form<ApiAgentReq>, mut cookies: Cookies) -> Json<AgentRsp> {
     let mut settings = config::Config::default();
     settings.merge(config::File::with_name("Settings")).unwrap();
     settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
 
     let exists: bool = redis::cmd("SISMEMBER").arg("channels").arg(data.channel.to_lowercase()).query(&*con).unwrap();
     if exists {
-        let hashed: String = redis::cmd("GET").arg(format!("channel:{}:password", data.channel.to_lowercase())).query(&*con).unwrap();
-        let authed: bool = verify(&data.password, &hashed).unwrap();
-        if authed {
+        let key: String = redis::cmd("GET").arg(format!("channel:{}:agent:key", data.channel.to_lowercase())).query(&*con).unwrap();
+        if key == data.key {
             let len: u8 = redis::cmd("llen").arg(format!("channel:{}:agent:actions", data.channel.to_lowercase())).query(&*con).unwrap_or(0);
             if len > 0 {
                 let res: String = redis::cmd("lpop").arg(format!("channel:{}:agent:actions", data.channel.to_lowercase())).query(&*con).expect("lpop:actions");
@@ -643,6 +642,7 @@ pub fn signup(con: RedisConnection, mut cookies: Cookies, data: Form<ApiSignupRe
                     } else {
                         let bot_name  = settings.get_str("bot_name").unwrap();
                         let bot_token = settings.get_str("bot_token").unwrap();
+                        let agent_key: String = rand::thread_rng().sample_iter(&Alphanumeric).take(12).collect::<String>();
 
                         redis::cmd("SADD").arg("bots").arg(&bot_name).execute(&*con);
                         redis::cmd("SADD").arg("channels").arg(&json.data[0].login).execute(&*con);
@@ -652,6 +652,7 @@ pub fn signup(con: RedisConnection, mut cookies: Cookies, data: Form<ApiSignupRe
                         redis::cmd("SET").arg(format!("channel:{}:token", &json.data[0].login)).arg(&data.token).execute(&*con);
                         redis::cmd("SET").arg(format!("channel:{}:refresh", &json.data[0].login)).arg(&data.refresh).execute(&*con);
                         redis::cmd("SET").arg(format!("channel:{}:password", &json.data[0].login)).arg(hash(&data.password, DEFAULT_COST).unwrap()).execute(&*con);
+                        redis::cmd("SET").arg(format!("channel:{}:agent:key", &json.data[0].login)).arg(agent_key).execute(&*con);
                         redis::cmd("SET").arg(format!("channel:{}:live", &json.data[0].login)).arg(false).execute(&*con);
                         redis::cmd("SET").arg(format!("channel:{}:id", &json.data[0].login)).arg(&json.data[0].id).execute(&*con);
                         redis::cmd("SET").arg(format!("channel:{}:display-name", &json.data[0].login)).arg(&json.data[0].display_name).execute(&*con);

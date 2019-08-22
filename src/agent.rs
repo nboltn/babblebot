@@ -31,14 +31,14 @@ fn main() {
     settings.merge(config::File::with_name("Config")).unwrap();
     settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
     let r1 = settings.get_str("channel");
-    let r2 = settings.get_str("password");
+    let r2 = settings.get_str("key");
     let r3 = settings.get_str("base_url");
-    if let (Ok(channel), Ok(password), Ok(base_url)) = (r1, r2, r3) {
+    if let (Ok(channel), Ok(key), Ok(base_url)) = (r1, r2, r3) {
         loop {
             let mut headers = header::HeaderMap::new();
             headers.insert("Content-Type", HeaderValue::from_str("application/x-www-form-urlencoded").unwrap());
             let client = Client::builder().default_headers(headers).build().unwrap();
-            let rsp = client.post(&format!("{}/api/agent", base_url)).body(format!("channel={}&password={}", &channel, &password).as_bytes().to_owned()).send();
+            let rsp = client.post(&format!("{}/api/agent", base_url)).body(format!("channel={}&key={}", &channel, &key).as_bytes().to_owned()).send();
             match rsp {
                 Err(e) => { println!("response error: {}", &e.to_string()); }
                 Ok(mut rsp) => {

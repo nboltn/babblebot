@@ -433,6 +433,12 @@ pub struct AgentRsp {
     pub args: Option<Vec<String>>
 }
 
+#[derive(Serialize, FromForm)]
+pub struct ApiAgentReq {
+    pub channel: String,
+    pub key: String
+}
+
 #[derive(FromForm)]
 pub struct ApiLogsReq {
     pub num: String
