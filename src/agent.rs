@@ -61,7 +61,7 @@ fn main() {
                                                         let mut input_u: INPUT_u = unsafe { std::mem::zeroed() };
                                                         unsafe {
                                                             *input_u.ki_mut() = KEYBDINPUT {
-                                                                wScan: 45,
+                                                                wScan: num,
                                                                 dwFlags: KEYEVENTF_SCANCODE,
                                                                 dwExtraInfo: 0,
                                                                 wVk: 0,
@@ -87,7 +87,7 @@ fn main() {
                                                         let mut input_u: INPUT_u = unsafe { std::mem::zeroed() };
                                                         unsafe {
                                                             *input_u.ki_mut() = KEYBDINPUT {
-                                                                wScan: 45,
+                                                                wScan: num,
                                                                 dwFlags: KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP,
                                                                 dwExtraInfo: 0,
                                                                 wVk: 0,
