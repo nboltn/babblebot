@@ -54,6 +54,7 @@ fn main() {
                             if let (Ok(v1), Ok(v2)) = (r1, r2) {
                                 if v2 > v1 {
                                     println!("version error: your client is out of date");
+                                    thread::sleep(time::Duration::from_secs(600));
                                 } else {
                                     if json.success {
                                         if let (Some(action), Some(args)) = (json.action, json.args) {
