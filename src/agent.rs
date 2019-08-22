@@ -31,7 +31,7 @@ fn main() {
     settings.merge(config::File::with_name("Config")).unwrap();
     settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
     let r1 = settings.get_str("channel");
-    let r2 = settings.get_str("key");
+    let r2 = settings.get_str("secret_key");
     let r3 = settings.get_str("base_url");
     if let (Ok(channel), Ok(key), Ok(base_url)) = (r1, r2, r3) {
         loop {

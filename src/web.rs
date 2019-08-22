@@ -566,7 +566,7 @@ pub fn agent(con: RedisConnection, data: Form<ApiAgentReq>, mut cookies: Cookies
                 return Json(json);
             }
         } else {
-            let json = AgentRsp { version: AGENT_VERSION.to_string(), success: false, action: None, args: None, error_message: Some("invalid password".to_owned()) };
+            let json = AgentRsp { version: AGENT_VERSION.to_string(), success: false, action: None, args: None, error_message: Some("invalid key".to_owned()) };
             return Json(json);
         }
     } else {
