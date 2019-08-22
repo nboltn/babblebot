@@ -57,7 +57,7 @@ fn main() {
                                         match action.as_ref() {
                                             "INPUT" => {
                                                 for arg in args.clone() {
-                                                    let res: Result<u16,_> = arg.parse();
+                                                    let res: Result<usize,_> = arg.parse();
                                                     if let Ok(num) = res {
                                                         /*let mut input_u: INPUT_u = unsafe { std::mem::zeroed() };
                                                         unsafe {
@@ -86,7 +86,7 @@ fn main() {
                                                 }
 
                                                 for arg in args.clone() {
-                                                    let res: Result<u16,_> = arg.parse();
+                                                    let res: Result<usize,_> = arg.parse();
                                                     if let Ok(num) = res {
                                                         /*let mut input_u: INPUT_u = unsafe { std::mem::zeroed() };
                                                         unsafe {
