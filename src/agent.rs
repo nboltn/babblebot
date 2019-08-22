@@ -122,7 +122,7 @@ fn main() {
                                     let res = self_update::backends::github::Update::configure()
                                         .repo_owner(&owner)
                                         .repo_name(&name)
-                                        .bin_name("babblebot")
+                                        .bin_name("agent")
                                         .show_download_progress(true)
                                         .current_version(cargo_crate_version!())
                                         .build();
@@ -133,6 +133,7 @@ fn main() {
                                                 Err(e) => println!("update error: {}", &e.to_string()),
                                                 Ok(status) => {
                                                     println!("updated to version: {}", status.version());
+                                                    break;
                                                 }
                                             }
                                         }
