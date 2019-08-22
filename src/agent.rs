@@ -1,12 +1,13 @@
 #[cfg(windows)] use winapi::um::winuser::{INPUT_u, INPUT, INPUT_KEYBOARD, KEYEVENTF_KEYUP, KEYEVENTF_SCANCODE, KEYBDINPUT, SendInput};
 use std::{thread,time};
 use config;
+use semver::Version;
 use redis::{self,Commands};
 use http::header::{self,HeaderValue};
 use reqwest::Client;
 use serde::Deserialize;
 
-const VERSION: u8 = 0;
+const VERSION: &str = "0.1.0";
 const KEYUP: u32 = 0x0002;
 
 #[derive(Deserialize)]
@@ -48,74 +49,78 @@ fn main() {
                             println!("response error: {}", &e.to_string());
                         }
                         Ok(json) => {
-                            if VERSION >= json.version {
-                                if json.success {
-                                    if let (Some(action), Some(args)) = (json.action, json.args) {
-                                        println!("received action: {}", action);
-                                        match action.as_ref() {
-                                            "INPUT" => {
-                                                for arg in args.clone() {
-                                                    let res: Result<u16,_> = arg.parse();
-                                                    if let Ok(num) = res {
-                                                        let mut input_u: INPUT_u = unsafe { std::mem::zeroed() };
-                                                        unsafe {
-                                                            *input_u.ki_mut() = KEYBDINPUT {
-                                                                wScan: num,
-                                                                dwFlags: KEYEVENTF_SCANCODE,
-                                                                dwExtraInfo: 0,
-                                                                wVk: 0,
-                                                                time: 0
+                            let r1 = Version::parse(VERSION);
+                            let r2 = Version::parse(&json.version);
+                            if let (Ok(v1), Ok(v2)) = (r1, r2) {
+                                if v2 > v1 {
+                                    if json.success {
+                                        if let (Some(action), Some(args)) = (json.action, json.args) {
+                                            println!("received action: {}", action);
+                                            match action.as_ref() {
+                                                "INPUT" => {
+                                                    for arg in args.clone() {
+                                                        let res: Result<u16,_> = arg.parse();
+                                                        if let Ok(num) = res {
+                                                            let mut input_u: INPUT_u = unsafe { std::mem::zeroed() };
+                                                            unsafe {
+                                                                *input_u.ki_mut() = KEYBDINPUT {
+                                                                    wScan: num,
+                                                                    dwFlags: KEYEVENTF_SCANCODE,
+                                                                    dwExtraInfo: 0,
+                                                                    wVk: 0,
+                                                                    time: 0
+                                                                }
                                                             }
+
+                                                            let mut input = INPUT {
+                                                                type_: INPUT_KEYBOARD,
+                                                                u: input_u
+                                                            };
+                                                            let ipsize = std::mem::size_of::<INPUT>() as i32;
+
+                                                            unsafe {
+                                                                SendInput(1, &mut input, ipsize);
+                                                            };
                                                         }
+                                                    }
+                                                    thread::sleep(time::Duration::from_millis(100));
+                                                    for arg in args.clone() {
+                                                        let res: Result<u16,_> = arg.parse();
+                                                        if let Ok(num) = res {
+                                                            let mut input_u: INPUT_u = unsafe { std::mem::zeroed() };
+                                                            unsafe {
+                                                                *input_u.ki_mut() = KEYBDINPUT {
+                                                                    wScan: num,
+                                                                    dwFlags: KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP,
+                                                                    dwExtraInfo: 0,
+                                                                    wVk: 0,
+                                                                    time: 0
+                                                                }
+                                                            }
 
-                                                        let mut input = INPUT {
-                                                            type_: INPUT_KEYBOARD,
-                                                            u: input_u
-                                                        };
-                                                        let ipsize = std::mem::size_of::<INPUT>() as i32;
+                                                            let mut input = INPUT {
+                                                                type_: INPUT_KEYBOARD,
+                                                                u: input_u
+                                                            };
+                                                            let ipsize = std::mem::size_of::<INPUT>() as i32;
 
-                                                        unsafe {
-                                                            SendInput(1, &mut input, ipsize);
-                                                        };
+                                                            unsafe {
+                                                                SendInput(1, &mut input, ipsize);
+                                                            };
+                                                        }
                                                     }
                                                 }
-                                                thread::sleep(time::Duration::from_millis(100));
-                                                for arg in args.clone() {
-                                                    let res: Result<u16,_> = arg.parse();
-                                                    if let Ok(num) = res {
-                                                        let mut input_u: INPUT_u = unsafe { std::mem::zeroed() };
-                                                        unsafe {
-                                                            *input_u.ki_mut() = KEYBDINPUT {
-                                                                wScan: num,
-                                                                dwFlags: KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP,
-                                                                dwExtraInfo: 0,
-                                                                wVk: 0,
-                                                                time: 0
-                                                            }
-                                                        }
-
-                                                        let mut input = INPUT {
-                                                            type_: INPUT_KEYBOARD,
-                                                            u: input_u
-                                                        };
-                                                        let ipsize = std::mem::size_of::<INPUT>() as i32;
-
-                                                        unsafe {
-                                                            SendInput(1, &mut input, ipsize);
-                                                        };
-                                                    }
-                                                }
+                                                _ => {}
                                             }
-                                            _ => {}
+                                        }
+                                    } else {
+                                        if let Some(msg) = json.error_message {
+                                            println!("response error: {}", msg);
                                         }
                                     }
                                 } else {
-                                    if let Some(msg) = json.error_message {
-                                        println!("response error: {}", msg);
-                                    }
+                                    println!("version error: your client is out of date");
                                 }
-                            } else {
-                                println!("version error: your client is out of date");
                             }
                         }
                     }

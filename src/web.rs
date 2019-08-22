@@ -19,7 +19,7 @@ use rocket_contrib::json::Json;
 use rocket_contrib::templates::Template;
 use jwt::{encode, decode, Header, Validation};
 
-const AGENT_VERSION: u8 = 0;
+const AGENT_VERSION: &str = "0.1.0";
 
 impl<'a, 'r> FromRequest<'a, 'r> for Auth {
     type Error = AuthError;
@@ -556,22 +556,22 @@ pub fn agent(con: RedisConnection, data: Form<ApiLoginReq>, mut cookies: Cookies
         if authed {
             let len: String = redis::cmd("llen").arg(format!("channel:{}:agent:actions", data.channel.to_lowercase())).query(&*con).unwrap_or("0".to_owned());
             if len == "0" {
-                let json = AgentRsp { version: AGENT_VERSION, success: true, action: None, args: None, error_message: None };
+                let json = AgentRsp { version: AGENT_VERSION.to_string(), success: true, action: None, args: None, error_message: None };
                 return Json(json);
             } else {
                 let res: String = redis::cmd("lpop").arg(format!("channel:{}:agent:actions", data.channel.to_lowercase())).query(&*con).expect("lpop:actions");
                 let mut words = res.split_whitespace();
                 let action = words.next().expect("words:next");
                 let args: Vec<String> = words.map(|w| w.to_owned()).collect();
-                let json = AgentRsp { version: AGENT_VERSION, success: true, action: Some(action.to_string()), args: Some(args), error_message: None };
+                let json = AgentRsp { version: AGENT_VERSION.to_string(), success: true, action: Some(action.to_string()), args: Some(args), error_message: None };
                 return Json(json);
             }
         } else {
-            let json = AgentRsp { version: AGENT_VERSION, success: false, action: None, args: None, error_message: Some("invalid password".to_owned()) };
+            let json = AgentRsp { version: AGENT_VERSION.to_string(), success: false, action: None, args: None, error_message: Some("invalid password".to_owned()) };
             return Json(json);
         }
     } else {
-        let json = AgentRsp { version: AGENT_VERSION, success: false, action: None, args: None, error_message: Some("channel doesn't exist".to_owned()) };
+        let json = AgentRsp { version: AGENT_VERSION.to_string(), success: false, action: None, args: None, error_message: Some("channel doesn't exist".to_owned()) };
         return Json(json);
     }
 }
