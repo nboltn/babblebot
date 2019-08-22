@@ -215,8 +215,30 @@ fn run_client(client: Arc<IrcClient>, receiver: Receiver<ThreadAction>) -> Optio
                                     if let Some(_value) = badges.get("broadcaster") { auth = true }
                                     if let Some(_value) = badges.get("moderator") { auth = true }
 
-                                    if let Some(bits) = get_bits(&irc_message) {
+                                    if let Some(donated) = get_bits(&irc_message) {
                                         // TODO: queue agent actions
+                                        let mut bits: u16 = 0;
+                                        let keys: Vec<String> = con.keys(format!("channel:{}:events:bits:*", channel)).unwrap();
+                                        for key in keys {
+                                            let key: Vec<&str> = key.split(":").collect();
+                                            let r1: Result<u16,_> = donated.parse();
+                                            let r2: Result<u16,_> = key[4].parse();
+                                            if let (Ok(donated), Ok(num)) = (r1, r2) {
+                                                if donated >= num && num > bits {
+                                                    bits = num;
+                                                }
+                                            }
+                                        }
+                                        if bits > 0 {
+                                            let type_: String = con.hget(format!("channel:{}:events:bits:{}", channel, bits), "type").expect("hget:type");
+                                            match type_.as_ref() {
+                                                "agent" => {
+                                                    let action: String = con.hget(format!("channel:{}:events:bits:{}", channel, bits), "action").expect("hget:action");
+                                                    let _: () = con.lpush(format!("channel:{}:agent:actions", channel), action).unwrap();
+                                                }
+                                                _ => {}
+                                            }
+                                        }
                                     }
 
                                     // moderate incoming messages
