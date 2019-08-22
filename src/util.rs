@@ -515,6 +515,20 @@ pub fn get_id(msg: &Message) -> Option<String> {
     return id;
 }
 
+pub fn get_bits(msg: &Message) -> Option<String> {
+    let mut bits: Option<String> = None;
+    if let Some(tags) = &msg.tags {
+        tags.iter().for_each(|tag| {
+            if let Some(_value) = &tag.1 {
+                if tag.0 == "bits" {
+                    bits = (tag.1).clone();
+                }
+            }
+        });
+    }
+    return bits;
+}
+
 pub fn get_badges(msg: &Message) -> HashMap<String, String> {
     let mut badges = HashMap::new();
     if let Some(tags) = &msg.tags {
