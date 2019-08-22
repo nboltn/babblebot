@@ -25,7 +25,7 @@ pub const native_commands: [(&str, fn(Arc<Connection>, Arc<IrcClient>, String, V
 
 pub const command_vars: [(&str, fn(Arc<Connection>, Option<Arc<IrcClient>>, String, Option<Message>, Vec<String>, Vec<String>) -> String); 21] = [("args", args_var), ("user", user_var), ("channel", channel_var), ("cmd", cmd_var), ("counterinc", counterinc_var), ("counter", counter_var), ("phrase", phrase_var), ("countdown", countdown_var), ("date", date_var), ("dateinc", dateinc_var), ("watchtime", watchtime_var), ("watchrank", watchrank_var), ("fortnite:wins", fortnite_wins_var), ("fortnite:kills", fortnite_kills_var), ("pubg:damage", pubg_damage_var), ("pubg:headshots", pubg_headshots_var), ("pubg:kills", pubg_kills_var), ("pubg:roadkills", pubg_roadkills_var), ("pubg:teamkills", pubg_teamkills_var), ("pubg:vehicles-destroyed", pubg_vehicles_destroyed_var), ("pubg:wins", pubg_wins_var)];
 
-pub const command_vars_async: [(&str, fn(Arc<Connection>, Option<Arc<IrcClient>>, String, Option<Message>, Vec<String>, Vec<String>) -> Option<(RequestBuilder, fn(Chunk) -> String)>); 10] = [("uptime", uptime_var), ("followage", followage_var), ("subcount", subcount_var), ("followcount", followcount_var), ("urlfetch", urlfetch_var), ("spotify:playing-title", spotify_playing_title_var), ("spotify:playing-album", spotify_playing_album_var), ("spotify:playing-artist", spotify_playing_artist_var), ("youtube:latest-url", youtube_latest_url_var), ("youtube:latest-title", youtube_latest_title_var)];
+pub const command_vars_async: [(&str, fn(Arc<Connection>, Option<Arc<IrcClient>>, String, Option<Message>, Vec<String>, Vec<String>) -> Option<(RequestBuilder, fn((String, Chunk)) -> String)>); 10] = [("uptime", uptime_var), ("followage", followage_var), ("subcount", subcount_var), ("followcount", followcount_var), ("urlfetch", urlfetch_var), ("spotify:playing-title", spotify_playing_title_var), ("spotify:playing-album", spotify_playing_album_var), ("spotify:playing-artist", spotify_playing_artist_var), ("youtube:latest-url", youtube_latest_url_var), ("youtube:latest-title", youtube_latest_title_var)];
 
 pub const twitch_bots: [&str; 20] = ["electricallongboard","lanfusion","cogwhistle","freddyybot","anotherttvviewer","apricotdrupefruit","skinnyseahorse","p0lizei_","xbit01","n3td3v","cachebear","icon_bot","virgoproz","v_and_k","slocool","host_giveaway","nightbot","commanderroot","p0sitivitybot","streamlabs"];
 
@@ -76,11 +76,12 @@ fn cmd_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: String
     "".to_owned()
 }
 
-fn uptime_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> Option<(RequestBuilder, fn(Chunk) -> String)> {
+fn uptime_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> Option<(RequestBuilder, fn((String, Chunk)) -> String)> {
     let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
     let builder = twitch_kraken_request(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/streams?channel={}", &id));
-    let func = move |body: Chunk| -> String {
-        let body = std::str::from_utf8(&body).unwrap();
+    let func = move |(channel, body): (String, Chunk)| -> String {
+        let body = std::str::from_utf8(&body).unwrap().to_string();
+        let body = validate_twitch(channel.clone(), body.clone());
         let json: Result<KrakenStreams,_> = serde_json::from_str(&body);
         match json {
             Err(e) => {
@@ -151,13 +152,14 @@ fn counterinc_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel
     "".to_owned()
 }
 
-fn followage_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> Option<(RequestBuilder, fn(Chunk) -> String)> {
+fn followage_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> Option<(RequestBuilder, fn((String, Chunk)) -> String)> {
     if let Some(message) = message {
         let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
         let user_id = get_id(&message).unwrap();
         let builder = twitch_kraken_request(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/users/{}/follows/channels/{}", &user_id, &id));
-        let func = move |body: Chunk| -> String {
-            let body = std::str::from_utf8(&body).unwrap();
+        let func = move |(channel, body): (String, Chunk)| -> String {
+            let body = std::str::from_utf8(&body).unwrap().to_string();
+            let body = validate_twitch(channel.clone(), body.clone());
             let json: Result<KrakenFollow,_> = serde_json::from_str(&body);
             match json {
                 Err(_e) => { "0m".to_owned() }
@@ -178,11 +180,12 @@ fn followage_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel:
     } else { None }
 }
 
-fn subcount_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> Option<(RequestBuilder, fn(Chunk) -> String)> {
+fn subcount_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> Option<(RequestBuilder, fn((String, Chunk)) -> String)> {
     let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
     let builder = twitch_kraken_request(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/channels/{}/subscriptions", &id));
-    let func = move |body: Chunk| -> String {
-        let body = std::str::from_utf8(&body).unwrap();
+    let func = move |(channel, body): (String, Chunk)| -> String {
+        let body = std::str::from_utf8(&body).unwrap().to_string();
+        let body = validate_twitch(channel.clone(), body.clone());
         let json: Result<KrakenSubs,_> = serde_json::from_str(&body);
         match json {
             Err(_e) => { "0".to_owned() }
@@ -192,11 +195,12 @@ fn subcount_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: 
     return Some((builder, func));
 }
 
-fn followcount_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> Option<(RequestBuilder, fn(Chunk) -> String)> {
+fn followcount_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> Option<(RequestBuilder, fn((String, Chunk)) -> String)> {
     let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
     let builder = twitch_kraken_request(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/channels/{}/follows", &id));
-    let func = move |body: Chunk| -> String {
-        let body = std::str::from_utf8(&body).unwrap();
+    let func = move |(channel, body): (String, Chunk)| -> String {
+        let body = std::str::from_utf8(&body).unwrap().to_string();
+        let body = validate_twitch(channel.clone(), body.clone());
         let json: Result<KrakenFollows,_> = serde_json::from_str(&body);
         match json {
             Err(_e) => { "0".to_owned() }
@@ -364,10 +368,10 @@ fn watchrank_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel:
     }
 }
 
-fn urlfetch_var(_con: Arc<Connection>, _client: Option<Arc<IrcClient>>, _channel: String, _message: Option<Message>, vargs: Vec<String>, _cargs: Vec<String>) -> Option<(RequestBuilder, fn(Chunk) -> String)> {
+fn urlfetch_var(_con: Arc<Connection>, _client: Option<Arc<IrcClient>>, _channel: String, _message: Option<Message>, vargs: Vec<String>, _cargs: Vec<String>) -> Option<(RequestBuilder, fn((String, Chunk)) -> String)> {
     if vargs.len() > 0 {
         let builder = request(Method::GET, None, &vargs[0]);
-        let func = move |body: Chunk| -> String {
+        let func = move |(channel, body): (String, Chunk)| -> String {
             let body = std::str::from_utf8(&body).unwrap();
             return body.to_owned();
         };
@@ -375,9 +379,9 @@ fn urlfetch_var(_con: Arc<Connection>, _client: Option<Arc<IrcClient>>, _channel
     } else { None }
 }
 
-fn spotify_playing_title_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> Option<(RequestBuilder, fn(Chunk) -> String)> {
+fn spotify_playing_title_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> Option<(RequestBuilder, fn((String, Chunk)) -> String)> {
     let builder = spotify_request(con.clone(), &channel, Method::GET, "https://api.spotify.com/v1/me/player/currently-playing", None);
-    let func = move |body: Chunk| -> String {
+    let func = move |(channel, body): (String, Chunk)| -> String {
         let body = std::str::from_utf8(&body).unwrap();
         let json: Result<SpotifyPlaying,_> = serde_json::from_str(&body);
         match json {
@@ -392,9 +396,9 @@ fn spotify_playing_title_var(con: Arc<Connection>, _client: Option<Arc<IrcClient
     return Some((builder, func));
 }
 
-fn spotify_playing_album_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> Option<(RequestBuilder, fn(Chunk) -> String)> {
+fn spotify_playing_album_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> Option<(RequestBuilder, fn((String, Chunk)) -> String)> {
     let builder = spotify_request(con.clone(), &channel, Method::GET, "https://api.spotify.com/v1/me/player/currently-playing", None);
-    let func = move |body: Chunk| -> String {
+    let func = move |(channel, body): (String, Chunk)| -> String {
         let body = std::str::from_utf8(&body).unwrap();
         let json: Result<SpotifyPlaying,_> = serde_json::from_str(&body);
         match json {
@@ -409,9 +413,9 @@ fn spotify_playing_album_var(con: Arc<Connection>, _client: Option<Arc<IrcClient
     return Some((builder, func));
 }
 
-fn spotify_playing_artist_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> Option<(RequestBuilder, fn(Chunk) -> String)> {
+fn spotify_playing_artist_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> Option<(RequestBuilder, fn((String, Chunk)) -> String)> {
     let builder = spotify_request(con.clone(), &channel, Method::GET, "https://api.spotify.com/v1/me/player/currently-playing", None);
-    let func = move |body: Chunk| -> String {
+    let func = move |(channel, body): (String, Chunk)| -> String {
         let body = std::str::from_utf8(&body).unwrap();
         let json: Result<SpotifyPlaying,_> = serde_json::from_str(&body);
         match json {
@@ -426,10 +430,10 @@ fn spotify_playing_artist_var(con: Arc<Connection>, _client: Option<Arc<IrcClien
     return Some((builder, func));
 }
 
-fn youtube_latest_url_var(_con: Arc<Connection>, _client: Option<Arc<IrcClient>>, _channel: String, _message: Option<Message>, vargs: Vec<String>, _cargs: Vec<String>) -> Option<(RequestBuilder, fn(Chunk) -> String)> {
+fn youtube_latest_url_var(_con: Arc<Connection>, _client: Option<Arc<IrcClient>>, _channel: String, _message: Option<Message>, vargs: Vec<String>, _cargs: Vec<String>) -> Option<(RequestBuilder, fn((String, Chunk)) -> String)> {
     if vargs.len() > 0 {
         let builder = request(Method::GET, None, &format!("https://decapi.me/youtube/latest_video?id={}", vargs[0]));
-        let func = move |body: Chunk| -> String {
+        let func = move |(channel, body): (String, Chunk)| -> String {
             let body = std::str::from_utf8(&body).unwrap();
             let data: Vec<&str> = body.split(" - ").collect();
             if data.len() > 1 {
@@ -442,10 +446,10 @@ fn youtube_latest_url_var(_con: Arc<Connection>, _client: Option<Arc<IrcClient>>
     } else { None }
 }
 
-fn youtube_latest_title_var(_con: Arc<Connection>, _client: Option<Arc<IrcClient>>, _channel: String, _message: Option<Message>, vargs: Vec<String>, _cargs: Vec<String>) -> Option<(RequestBuilder, fn(Chunk) -> String)> {
+fn youtube_latest_title_var(_con: Arc<Connection>, _client: Option<Arc<IrcClient>>, _channel: String, _message: Option<Message>, vargs: Vec<String>, _cargs: Vec<String>) -> Option<(RequestBuilder, fn((String, Chunk)) -> String)> {
     if vargs.len() > 0 {
         let builder = request(Method::GET, None, &format!("https://decapi.me/youtube/latest_video?id={}", vargs[0]));
-        let func = move |body: Chunk| -> String {
+        let func = move |(channel, body): (String, Chunk)| -> String {
             let body = std::str::from_utf8(&body).unwrap();
             let data: Vec<&str> = body.split(" - ").collect();
             if data.len() > 1 {
@@ -553,6 +557,7 @@ fn command_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, ar
             }
             "alias" => {
                 if args.len() > 2 {
+                    // TODO: validate command exists
                     let _: () = con.hset(format!("channel:{}:aliases", channel), &args[1], args[2..].join(" ")).unwrap();
                     send_message(con.clone(), client, channel, format!("{} has been added as an alias to {}", &args[1], args[2..].join(" ")));
                 }
@@ -574,7 +579,8 @@ fn title_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args
             .map_err(|e| println!("request error: {}", e))
             .map(move |body| {
                 let con = Arc::new(acquire_con());
-                let body = std::str::from_utf8(&body).unwrap();
+                let body = std::str::from_utf8(&body).unwrap().to_string();
+                let body = validate_twitch(channel.clone(), body.clone());
                 let json: Result<KrakenChannel,_> = serde_json::from_str(&body);
                 match json {
                     Err(e) => {
@@ -591,7 +597,8 @@ fn title_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args
             .map_err(|e| println!("request error: {}", e))
             .map(move |body| {
                 let con = Arc::new(acquire_con());
-                let body = std::str::from_utf8(&body).unwrap();
+                let body = std::str::from_utf8(&body).unwrap().to_string();
+                let body = validate_twitch(channel.clone(), body.clone());
                 let json: Result<KrakenChannel,_> = serde_json::from_str(&body);
                 match json {
                     Err(e) => {
@@ -613,7 +620,8 @@ fn game_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args:
             .map_err(|e| println!("request error: {}", e))
             .map(move |body| {
                 let con = Arc::new(acquire_con());
-                let body = std::str::from_utf8(&body).unwrap();
+                let body = std::str::from_utf8(&body).unwrap().to_string();
+                let body = validate_twitch(channel.clone(), body.clone());
                 let json: Result<KrakenChannel,_> = serde_json::from_str(&body);
                 match json {
                     Err(e) => {
@@ -630,7 +638,8 @@ fn game_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args:
             .map_err(|e| println!("request error: {}", e))
             .map(move |body| {
                 let con = Arc::new(acquire_con());
-                let body = std::str::from_utf8(&body).unwrap();
+                let body = std::str::from_utf8(&body).unwrap().to_string();
+                let body = validate_twitch(channel.clone(), body.clone());
                 let json: Result<HelixGames,_> = serde_json::from_str(&body);
                 match json {
                     Err(e) => {
@@ -647,7 +656,8 @@ fn game_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args:
                                 .map_err(|e| println!("request error: {}", e))
                                 .map(move |body| {
                                     let con = Arc::new(acquire_con());
-                                    let body = std::str::from_utf8(&body).unwrap();
+                                    let body = std::str::from_utf8(&body).unwrap().to_string();
+                                    let body = validate_twitch(channel.clone(), body.clone());
                                     let json: Result<KrakenChannel,_> = serde_json::from_str(&body);
                                     match json {
                                         Err(e) => {
@@ -797,7 +807,8 @@ fn clip_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, _args
         .map_err(|e| println!("request error: {}", e))
         .map(move |body| {
             let con = Arc::new(acquire_con());
-            let body = std::str::from_utf8(&body).unwrap();
+            let body = std::str::from_utf8(&body).unwrap().to_string();
+            let body = validate_twitch(channel.clone(), body.clone());
             let json: Result<HelixClips,_> = serde_json::from_str(&body);
             match json {
                 Err(e) => {

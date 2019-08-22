@@ -1,5 +1,5 @@
 #[cfg(windows)] use winapi::um::winuser::{INPUT_u, INPUT, INPUT_KEYBOARD, KEYEVENTF_KEYUP, KEYEVENTF_SCANCODE, KEYBDINPUT, SendInput};
-use std::{thread,time};
+use std::{thread,time,io};
 use config;
 use semver::Version;
 use redis::{self,Commands};
@@ -54,7 +54,7 @@ fn main() {
                             if let (Ok(v1), Ok(v2)) = (r1, r2) {
                                 if v2 > v1 {
                                     println!("version error: your client is out of date");
-                                    thread::sleep(time::Duration::from_secs(600));
+                                    break;
                                 } else {
                                     if json.success {
                                         if let (Some(action), Some(args)) = (json.action, json.args) {
@@ -130,5 +130,12 @@ fn main() {
 
         thread::sleep(time::Duration::from_secs(10));
         }
+    } else {
+        println!("config error: cannot read config file");
     }
+
+    println!("");
+    println!("press any key to exit");
+    let mut input = String::new();
+    io::stdin().read_line(&mut input);
 }

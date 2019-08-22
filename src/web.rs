@@ -544,7 +544,7 @@ pub fn public_data(con: RedisConnection, channel: String) -> Json<ApiData> {
 }
 
 #[post("/api/agent", data="<data>")]
-pub fn agent(con: RedisConnection, data: Form<ApiAgentReq>, mut cookies: Cookies) -> Json<AgentRsp> {
+pub fn agent(con: RedisConnection, data: Form<ApiAgentReq>, cookies: Cookies) -> Json<AgentRsp> {
     let mut settings = config::Config::default();
     settings.merge(config::File::with_name("Settings")).unwrap();
     settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();

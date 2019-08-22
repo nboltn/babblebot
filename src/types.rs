@@ -46,7 +46,8 @@ impl EventHandler for DiscordHandler {
                             if let (Some(capture), Some(vargs)) = (captures.get(0), captures.get(1)) {
                                 let vargs: Vec<String> = vargs.as_str().split_whitespace().map(|str| str.to_owned()).collect();
                                 if let Some((builder, func)) = (var.1)(con.clone(), None, self.channel.clone(), None, vargs.clone(), args.clone()) {
-                                    let future = builder.send().and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() }).map(func);
+                                    let channel = self.channel.clone();
+                                    let future = builder.send().and_then(|mut res| { (Ok(channel), mem::replace(res.body_mut(), Decoder::empty()).concat2()) }).map(func);
                                     futures.push(future);
                                     regexes.push(capture.as_str().to_owned());
                                 }
@@ -110,6 +111,13 @@ pub struct Chatters {
     pub moderators: Vec<String>,
     pub viewers: Vec<String>,
     pub vips: Vec<String>
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TwitchErr {
+    pub status: String,
+    pub error: u8,
+    pub message: String
 }
 
 #[derive(Debug, Deserialize)]
