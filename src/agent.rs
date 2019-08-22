@@ -1,5 +1,4 @@
 #[cfg(windows)] use winapi::um::winuser::{INPUT_u, INPUT, INPUT_KEYBOARD, KEYBDINPUT, SendInput};
-#[cfg(windows)] use winapi::um::winuser::{SendMessageW, HWND_BROADCAST, WM_KEYDOWN, WM_KEYUP};
 use std::{thread,time};
 use config;
 use redis::{self,Commands};
@@ -59,7 +58,7 @@ fn main() {
                                                 for arg in args.clone() {
                                                     let res: Result<usize,_> = arg.parse();
                                                     if let Ok(num) = res {
-                                                        /*let mut input_u: INPUT_u = unsafe { std::mem::zeroed() };
+                                                        let mut input_u: INPUT_u = unsafe { std::mem::zeroed() };
                                                         unsafe {
                                                             *input_u.ki_mut() = KEYBDINPUT {
                                                                 wVk: num,
@@ -78,9 +77,6 @@ fn main() {
 
                                                         unsafe {
                                                             SendInput(1, &mut input, ipsize);
-                                                        };*/
-                                                        unsafe {
-                                                            SendMessageW(HWND_BROADCAST, WM_KEYDOWN, num, 0);
                                                         };
                                                     }
                                                 }
@@ -88,7 +84,7 @@ fn main() {
                                                 for arg in args.clone() {
                                                     let res: Result<usize,_> = arg.parse();
                                                     if let Ok(num) = res {
-                                                        /*let mut input_u: INPUT_u = unsafe { std::mem::zeroed() };
+                                                        let mut input_u: INPUT_u = unsafe { std::mem::zeroed() };
                                                         unsafe {
                                                             *input_u.ki_mut() = KEYBDINPUT {
                                                                 wVk: num,
@@ -107,9 +103,6 @@ fn main() {
 
                                                         unsafe {
                                                             SendInput(1, &mut input, ipsize);
-                                                        };*/
-                                                        unsafe {
-                                                            SendMessageW(HWND_BROADCAST, WM_KEYUP, num, 0);
                                                         };
                                                     }
                                                 }
