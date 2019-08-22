@@ -60,17 +60,17 @@ fn main() {
     else {
         log_info(None, "main", "starting up");
 
+        start_rocket();
+        new_channel_listener();
+        run_notices();
+        run_commercials();
         update_live();
         update_stats();
         update_watchtime();
         update_patreon();
+        refresh_spotify();
         refresh_twitch_bots();
         refresh_twitch_channels();
-        refresh_spotify();
-        run_notices();
-        run_commercials();
-        new_channel_listener();
-        start_rocket();
 
         log_info(None, "main", "connecting to irc");
 
@@ -834,7 +834,12 @@ fn refresh_twitch_bots() {
                                 }
                             }
                         });
-                    thread::spawn(move || { tokio::run(future) });
+                    if first {
+                        first = false;
+                        tokio::run(future);
+                    } else {
+                        thread::spawn(move || { tokio::run(future) });
+                    }
                 }
             }
             thread::sleep(time::Duration::from_secs(86400));
@@ -845,6 +850,7 @@ fn refresh_twitch_bots() {
 fn refresh_twitch_channels() {
     thread::spawn(move || {
         let con = Arc::new(acquire_con());
+        let mut first = true;
         loop {
             let channels: Vec<String> = con.smembers("channels").unwrap_or(Vec::new());
             for channel in channels {
@@ -875,7 +881,12 @@ fn refresh_twitch_channels() {
                                 }
                             }
                         });
-                    thread::spawn(move || { tokio::run(future) });
+                    if first {
+                        first = false;
+                        tokio::run(future);
+                    } else {
+                        thread::spawn(move || { tokio::run(future) });
+                    }
                 }
             }
             thread::sleep(time::Duration::from_secs(86400));

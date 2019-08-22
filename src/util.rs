@@ -248,7 +248,7 @@ pub fn send_parsed_message(con: Arc<Connection>, client: Arc<IrcClient>, channel
     }
 }
 
-pub fn validate_twitch(channel: String, body: String) -> String {
+pub fn validate_twitch(channel: String, body: String, builder: reqwest::RequestBuilder) -> String {
     let con = acquire_con();
     let r1: Result<TwitchErr,_> = serde_json::from_str(&body);
     let r2: Result<String,_> = con.get(format!("channel:{}:refresh", channel));
@@ -268,19 +268,26 @@ pub fn validate_twitch(channel: String, body: String) -> String {
         match rsp {
             Err(e) => log_error(Some(Right(vec![&channel])), "validate_twitch", &e.to_string()),
             Ok(mut rsp) => {
-                let body = rsp.text().unwrap();
-                let json: Result<TwitchRefresh,_> = serde_json::from_str(&body);
+                let text = rsp.text().unwrap();
+                let json: Result<TwitchRefresh,_> = serde_json::from_str(&text);
                 match json {
                     Err(e) => {
                         log_error(Some(Right(vec![&channel])), "validate_twitch", &e.to_string());
-                        log_error(Some(Right(vec![&channel])), "request_body", &body);
+                        log_error(Some(Right(vec![&channel])), "request_body", &text);
                         return body;
                     }
                     Ok(json) => {
                         let _: () = con.set(format!("channel:{}:token", &channel), &json.access_token).unwrap();
                         let _: () = con.set(format!("channel:{}:refresh", &channel), &json.refresh_token).unwrap();
-                        // TODO: rerun original request
-                        return body;
+                        match builder.send() {
+                            Err(e) => {
+                                return body;
+                            }
+                            Ok(mut rsp) => {
+                                let body = rsp.text().unwrap();
+                                return body;
+                            }
+                        }
                     }
                 }
             }
@@ -306,7 +313,7 @@ pub fn spawn_age_check(con: Arc<Connection>, client: Arc<IrcClient>, channel: St
             .map(move |body| {
                 let con = Arc::new(acquire_con());
                 let body = std::str::from_utf8(&body).unwrap().to_string();
-                let body = validate_twitch(channel.clone(), body.clone());
+                let body = validate_twitch(channel.clone(), body.clone(), twitch_kraken_request_sync(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/users?login={}", &nick)));
                 let json: Result<KrakenUsers,_> = serde_json::from_str(&body);
                 match json {
                     Err(e) => {
@@ -356,6 +363,24 @@ pub fn twitch_kraken_request(con: Arc<Connection>, channel: &str, content: Optio
     return builder;
 }
 
+pub fn twitch_kraken_request_sync(con: Arc<Connection>, channel: &str, content: Option<&str>, body: Option<Vec<u8>>, method: Method, url: &str) -> reqwest::RequestBuilder {
+    let mut settings = config::Config::default();
+    settings.merge(config::File::with_name("Settings")).unwrap();
+    settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
+    let token: String = con.get(format!("channel:{}:token", channel)).expect("get:token");
+
+    let mut headers = header::HeaderMap::new();
+    headers.insert("Accept", HeaderValue::from_str("application/vnd.twitchtv.v5+json").unwrap());
+    headers.insert("Authorization", HeaderValue::from_str(&format!("OAuth {}", token)).unwrap());
+    headers.insert("Client-ID", HeaderValue::from_str(&settings.get_str("client_id").unwrap()).unwrap());
+    if let Some(content) = content { headers.insert("Content-Type", HeaderValue::from_str(content).unwrap()); }
+
+    let client = reqwest::Client::builder().default_headers(headers).build().unwrap();
+    let mut builder = client.request(method, url);
+    if let Some(body) = body { builder = builder.body(body); }
+    return builder;
+}
+
 pub fn twitch_helix_request(con: Arc<Connection>, channel: &str, content: Option<&str>, body: Option<Vec<u8>>, method: Method, url: &str) -> RequestBuilder {
     let mut settings = config::Config::default();
     settings.merge(config::File::with_name("Settings")).unwrap();
@@ -369,6 +394,24 @@ pub fn twitch_helix_request(con: Arc<Connection>, channel: &str, content: Option
     if let Some(content) = content { headers.insert("Content-Type", HeaderValue::from_str(content).unwrap()); }
 
     let client = Client::builder().default_headers(headers).build().unwrap();
+    let mut builder = client.request(method, url);
+    if let Some(body) = body { builder = builder.body(body); }
+    return builder;
+}
+
+pub fn twitch_helix_request_sync(con: Arc<Connection>, channel: &str, content: Option<&str>, body: Option<Vec<u8>>, method: Method, url: &str) -> reqwest::RequestBuilder {
+    let mut settings = config::Config::default();
+    settings.merge(config::File::with_name("Settings")).unwrap();
+    settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
+    let token: String = con.get(format!("channel:{}:token", channel)).expect("get:token");
+
+    let mut headers = header::HeaderMap::new();
+    headers.insert("Accept", HeaderValue::from_str("application/vnd.twitchtv.v5+json").unwrap());
+    headers.insert("Authorization", HeaderValue::from_str(&format!("Bearer {}", token)).unwrap());
+    headers.insert("Client-ID", HeaderValue::from_str(&settings.get_str("client_id").unwrap()).unwrap());
+    if let Some(content) = content { headers.insert("Content-Type", HeaderValue::from_str(content).unwrap()); }
+
+    let client = reqwest::Client::builder().default_headers(headers).build().unwrap();
     let mut builder = client.request(method, url);
     if let Some(body) = body { builder = builder.body(body); }
     return builder;

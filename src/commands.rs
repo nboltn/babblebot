@@ -80,8 +80,10 @@ fn uptime_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: St
     let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
     let builder = twitch_kraken_request(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/streams?channel={}", &id));
     let func = move |(channel, body): (String, Chunk)| -> String {
+        let con = Arc::new(acquire_con());
+        let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
         let body = std::str::from_utf8(&body).unwrap().to_string();
-        let body = validate_twitch(channel.clone(), body.clone());
+        let body = validate_twitch(channel.clone(), body.clone(), twitch_kraken_request_sync(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/streams?channel={}", &id)));
         let json: Result<KrakenStreams,_> = serde_json::from_str(&body);
         match json {
             Err(e) => {
@@ -158,8 +160,11 @@ fn followage_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel:
         let user_id = get_id(&message).unwrap();
         let builder = twitch_kraken_request(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/users/{}/follows/channels/{}", &user_id, &id));
         let func = move |(channel, body): (String, Chunk)| -> String {
+            let con = Arc::new(acquire_con());
+            let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
             let body = std::str::from_utf8(&body).unwrap().to_string();
-            let body = validate_twitch(channel.clone(), body.clone());
+            // TODO
+            // let body = validate_twitch(channel.clone(), body.clone(), twitch_kraken_request_sync(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/users/{}/follows/channels/{}", &user_id, &id)));
             let json: Result<KrakenFollow,_> = serde_json::from_str(&body);
             match json {
                 Err(_e) => { "0m".to_owned() }
@@ -184,8 +189,10 @@ fn subcount_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: 
     let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
     let builder = twitch_kraken_request(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/channels/{}/subscriptions", &id));
     let func = move |(channel, body): (String, Chunk)| -> String {
+        let con = Arc::new(acquire_con());
+        let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
         let body = std::str::from_utf8(&body).unwrap().to_string();
-        let body = validate_twitch(channel.clone(), body.clone());
+        let body = validate_twitch(channel.clone(), body.clone(), twitch_kraken_request_sync(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/channels/{}/subscriptions", &id)));
         let json: Result<KrakenSubs,_> = serde_json::from_str(&body);
         match json {
             Err(_e) => { "0".to_owned() }
@@ -199,8 +206,10 @@ fn followcount_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channe
     let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
     let builder = twitch_kraken_request(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/channels/{}/follows", &id));
     let func = move |(channel, body): (String, Chunk)| -> String {
+        let con = Arc::new(acquire_con());
+        let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
         let body = std::str::from_utf8(&body).unwrap().to_string();
-        let body = validate_twitch(channel.clone(), body.clone());
+        let body = validate_twitch(channel.clone(), body.clone(), twitch_kraken_request_sync(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/channels/{}/follows", &id)));
         let json: Result<KrakenFollows,_> = serde_json::from_str(&body);
         match json {
             Err(_e) => { "0".to_owned() }
@@ -580,7 +589,7 @@ fn title_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args
             .map(move |body| {
                 let con = Arc::new(acquire_con());
                 let body = std::str::from_utf8(&body).unwrap().to_string();
-                let body = validate_twitch(channel.clone(), body.clone());
+                let body = validate_twitch(channel.clone(), body.clone(), twitch_kraken_request_sync(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/channels/{}", &id)));
                 let json: Result<KrakenChannel,_> = serde_json::from_str(&body);
                 match json {
                     Err(e) => {
@@ -598,7 +607,7 @@ fn title_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args
             .map(move |body| {
                 let con = Arc::new(acquire_con());
                 let body = std::str::from_utf8(&body).unwrap().to_string();
-                let body = validate_twitch(channel.clone(), body.clone());
+                let body = validate_twitch(channel.clone(), body.clone(), twitch_kraken_request_sync(con.clone(), &channel, Some("application/x-www-form-urlencoded"), Some(format!("channel[status]={}", args.join(" ")).as_bytes().to_owned()), Method::PUT, &format!("https://api.twitch.tv/kraken/channels/{}", &id)));
                 let json: Result<KrakenChannel,_> = serde_json::from_str(&body);
                 match json {
                     Err(e) => {
@@ -621,7 +630,7 @@ fn game_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args:
             .map(move |body| {
                 let con = Arc::new(acquire_con());
                 let body = std::str::from_utf8(&body).unwrap().to_string();
-                let body = validate_twitch(channel.clone(), body.clone());
+                let body = validate_twitch(channel.clone(), body.clone(), twitch_kraken_request_sync(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/channels/{}", &id)));
                 let json: Result<KrakenChannel,_> = serde_json::from_str(&body);
                 match json {
                     Err(e) => {
@@ -639,7 +648,7 @@ fn game_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args:
             .map(move |body| {
                 let con = Arc::new(acquire_con());
                 let body = std::str::from_utf8(&body).unwrap().to_string();
-                let body = validate_twitch(channel.clone(), body.clone());
+                let body = validate_twitch(channel.clone(), body.clone(), twitch_helix_request_sync(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/helix/games?name={}", args.join(" "))));
                 let json: Result<HelixGames,_> = serde_json::from_str(&body);
                 match json {
                     Err(e) => {
@@ -657,7 +666,7 @@ fn game_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args:
                                 .map(move |body| {
                                     let con = Arc::new(acquire_con());
                                     let body = std::str::from_utf8(&body).unwrap().to_string();
-                                    let body = validate_twitch(channel.clone(), body.clone());
+                                    let body = validate_twitch(channel.clone(), body.clone(), twitch_kraken_request_sync(con.clone(), &channel, Some("application/x-www-form-urlencoded"), Some(format!("channel[game]={}", name).as_bytes().to_owned()), Method::PUT, &format!("https://api.twitch.tv/kraken/channels/{}", &id)));
                                     let json: Result<KrakenChannel,_> = serde_json::from_str(&body);
                                     match json {
                                         Err(e) => {
@@ -808,7 +817,7 @@ fn clip_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, _args
         .map(move |body| {
             let con = Arc::new(acquire_con());
             let body = std::str::from_utf8(&body).unwrap().to_string();
-            let body = validate_twitch(channel.clone(), body.clone());
+            let body = validate_twitch(channel.clone(), body.clone(), twitch_helix_request_sync(con.clone(), &channel, None, None, Method::POST, &format!("https://api.twitch.tv/helix/clips?broadcaster_id={}", &id)));
             let json: Result<HelixClips,_> = serde_json::from_str(&body);
             match json {
                 Err(e) => {
