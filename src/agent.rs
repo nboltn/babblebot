@@ -5,7 +5,6 @@ use redis::{self,Commands};
 use http::header::{self,HeaderValue};
 use reqwest::Client;
 use serde::Deserialize;
-use self_update::{self, cargo_crate_version};
 
 const VERSION: u8 = 0;
 const KEYUP: u32 = 0x0002;
@@ -116,32 +115,7 @@ fn main() {
                                     }
                                 }
                             } else {
-                                let r1 = settings.get_str("github_owner");
-                                let r2 = settings.get_str("github_name");
-                                if let (Ok(owner), Ok(name)) = (r1, r2) {
-                                    let res = self_update::backends::github::Update::configure()
-                                        .repo_owner(&owner)
-                                        .repo_name(&name)
-                                        .bin_name("agent")
-                                        .show_download_progress(true)
-                                        .current_version(cargo_crate_version!())
-                                        .build();
-                                    match res {
-                                        Err(e) => println!("update error: {}", &e.to_string()),
-                                        Ok(update) => {
-                                            match update.update() {
-                                                Err(e) => println!("update error: {}", &e.to_string()),
-                                                Ok(status) => {
-                                                    println!("updated to version: {}", status.version());
-                                                    break;
-                                                }
-                                            }
-                                        }
-                                    }
-
-                                } else {
-                                    println!("version error: your client is out of date");
-                                }
+                                println!("version error: your client is out of date");
                             }
                         }
                     }
