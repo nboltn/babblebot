@@ -12,7 +12,7 @@ const KEYUP: u32 = 0x0002;
 
 #[derive(Deserialize)]
 pub struct AgentRsp {
-    pub version: u8,
+    pub version: String,
     pub success: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_message: Option<String>,
