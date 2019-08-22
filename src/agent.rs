@@ -1,5 +1,5 @@
 #[cfg(windows)] use winapi::um::winuser::{INPUT_u, INPUT, INPUT_KEYBOARD, KEYBDINPUT, SendInput};
-#[cfg(windows)] use winapi::um::winuser::{PostMessageA, HWND_BROADCAST, WM_KEYDOWN, WM_KEYUP};
+#[cfg(windows)] use winapi::um::winuser::{SendMessageW, HWND_BROADCAST, WM_KEYDOWN, WM_KEYUP};
 use std::{thread,time};
 use config;
 use redis::{self,Commands};
@@ -80,7 +80,7 @@ fn main() {
                                                             SendInput(1, &mut input, ipsize);
                                                         };*/
                                                         unsafe {
-                                                            PostMessageA(HWND_BROADCAST, WM_KEYDOWN, num, 0);
+                                                            SendMessageW(HWND_BROADCAST, WM_KEYDOWN, num, 0);
                                                         };
                                                     }
                                                 }
@@ -109,7 +109,7 @@ fn main() {
                                                             SendInput(1, &mut input, ipsize);
                                                         };*/
                                                         unsafe {
-                                                            PostMessageA(HWND_BROADCAST, WM_KEYUP, num, 0);
+                                                            SendMessageW(HWND_BROADCAST, WM_KEYUP, num, 0);
                                                         };
                                                     }
                                                 }
