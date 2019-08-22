@@ -1,4 +1,4 @@
-#[cfg(windows)] use winapi::um::winuser::{INPUT_u, INPUT, INPUT_KEYBOARD, KEYBDINPUT, SendInput};
+#[cfg(windows)] use winapi::um::winuser::{INPUT_u, INPUT, INPUT_KEYBOARD, KEYEVENTF_KEYUP, KEYEVENTF_SCANCODE, KEYBDINPUT, SendInput};
 use std::{thread,time};
 use config;
 use redis::{self,Commands};
@@ -61,10 +61,10 @@ fn main() {
                                                         let mut input_u: INPUT_u = unsafe { std::mem::zeroed() };
                                                         unsafe {
                                                             *input_u.ki_mut() = KEYBDINPUT {
-                                                                wVk: num,
-                                                                dwFlags: 0,
+                                                                wScan: 45,
+                                                                dwFlags: KEYEVENTF_SCANCODE,
                                                                 dwExtraInfo: 0,
-                                                                wScan: 0,
+                                                                wVk: 0,
                                                                 time: 0
                                                             }
                                                         }
@@ -87,10 +87,10 @@ fn main() {
                                                         let mut input_u: INPUT_u = unsafe { std::mem::zeroed() };
                                                         unsafe {
                                                             *input_u.ki_mut() = KEYBDINPUT {
-                                                                wVk: num,
-                                                                dwFlags: KEYUP,
+                                                                wScan: 45,
+                                                                dwFlags: KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP,
                                                                 dwExtraInfo: 0,
-                                                                wScan: 0,
+                                                                wVk: 0,
                                                                 time: 0
                                                             }
                                                         }
