@@ -215,6 +215,10 @@ fn run_client(client: Arc<IrcClient>, receiver: Receiver<ThreadAction>) -> Optio
                                     if let Some(_value) = badges.get("broadcaster") { auth = true }
                                     if let Some(_value) = badges.get("moderator") { auth = true }
 
+                                    if let Some(value) = badges.get("bits") {
+                                        println!("{} bits donated to: {}", value, channel);
+                                    }
+
                                     // moderate incoming messages
                                     // TODO: symbols, length
                                     if !auth {
