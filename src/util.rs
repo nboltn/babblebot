@@ -275,15 +275,13 @@ pub fn validate_twitch(channel: String, body: String, builder: reqwest::RequestB
                     Err(e) => {
                         log_error(Some(Right(vec![&channel])), "validate_twitch", &e.to_string());
                         log_error(Some(Right(vec![&channel])), "request_body", &text);
-                        return body;
                     }
                     Ok(json) => {
+                        log_info(Some(Right(vec![&channel])), "validate_twitch", "refreshing twitch token");
                         let _: () = con.set(format!("channel:{}:token", &channel), &json.access_token).unwrap();
                         let _: () = con.set(format!("channel:{}:refresh", &channel), &json.refresh_token).unwrap();
                         match builder.send() {
-                            Err(e) => {
-                                return body;
-                            }
+                            Err(e) => {}
                             Ok(mut rsp) => {
                                 let body = rsp.text().unwrap();
                                 return body;

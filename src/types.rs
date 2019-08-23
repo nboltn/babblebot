@@ -32,6 +32,7 @@ impl EventHandler for DiscordHandler {
             if let Some(word) = words.next() {
                 let word = word.to_lowercase();
                 let args: Vec<String> = words.map(|w| w.to_owned()).collect();
+                // TODO: expand aliases
                 let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", self.channel, word), "message");
                 if let Ok(mut message) = res {
                     for var in command_vars.iter() {
