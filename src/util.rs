@@ -2,7 +2,7 @@ use crate::types::*;
 use crate::commands::*;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::{thread,mem};
+use std::{thread,mem,time};
 use either::Either::{self, Left, Right};
 use base64;
 use config;
@@ -118,6 +118,7 @@ pub fn acquire_con() -> redis::Connection {
             Err(e) => log_error(None, "acquire_con", &e.to_string()),
             Ok(con) => return con
         }
+        thread::sleep(time::Duration::from_secs(1));
     }
 }
 
