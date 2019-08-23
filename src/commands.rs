@@ -195,7 +195,7 @@ fn subcount_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: 
         let body = validate_twitch(channel.clone(), body.clone(), twitch_kraken_request_sync(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/channels/{}/subscriptions", &id)));
         let json: Result<KrakenSubs,_> = serde_json::from_str(&body);
         match json {
-            Err(e) => { log_error(Some(Right(&channel)), "followage_var", &e.to_string()); "0".to_owned() }
+            Err(e) => { log_error(Some(Right(vec![&channel])), "followage_var", &e.to_string()); "0".to_owned() }
             Ok(json) => { json.total.to_string() }
         }
     };
@@ -212,7 +212,7 @@ fn followcount_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channe
         let body = validate_twitch(channel.clone(), body.clone(), twitch_kraken_request_sync(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/channels/{}/follows", &id)));
         let json: Result<KrakenFollows,_> = serde_json::from_str(&body);
         match json {
-            Err(e) => { log_error(Some(Right(&channel)), "followage_var", &e.to_string()); "0".to_owned() }
+            Err(e) => { log_error(Some(Right(vec![&channel])), "followage_var", &e.to_string()); "0".to_owned() }
             Ok(json) => { json.total.to_string() }
         }
     };
