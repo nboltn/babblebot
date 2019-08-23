@@ -167,7 +167,7 @@ fn followage_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel:
             // let body = validate_twitch(channel.clone(), body.clone(), twitch_kraken_request_sync(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/users/{}/follows/channels/{}", &user_id, &id)));
             let json: Result<KrakenFollow,_> = serde_json::from_str(&body);
             match json {
-                Err(e) => { log_error(Some(Right(&channel)), "followage_var", &e.to_string()); "0m".to_owned() }
+                Err(e) => { log_error(Some(Right(vec![&channel])), "followage_var", &e.to_string()); "0m".to_owned() }
                 Ok(json) => {
                     let timestamp = DateTime::parse_from_rfc3339(&json.created_at).unwrap();
                     let diff = Utc::now().signed_duration_since(timestamp);
