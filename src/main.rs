@@ -487,12 +487,12 @@ fn rename_channel_listener(channel: String, sender: Sender<ThreadAction>) {
                     match rsp {
                         Err(e) => { log_error(Some(Right(vec![&channel])), "rename_channel_listener", &e.to_string()) }
                         Ok(mut rsp) => {
-                            let text = rsp.text().unwrap();
-                            let json: Result<KrakenUser,_> = serde_json::from_str(&text);
+                            let body = rsp.text().unwrap();
+                            let json: Result<KrakenUser,_> = serde_json::from_str(&body);
                             match json {
                                 Err(e) => {
                                     log_error(Some(Right(vec![&channel])), "rename_channel_listener", &e.to_string());
-                                    log_error(Some(Right(vec![&channel])), "request_body", &text);
+                                    log_error(Some(Right(vec![&channel])), "request_body", &body);
                                 }
                                 Ok(json) => {
                                     if json.name != channel {
@@ -1060,7 +1060,8 @@ fn update_live() {
                     .map_err(|e| println!("request error: {}", e))
                     .map(move |body| {
                         let con = Arc::new(acquire_con());
-                        let body = std::str::from_utf8(&body).unwrap();
+                        let body = std::str::from_utf8(&body).unwrap().to_string();
+                        let body = validate_twitch(channels[0].clone(), body.clone(), twitch_kraken_request_sync(con.clone(), &channels[0], None, None, Method::GET, &format!("https://api.twitch.tv/kraken/streams?channel={}", ids.join(","))));
                         let json: Result<KrakenStreams,_> = serde_json::from_str(&body);
                         match json {
                             Err(e) => {

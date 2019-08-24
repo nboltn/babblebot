@@ -9,6 +9,7 @@ use std::mem;
 use std::sync::Arc;
 use std::collections::{HashMap, HashSet};
 use std::{thread,time};
+use std::str::FromStr;
 use either::Either::{Left, Right};
 use tokio;
 use bcrypt::{DEFAULT_COST, hash};
@@ -16,14 +17,15 @@ use regex::Regex;
 use reqwest::Method;
 use reqwest::r#async::{RequestBuilder,Chunk,Decoder};
 use irc::client::prelude::*;
-use chrono::{Utc, DateTime, FixedOffset, Duration};
+use chrono::{Utc, DateTime, FixedOffset, Duration, TimeZone};
+use chrono_tz::{Tz};
 use humantime::format_duration;
 use itertools::Itertools;
 use redis::{self,Commands,Connection};
 
 pub const native_commands: [(&str, fn(Arc<Connection>, Arc<IrcClient>, String, Vec<String>, Option<Message>), bool, bool); 15] = [("echo", echo_cmd, true, true), ("set", set_cmd, true, true), ("unset", unset_cmd, true, true), ("command", command_cmd, true, true), ("title", title_cmd, false, true), ("game", game_cmd, false, true), ("notices", notices_cmd, true, true), ("moderation", moderation_cmd, true, true), ("permit", permit_cmd, true, true), ("multi", multi_cmd, false, true), ("clip", clip_cmd, true, true), ("counters", counters_cmd, true, true), ("phrases", phrases_cmd, true, true), ("commercials", commercials_cmd, true, true), ("songreq", songreq_cmd, false, false)];
 
-pub const command_vars: [(&str, fn(Arc<Connection>, Option<Arc<IrcClient>>, String, Option<Message>, Vec<String>, Vec<String>) -> String); 21] = [("args", args_var), ("user", user_var), ("channel", channel_var), ("cmd", cmd_var), ("counterinc", counterinc_var), ("counter", counter_var), ("phrase", phrase_var), ("countdown", countdown_var), ("date", date_var), ("dateinc", dateinc_var), ("watchtime", watchtime_var), ("watchrank", watchrank_var), ("fortnite:wins", fortnite_wins_var), ("fortnite:kills", fortnite_kills_var), ("pubg:damage", pubg_damage_var), ("pubg:headshots", pubg_headshots_var), ("pubg:kills", pubg_kills_var), ("pubg:roadkills", pubg_roadkills_var), ("pubg:teamkills", pubg_teamkills_var), ("pubg:vehicles-destroyed", pubg_vehicles_destroyed_var), ("pubg:wins", pubg_wins_var)];
+pub const command_vars: [(&str, fn(Arc<Connection>, Option<Arc<IrcClient>>, String, Option<Message>, Vec<String>, Vec<String>) -> String); 22] = [("args", args_var), ("user", user_var), ("channel", channel_var), ("cmd", cmd_var), ("counterinc", counterinc_var), ("counter", counter_var), ("phrase", phrase_var), ("countdown", countdown_var), ("time", time_var), ("date", date_var), ("dateinc", dateinc_var), ("watchtime", watchtime_var), ("watchrank", watchrank_var), ("fortnite:wins", fortnite_wins_var), ("fortnite:kills", fortnite_kills_var), ("pubg:damage", pubg_damage_var), ("pubg:headshots", pubg_headshots_var), ("pubg:kills", pubg_kills_var), ("pubg:roadkills", pubg_roadkills_var), ("pubg:teamkills", pubg_teamkills_var), ("pubg:vehicles-destroyed", pubg_vehicles_destroyed_var), ("pubg:wins", pubg_wins_var)];
 
 pub const command_vars_async: [(&str, fn(Arc<Connection>, Option<Arc<IrcClient>>, String, Option<Message>, Vec<String>, Vec<String>) -> Option<(RequestBuilder, fn((String, Chunk)) -> String)>); 10] = [("uptime", uptime_var), ("followage", followage_var), ("subcount", subcount_var), ("followcount", followcount_var), ("urlfetch", urlfetch_var), ("spotify:playing-title", spotify_playing_title_var), ("spotify:playing-album", spotify_playing_album_var), ("spotify:playing-artist", spotify_playing_artist_var), ("youtube:latest-url", youtube_latest_url_var), ("youtube:latest-title", youtube_latest_title_var)];
 
@@ -246,6 +248,19 @@ fn phrase_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: St
         }
     } else {
         "".to_owned()
+    }
+}
+
+fn time_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, vargs: Vec<String>, _cargs: Vec<String>) -> String {
+    if vargs.len() > 0 {
+        if let Ok(tz) = chrono_tz::Tz::from_str(&vargs[0]) {
+            let date = Utc::now().with_timezone(&tz);
+            return date.format("%H:%M").to_string();
+        } else {
+            "".to_string()
+        }
+    } else {
+        "".to_string()
     }
 }
 
