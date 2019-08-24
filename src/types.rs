@@ -116,8 +116,8 @@ pub struct Chatters {
 
 #[derive(Debug, Deserialize)]
 pub struct TwitchErr {
-    pub status: String,
-    pub error: u8,
+    pub status: u8,
+    pub error: String,
     pub message: String
 }
 
