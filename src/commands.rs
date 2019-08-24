@@ -255,7 +255,7 @@ fn time_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: Stri
     if vargs.len() > 0 {
         if let Ok(tz) = chrono_tz::Tz::from_str(&vargs[0]) {
             let date = Utc::now().with_timezone(&tz);
-            return date.format("%I:%M%P").to_string();
+            return date.format("%l:%M%P").to_string();
         } else {
             "".to_string()
         }
