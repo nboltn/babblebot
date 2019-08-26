@@ -741,9 +741,6 @@ fn update_patreon() {
                             let json: Result<PatreonIdentity,_> = serde_json::from_str(&body);
                             match json {
                                 Err(e) => {
-                                    log_error(Some(Right(vec![&channel])), "update_patreon", &e.to_string());
-                                    log_error(Some(Right(vec![&channel])), "request_body", &body);
-
                                     let res: Result<String,_> = con.get(format!("channel:{}:patreon:refresh", &channel));
                                     if let Ok(token) = res {
                                         let channelC = channel.clone();
@@ -762,6 +759,44 @@ fn update_patreon() {
                                                     Ok(json) => {
                                                         let _: () = con.set(format!("channel:{}:patreon:token", &channel), &json.access_token).unwrap();
                                                         let _: () = con.set(format!("channel:{}:patreon:refresh", &channel), &json.refresh_token).unwrap();
+
+                                                        let future = patreon_request(con.clone(), &channel, Method::GET, "https://www.patreon.com/api/oauth2/v2/identity?include=memberships").send()
+                                                            .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
+                                                            .map_err(|e| println!("request error: {}", e))
+                                                            .map(move |body| {
+                                                                let con = Arc::new(acquire_con());
+                                                                let body = std::str::from_utf8(&body).unwrap();
+                                                                let json: Result<PatreonIdentity,_> = serde_json::from_str(&body);
+                                                                match json {
+                                                                    Err(e) => {
+                                                                        log_error(Some(Right(vec![&channel])), "update_patreon", &e.to_string());
+                                                                        log_error(Some(Right(vec![&channel])), "request_body", &body);
+                                                                    }
+                                                                    Ok(json) => {
+                                                                        let mut settings = config::Config::default();
+                                                                        settings.merge(config::File::with_name("Settings")).unwrap();
+                                                                        settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
+                                                                        let patreon_id = settings.get_str("patreon_id").unwrap_or("".to_owned());
+                                                                        let patreon_sub: String = con.get(format!("channel:{}:patreon:subscribed", &channel)).unwrap();
+
+                                                                        let mut subscribed = false;
+                                                                        for membership in &json.data.relationships.memberships.data {
+                                                                            if membership.id == patreon_id { subscribed = true }
+                                                                        }
+
+                                                                        if subscribed {
+                                                                            let _: () = con.set(format!("channel:{}:patreon:subscribed", &channel), true).unwrap();
+                                                                        } else {
+                                                                            let _: () = con.set(format!("channel:{}:patreon:subscribed", &channel), false).unwrap();
+                                                                            let token = settings.get_str("bot_token").unwrap();
+                                                                            if patreon_sub == "true" {
+                                                                                let _: () = con.publish(format!("channel:{}:signals:rename", &channel), token).unwrap();
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            });
+                                                        thread::spawn(move || { tokio::run(future) });
                                                     }
                                                 }
                                             });
@@ -840,7 +875,7 @@ fn refresh_twitch_bots() {
     core.run(work);
 
     thread::spawn(move || {
-        thread::sleep(time::Duration::from_secs(86000));
+        thread::sleep(time::Duration::from_secs(3600));
         let con = Arc::new(acquire_con());
         let bots: Vec<String> = con.smembers("bots").unwrap_or(Vec::new());
         loop {
@@ -875,7 +910,7 @@ fn refresh_twitch_bots() {
                     thread::spawn(move || { tokio::run(future) });
                 }
             }
-            thread::sleep(time::Duration::from_secs(86000));
+            thread::sleep(time::Duration::from_secs(3600));
         }
     });
 }
@@ -920,7 +955,7 @@ fn refresh_twitch_channels() {
     core.run(work);
 
     thread::spawn(move || {
-        thread::sleep(time::Duration::from_secs(86000));
+        thread::sleep(time::Duration::from_secs(3600));
         let con = Arc::new(acquire_con());
         loop {
             let channels: Vec<String> = con.smembers("channels").unwrap_or(Vec::new());
@@ -955,7 +990,7 @@ fn refresh_twitch_channels() {
                     thread::spawn(move || { tokio::run(future) });
                 }
             }
-            thread::sleep(time::Duration::from_secs(86000));
+            thread::sleep(time::Duration::from_secs(3600));
         }
     });
 }
@@ -1061,7 +1096,6 @@ fn update_live() {
                     .map(move |body| {
                         let con = Arc::new(acquire_con());
                         let body = std::str::from_utf8(&body).unwrap().to_string();
-                        let body = validate_twitch(channels[0].clone(), body.clone(), twitch_kraken_request_sync(con.clone(), &channels[0], None, None, Method::GET, &format!("https://api.twitch.tv/kraken/streams?channel={}", ids.join(","))));
                         let json: Result<KrakenStreams,_> = serde_json::from_str(&body);
                         match json {
                             Err(e) => {

@@ -23,7 +23,7 @@ use humantime::format_duration;
 use itertools::Itertools;
 use redis::{self,Commands,Connection};
 
-pub const native_commands: [(&str, fn(Arc<Connection>, Arc<IrcClient>, String, Vec<String>, Option<Message>), bool, bool); 15] = [("echo", echo_cmd, true, true), ("set", set_cmd, true, true), ("unset", unset_cmd, true, true), ("command", command_cmd, true, true), ("title", title_cmd, false, true), ("game", game_cmd, false, true), ("notices", notices_cmd, true, true), ("moderation", moderation_cmd, true, true), ("permit", permit_cmd, true, true), ("multi", multi_cmd, false, true), ("clip", clip_cmd, true, true), ("counters", counters_cmd, true, true), ("phrases", phrases_cmd, true, true), ("commercials", commercials_cmd, true, true), ("songreq", songreq_cmd, false, false)];
+pub const native_commands: [(&str, fn(Arc<Connection>, Arc<IrcClient>, String, Vec<String>, Option<Message>), bool, bool); 15] = [("echo", echo_cmd, true, true), ("set", set_cmd, true, true), ("unset", unset_cmd, true, true), ("command", command_cmd, true, true), ("title", title_cmd, false, true), ("game", game_cmd, false, true), ("notices", notices_cmd, true, true), ("moderation", moderation_cmd, true, true), ("permit", permit_cmd, true, true), ("multi", multi_cmd, false, true), ("clip", clip_cmd, true, true), ("counters", counters_cmd, true, true), ("phrases", phrases_cmd, true, true), ("commercials", commercials_cmd, true, true), ("songreq", songreq_cmd, true, false)];
 
 pub const command_vars: [(&str, fn(Arc<Connection>, Option<Arc<IrcClient>>, String, Option<Message>, Vec<String>, Vec<String>) -> String); 22] = [("args", args_var), ("user", user_var), ("channel", channel_var), ("cmd", cmd_var), ("counterinc", counterinc_var), ("counter", counter_var), ("phrase", phrase_var), ("countdown", countdown_var), ("time", time_var), ("date", date_var), ("dateinc", dateinc_var), ("watchtime", watchtime_var), ("watchrank", watchrank_var), ("fortnite:wins", fortnite_wins_var), ("fortnite:kills", fortnite_kills_var), ("pubg:damage", pubg_damage_var), ("pubg:headshots", pubg_headshots_var), ("pubg:kills", pubg_kills_var), ("pubg:roadkills", pubg_roadkills_var), ("pubg:teamkills", pubg_teamkills_var), ("pubg:vehicles-destroyed", pubg_vehicles_destroyed_var), ("pubg:wins", pubg_wins_var)];
 
@@ -85,7 +85,6 @@ fn uptime_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: St
         let con = Arc::new(acquire_con());
         let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
         let body = std::str::from_utf8(&body).unwrap().to_string();
-        let body = validate_twitch(channel.clone(), body.clone(), twitch_kraken_request_sync(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/streams?channel={}", &id)));
         let json: Result<KrakenStreams,_> = serde_json::from_str(&body);
         match json {
             Err(e) => {
@@ -165,8 +164,6 @@ fn followage_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel:
             let con = Arc::new(acquire_con());
             let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
             let body = std::str::from_utf8(&body).unwrap().to_string();
-            // TODO
-            // let body = validate_twitch(channel.clone(), body.clone(), twitch_kraken_request_sync(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/users/{}/follows/channels/{}", &user_id, &id)));
             let json: Result<KrakenFollow,_> = serde_json::from_str(&body);
             match json {
                 Err(e) => { log_error(Some(Right(vec![&channel])), "followage_var", &e.to_string()); "0m".to_owned() }
@@ -194,7 +191,6 @@ fn subcount_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: 
         let con = Arc::new(acquire_con());
         let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
         let body = std::str::from_utf8(&body).unwrap().to_string();
-        let body = validate_twitch(channel.clone(), body.clone(), twitch_kraken_request_sync(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/channels/{}/subscriptions", &id)));
         let json: Result<KrakenSubs,_> = serde_json::from_str(&body);
         match json {
             Err(e) => { log_error(Some(Right(vec![&channel])), "subcount_var", &e.to_string()); log_error(Some(Right(vec![&channel])), "subcount_var", &body); "0".to_owned() }
@@ -211,7 +207,6 @@ fn followcount_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channe
         let con = Arc::new(acquire_con());
         let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
         let body = std::str::from_utf8(&body).unwrap().to_string();
-        let body = validate_twitch(channel.clone(), body.clone(), twitch_kraken_request_sync(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/channels/{}/follows", &id)));
         let json: Result<KrakenFollows,_> = serde_json::from_str(&body);
         match json {
             Err(e) => { log_error(Some(Right(vec![&channel])), "followcount_var", &e.to_string()); "0".to_owned() }
@@ -604,7 +599,6 @@ fn title_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args
             .map(move |body| {
                 let con = Arc::new(acquire_con());
                 let body = std::str::from_utf8(&body).unwrap().to_string();
-                let body = validate_twitch(channel.clone(), body.clone(), twitch_kraken_request_sync(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/channels/{}", &id)));
                 let json: Result<KrakenChannel,_> = serde_json::from_str(&body);
                 match json {
                     Err(e) => {
@@ -622,7 +616,6 @@ fn title_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args
             .map(move |body| {
                 let con = Arc::new(acquire_con());
                 let body = std::str::from_utf8(&body).unwrap().to_string();
-                let body = validate_twitch(channel.clone(), body.clone(), twitch_kraken_request_sync(con.clone(), &channel, Some("application/x-www-form-urlencoded"), Some(format!("channel[status]={}", args.join(" ")).as_bytes().to_owned()), Method::PUT, &format!("https://api.twitch.tv/kraken/channels/{}", &id)));
                 let json: Result<KrakenChannel,_> = serde_json::from_str(&body);
                 match json {
                     Err(e) => {
@@ -645,7 +638,6 @@ fn game_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args:
             .map(move |body| {
                 let con = Arc::new(acquire_con());
                 let body = std::str::from_utf8(&body).unwrap().to_string();
-                let body = validate_twitch(channel.clone(), body.clone(), twitch_kraken_request_sync(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/channels/{}", &id)));
                 let json: Result<KrakenChannel,_> = serde_json::from_str(&body);
                 match json {
                     Err(e) => {
@@ -663,7 +655,6 @@ fn game_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args:
             .map(move |body| {
                 let con = Arc::new(acquire_con());
                 let body = std::str::from_utf8(&body).unwrap().to_string();
-                let body = validate_twitch(channel.clone(), body.clone(), twitch_helix_request_sync(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/helix/games?name={}", args.join(" "))));
                 let json: Result<HelixGames,_> = serde_json::from_str(&body);
                 match json {
                     Err(e) => {
@@ -681,7 +672,6 @@ fn game_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args:
                                 .map(move |body| {
                                     let con = Arc::new(acquire_con());
                                     let body = std::str::from_utf8(&body).unwrap().to_string();
-                                    let body = validate_twitch(channel.clone(), body.clone(), twitch_kraken_request_sync(con.clone(), &channel, Some("application/x-www-form-urlencoded"), Some(format!("channel[game]={}", name).as_bytes().to_owned()), Method::PUT, &format!("https://api.twitch.tv/kraken/channels/{}", &id)));
                                     let json: Result<KrakenChannel,_> = serde_json::from_str(&body);
                                     match json {
                                         Err(e) => {
@@ -832,7 +822,6 @@ fn clip_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, _args
         .map(move |body| {
             let con = Arc::new(acquire_con());
             let body = std::str::from_utf8(&body).unwrap().to_string();
-            let body = validate_twitch(channel.clone(), body.clone(), twitch_helix_request_sync(con.clone(), &channel, None, None, Method::POST, &format!("https://api.twitch.tv/helix/clips?broadcaster_id={}", &id)));
             let json: Result<HelixClips,_> = serde_json::from_str(&body);
             match json {
                 Err(e) => {
@@ -1008,18 +997,12 @@ fn songreq_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, ar
         if args.len() > 0 {
             match args[0].to_lowercase().as_ref() {
                 "clear" => {
-                    let badges = get_badges(&message);
-                    let mut auth = false;
-                    if let Some(_value) = badges.get("broadcaster") { auth = true }
-                    if let Some(_value) = badges.get("moderator") { auth = true }
-                    if auth {
-                        let _: () = con.del(format!("channel:{}:songreqs", channel)).unwrap();
-                        let keys: Vec<String> = con.keys(format!("channel:{}:songreqs:*", channel)).unwrap();
-                        for key in keys.iter() {
-                            let _: () = con.del(key).unwrap();
-                        }
-                        send_message(con.clone(), client, channel, "song requests have been cleared".to_owned());
+                    let _: () = con.del(format!("channel:{}:songreqs", channel)).unwrap();
+                    let keys: Vec<String> = con.keys(format!("channel:{}:songreqs:*", channel)).unwrap();
+                    for key in keys.iter() {
+                        let _: () = con.del(key).unwrap();
                     }
+                    send_message(con.clone(), client, channel, "song requests have been cleared".to_owned());
                 }
                 _ => {
                     let rgx = Regex::new(r"^[\-_a-zA-Z0-9]+$").unwrap();

@@ -136,7 +136,7 @@ pub fn connect_and_send_privmsg(con: Arc<Connection>, channel: String, message: 
     };
 
     match IrcClient::from_config(config) {
-        Err(e) => { log_error(None, "connect_and_send_message", &e.to_string()) }
+        Err(e) => { log_error(None, "connect_and_send_privmsg", &e.to_string()) }
         Ok(client) => {
             let auth: String = con.get(format!("channel:{}:auth", channel)).unwrap_or("false".to_owned());
             if auth == "true" {
@@ -186,7 +186,7 @@ pub fn connect_and_run_command(cmd: fn(Arc<Connection>, Arc<IrcClient>, String, 
     };
 
     match IrcClient::from_config(config) {
-        Err(e) => { log_error(None, "connect_and_send_message", &e.to_string()) }
+        Err(e) => { log_error(None, "connect_and_run_command", &e.to_string()) }
         Ok(client) => {
             let client = Arc::new(client);
             let _ = client.identify();
@@ -229,7 +229,7 @@ pub fn send_parsed_message(con: Arc<Connection>, client: Arc<IrcClient>, channel
                     let vargs: Vec<String> = vargs.as_str().split_whitespace().map(|str| str.to_owned()).collect();
                     if let Some((builder, func)) = (var.1)(con.clone(), Some(client.clone()), channel.clone(), irc_message.clone(), vargs.clone(), args.clone()) {
                         let chan = channel.clone();
-                        let future = builder.send().and_then(|mut res| { (Ok(chan), mem::replace(res.body_mut(), Decoder::empty()).concat2()) }).map(func);
+                        let future = builder.send().and_then(|mut res| { (Ok(chan), mem::replace(res.body_mut(), Decoder::empty()).concat2()) }).map_err(|e| println!("request error: {}", e)).map(func);
                         futures.push(future);
                         regexes.push(capture.as_str().to_owned());
                     }
@@ -249,52 +249,6 @@ pub fn send_parsed_message(con: Arc<Connection>, client: Arc<IrcClient>, channel
     }
 }
 
-pub fn validate_twitch(channel: String, body: String, builder: reqwest::RequestBuilder) -> String {
-    let con = acquire_con();
-    let r1: Result<TwitchErr,_> = serde_json::from_str(&body);
-    let r2: Result<String,_> = con.get(format!("channel:{}:refresh", channel));
-    if let (Ok(json), Ok(token)) = (r1, r2) {
-        let mut settings = config::Config::default();
-        settings.merge(config::File::with_name("Settings")).unwrap();
-        settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
-        let id = settings.get_str("client_id").unwrap_or("".to_owned());
-        let secret = settings.get_str("client_secret").unwrap_or("".to_owned());
-
-        let mut headers = header::HeaderMap::new();
-        headers.insert("Content-Type", HeaderValue::from_str("application/x-www-form-urlencoded").unwrap());
-
-        let client = reqwest::Client::builder().default_headers(headers).build().unwrap();
-        let rsp = client.post("https://id.twitch.tv/oauth2/token").body(format!("grant_type=refresh_token&refresh_token={}&client_id={}&client_secret={}", token, id, secret).as_bytes().to_owned()).send();
-
-        match rsp {
-            Err(e) => log_error(Some(Right(vec![&channel])), "validate_twitch", &e.to_string()),
-            Ok(mut rsp) => {
-                let text = rsp.text().unwrap();
-                let json: Result<TwitchRefresh,_> = serde_json::from_str(&text);
-                match json {
-                    Err(e) => {
-                        log_error(Some(Right(vec![&channel])), "validate_twitch", &e.to_string());
-                        log_error(Some(Right(vec![&channel])), "request_body", &text);
-                    }
-                    Ok(json) => {
-                        log_info(Some(Right(vec![&channel])), "validate_twitch", "refreshing twitch token");
-                        let _: () = con.set(format!("channel:{}:token", &channel), &json.access_token).unwrap();
-                        let _: () = con.set(format!("channel:{}:refresh", &channel), &json.refresh_token).unwrap();
-                        match builder.send() {
-                            Err(e) => {}
-                            Ok(mut rsp) => {
-                                let body = rsp.text().unwrap();
-                                return body;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    return body;
-}
-
 pub fn spawn_age_check(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, nick: String, age: i64, display: String) {
     let res: Result<String,_> = con.hget("account:ages", &nick);
     if let Ok(timestamp) = res {
@@ -312,7 +266,6 @@ pub fn spawn_age_check(con: Arc<Connection>, client: Arc<IrcClient>, channel: St
             .map(move |body| {
                 let con = Arc::new(acquire_con());
                 let body = std::str::from_utf8(&body).unwrap().to_string();
-                let body = validate_twitch(channel.clone(), body.clone(), twitch_kraken_request_sync(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/users?login={}", &nick)));
                 let json: Result<KrakenUsers,_> = serde_json::from_str(&body);
                 match json {
                     Err(e) => {
