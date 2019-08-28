@@ -1,6 +1,6 @@
 use crate::types::*;
 use crate::commands::*;
-use std::collections::HashMap;
+use std::collections::{HashMap,HashSet};
 use std::sync::Arc;
 use std::{thread,mem,time};
 use either::Either::{self, Left, Right};
@@ -13,7 +13,8 @@ use reqwest::r#async::{Client,RequestBuilder,Decoder};
 use futures::future::{Future,join_all};
 use irc::client::prelude::*;
 use regex::{Regex,RegexBuilder,Captures,escape};
-use redis::{self,Commands,Connection};
+use redis::Value::Data;
+use redis::{self,Commands,Connection,FromRedisValue};
 
 pub fn log_info(id: Option<Either<&str, Vec<&str>>>, descriptor: &str, content: &str) {
     let con = acquire_con();
@@ -119,6 +120,88 @@ pub fn acquire_con() -> redis::Connection {
             Ok(con) => return con
         }
         thread::sleep(time::Duration::from_secs(1));
+    }
+}
+
+pub fn svec(vec: Vec<&str>) -> Vec<String> {
+    let mut nvec = Vec::new();
+    for arg in vec.iter() {
+        nvec.push(arg.to_string());
+    }
+    return nvec;
+}
+
+pub fn redis_get(args: Vec<&str>) -> Result<String, String> {
+    let mut settings = config::Config::default();
+    settings.merge(config::File::with_name("Settings")).unwrap();
+    settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
+    let secret = settings.get_str("secret_key").unwrap_or("".to_owned());
+
+    let mut args = args.clone();
+    args.insert(0, "get");
+    let data = ApiRedisReq { secret_key: secret, args: args.iter().map(|a| a.to_string()).collect() };
+    let req = reqwest::Client::builder().build().unwrap();
+    let rsp = req.post("http://localhost:10000/api/redis/get").body(serde_json::ser::to_string(&data).unwrap_or("[]".to_string()).as_bytes().to_owned()).send();
+
+    match rsp {
+        Err(e) => {
+            log_error(None, "redis_get", &e.to_string());
+            return Err(e.to_string());
+        }
+        Ok(mut rsp) => {
+            let body = rsp.text().unwrap();
+            let json: Result<ApiRedisGet,_> = serde_json::from_str(&body);
+            match json {
+                Err(e) => {
+                    log_error(None, "redis_get", &e.to_string());
+                    return Err(e.to_string());
+                }
+                Ok(json) => {
+                    if json.success {
+                        return Ok(json.result);
+                    } else {
+                        return Err(json.message);
+                    }
+                }
+            }
+        }
+    }
+}
+
+pub fn redis_smembers(args: Vec<&str>) -> Result<HashSet<String>, String> {
+    let mut settings = config::Config::default();
+    settings.merge(config::File::with_name("Settings")).unwrap();
+    settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
+    let secret = settings.get_str("secret_key").unwrap_or("".to_owned());
+
+    let mut args = args.clone();
+    args.insert(0, "smembers");
+    let data = ApiRedisReq { secret_key: secret, args: args.iter().map(|a| a.to_string()).collect() };
+    let req = reqwest::Client::builder().build().unwrap();
+    let rsp = req.post("http://localhost:10000/api/redis/smembers").body(serde_json::ser::to_string(&data).unwrap_or("[]".to_string()).as_bytes().to_owned()).send();
+
+    match rsp {
+        Err(e) => {
+            log_error(None, "redis_smembers", &e.to_string());
+            return Err(e.to_string());
+        }
+        Ok(mut rsp) => {
+            let body = rsp.text().unwrap();
+            let json: Result<ApiRedisSmembers,_> = serde_json::from_str(&body);
+            match json {
+                Err(e) => {
+                    log_error(None, "redis_smembers", &e.to_string());
+                    return Err(e.to_string());
+                }
+                Ok(json) => {
+                    if json.success {
+                        return Ok(json.result);
+                    } else {
+                        return Err(json.message);
+                    }
+                }
+            }
+        }
     }
 }
 

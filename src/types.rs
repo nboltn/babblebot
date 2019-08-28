@@ -1,7 +1,7 @@
 use crate::util::*;
 use crate::commands::*;
 use std::{thread,mem};
-use std::collections::HashMap;
+use std::collections::{HashMap,HashSet};
 use std::sync::Arc;
 use serenity::client::{Context, EventHandler};
 use serenity::model::channel::Message;
@@ -417,6 +417,31 @@ pub struct ApiData {
     pub blacklist: HashMap<String, HashMap<String,String>>,
     pub songreqs: Vec<(String,String,String)>,
     pub integrations: HashMap<String, HashMap<String,String>>
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ApiReady {
+    pub success: bool
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ApiRedisReq {
+    pub args: Vec<String>,
+    pub secret_key: String
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ApiRedisGet {
+    pub success: bool,
+    pub message: String,
+    pub result: String
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ApiRedisSmembers {
+    pub success: bool,
+    pub message: String,
+    pub result: HashSet<String>
 }
 
 #[derive(Serialize)]

@@ -2,7 +2,7 @@ extern crate jsonwebtoken as jwt;
 
 use crate::types::*;
 use crate::util::*;
-use std::collections::HashMap;
+use std::collections::{HashMap,HashSet};
 use std::time::{SystemTime};
 use either::Either::{Left, Right};
 use bcrypt::{DEFAULT_COST, hash, verify};
@@ -374,6 +374,80 @@ pub fn commands(_con: RedisConnection, channel: String) -> Template {
     let channel = channel;
     context.insert("channel", channel);
     return Template::render("commands", &context);
+}
+
+#[get("/api/ready")]
+pub fn ready(_con: RedisConnection) -> Json<ApiReady> {
+    let json = ApiReady { success: true };
+    return Json(json);
+}
+
+#[post("/api/redis/get", data="<data>")]
+pub fn redis_get(con: RedisConnection, data: Json<ApiRedisReq>) -> Json<ApiRedisGet> {
+    let mut settings = config::Config::default();
+    settings.merge(config::File::with_name("Settings")).unwrap();
+    settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
+    let secret = settings.get_str("secret_key").unwrap();
+
+    if secret == data.secret_key {
+        if data.args.len() > 1 {
+            let mut cmd = &mut redis::cmd(&data.args[0]);
+            for arg in data.args[1..].iter() {
+                cmd = cmd.arg(arg);
+            }
+            let res: Result<String,_> = cmd.query(&*con);
+            match res {
+                Err(e) => {
+                    let json = ApiRedisGet { success: false, message: e.to_string(), result: "".to_owned() };
+                    return Json(json);
+                }
+                Ok(res) => {
+                    let json = ApiRedisGet { success: true, message: "".to_string(), result: res };
+                    return Json(json);
+                }
+            }
+        } else {
+            let json = ApiRedisGet { success: false, message: "not enough args".to_string(), result: "".to_owned() };
+            return Json(json);
+        }
+    } else {
+        let json = ApiRedisGet { success: false, message: "invalid key".to_string(), result: "".to_owned() };
+        return Json(json);
+    }
+}
+
+#[post("/api/redis/smembers", data="<data>")]
+pub fn redis_smembers(con: RedisConnection, data: Json<ApiRedisReq>) -> Json<ApiRedisSmembers> {
+    let mut settings = config::Config::default();
+    settings.merge(config::File::with_name("Settings")).unwrap();
+    settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
+    let secret = settings.get_str("secret_key").unwrap();
+
+    if secret == data.secret_key {
+        if data.args.len() > 1 {
+            let mut cmd = &mut redis::cmd(&data.args[0]);
+            for arg in data.args[1..].iter() {
+                cmd = cmd.arg(arg);
+            }
+            let res: Result<HashSet<String>,_> = cmd.query(&*con);
+            match res {
+                Err(e) => {
+                    let json = ApiRedisSmembers { success: false, message: e.to_string(), result: HashSet::new() };
+                    return Json(json);
+                }
+                Ok(res) => {
+                    let json = ApiRedisSmembers { success: true, message: "".to_string(), result: res };
+                    return Json(json);
+                }
+            }
+        } else {
+            let json = ApiRedisSmembers { success: false, message: "not enough args".to_string(), result: HashSet::new() };
+            return Json(json);
+        }
+    } else {
+        let json = ApiRedisSmembers { success: false, message: "invalid key".to_string(), result: HashSet::new() };
+        return Json(json);
+    }
 }
 
 #[get("/api/data")]

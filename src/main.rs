@@ -35,8 +35,10 @@ use reqwest::r#async::Decoder;
 use serenity;
 use serenity::framework::standard::StandardFramework;
 use rocket::routes;
+use rocket::fairing::AdHoc;
 use rocket_contrib::templates::Template;
 use rocket_contrib::serve::StaticFiles;
+use redis::Value::Data;
 use redis::{self,Commands};
 
 fn main() {
@@ -75,13 +77,12 @@ fn main() {
         log_info(None, "main", "connecting to irc");
 
         thread::spawn(move || {
-            let con = acquire_con();
             let mut bots: HashMap<String, (HashSet<String>, Config)> = HashMap::new();
-            let bs: HashSet<String> = con.smembers("bots").unwrap();
+            let bs: HashSet<String> = redis_smembers(vec!["bots"]).unwrap();
             for bot in bs {
-                let channel_hash: HashSet<String> = con.smembers(format!("bot:{}:channels", bot)).unwrap();
+                let channel_hash: HashSet<String> = redis_smembers(vec![&format!("bot:{}:channels", bot)]).unwrap();
                 if channel_hash.len() > 0 {
-                    let passphrase: String = con.get(format!("bot:{}:token", bot)).expect("get:token");
+                    let passphrase: String = redis_get(vec![&format!("bot:{}:token", bot)]).unwrap();
                     let mut channels: Vec<String> = Vec::new();
                     channels.extend(channel_hash.iter().cloned().map(|chan| { format!("#{}", chan) }));
                     let config = Config {
@@ -411,12 +412,36 @@ fn start_rocket() {
     thread::spawn(move || {
         rocket::ignite()
           .mount("/assets", StaticFiles::from("assets"))
-          .mount("/", routes![web::index, web::dashboard, web::commands, web::patreon_cb, web::patreon_refresh, web::spotify_cb, web::twitch_cb, web::public_data, web::data, web::logs, web::agent, web::login, web::logout, web::signup, web::password, web::title, web::game, web::new_command, web::save_command, web::trash_command, web::new_notice, web::trash_notice, web::save_setting, web::trash_setting, web::new_blacklist, web::save_blacklist, web::trash_blacklist, web::trash_song])
+          .mount("/", routes![web::index, web::dashboard, web::commands, web::ready, web::redis_get, web::redis_smembers, web::patreon_cb, web::patreon_refresh, web::spotify_cb, web::twitch_cb, web::public_data, web::data, web::logs, web::agent, web::login, web::logout, web::signup, web::password, web::title, web::game, web::new_command, web::save_command, web::trash_command, web::new_notice, web::trash_notice, web::save_setting, web::trash_setting, web::new_blacklist, web::save_blacklist, web::trash_blacklist, web::trash_song])
           .register(catchers![web::internal_error, web::not_found])
           .attach(Template::fairing())
           .attach(RedisConnection::fairing())
           .launch()
     });
+
+    loop {
+        let req = reqwest::Client::builder().build().unwrap();
+        let rsp = req.get("http://localhost:10000/api/ready").send();
+
+        match rsp {
+            Err(e) => { log_info(None, "start_rocket", "api not ready"); }
+            Ok(mut rsp) => {
+                let body = rsp.text().unwrap();
+                let json: Result<ApiReady,_> = serde_json::from_str(&body);
+                match json {
+                    Err(e) => { log_info(None, "start_rocket", "api not ready"); }
+                    Ok(json) => {
+                        if json.success {
+                            break;
+                        } else {
+                            log_info(None, "start_rocket", "api not ready");
+                        }
+                    }
+                }
+            }
+        }
+        thread::sleep(time::Duration::from_secs(1));
+    }
 }
 
 fn new_channel_listener() {
