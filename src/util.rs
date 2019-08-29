@@ -127,11 +127,12 @@ pub fn redis_execute(args: Vec<&str>) {
     let mut settings = config::Config::default();
     settings.merge(config::File::with_name("Settings")).unwrap();
     settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
+    let base = settings.get_str("base_url").unwrap();
     let secret = settings.get_str("secret_key").unwrap_or("".to_owned());
 
     let data = ApiRedisReq { secret_key: secret, args: args.iter().map(|a| a.to_string()).collect() };
     let req = reqwest::Client::builder().build().unwrap();
-    let rsp = req.post("http://localhost:10000/api/redis/execute").body(serde_json::ser::to_string(&data).unwrap_or("[]".to_string()).as_bytes().to_owned()).send();
+    let rsp = req.post(&format!("{}/api/redis/execute", &base)).body(serde_json::ser::to_string(&data).unwrap_or("[]".to_string()).as_bytes().to_owned()).send();
 
     match rsp {
         Err(e) => { log_error(None, "redis_execute", &e.to_string()); }
@@ -150,11 +151,12 @@ pub fn redis_execute_async(args: Vec<&str>) -> impl Future<Item = (), Error = ()
     let mut settings = config::Config::default();
     settings.merge(config::File::with_name("Settings")).unwrap();
     settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
+    let base = settings.get_str("base_url").unwrap();
     let secret = settings.get_str("secret_key").unwrap_or("".to_owned());
 
     let data = ApiRedisReq { secret_key: secret, args: args.iter().map(|a| a.to_string()).collect() };
     let client = Client::builder().build().unwrap();
-    let builder = client.post("http://localhost:10000/api/redis/execute").body(serde_json::ser::to_string(&data).unwrap_or("[]".to_string()).as_bytes().to_owned());
+    let builder = client.post(&format!("{}/api/redis/execute", &base)).body(serde_json::ser::to_string(&data).unwrap_or("[]".to_string()).as_bytes().to_owned());
 
     let future = builder.send()
         .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
@@ -168,11 +170,12 @@ pub fn redis_string(args: Vec<&str>) -> Result<String, String> {
     let mut settings = config::Config::default();
     settings.merge(config::File::with_name("Settings")).unwrap();
     settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
+    let base = settings.get_str("base_url").unwrap();
     let secret = settings.get_str("secret_key").unwrap_or("".to_owned());
 
     let data = ApiRedisReq { secret_key: secret, args: args.iter().map(|a| a.to_string()).collect() };
     let req = reqwest::Client::builder().build().unwrap();
-    let rsp = req.post("http://localhost:10000/api/redis/string").body(serde_json::ser::to_string(&data).unwrap_or("[]".to_string()).as_bytes().to_owned()).send();
+    let rsp = req.post(&format!("{}/api/redis/string", &base)).body(serde_json::ser::to_string(&data).unwrap_or("[]".to_string()).as_bytes().to_owned()).send();
 
     match rsp {
         Err(e) => {
@@ -203,11 +206,12 @@ pub fn redis_string_async(args: Vec<&str>) -> impl Future<Item = Result<String, 
     let mut settings = config::Config::default();
     settings.merge(config::File::with_name("Settings")).unwrap();
     settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
+    let base = settings.get_str("base_url").unwrap();
     let secret = settings.get_str("secret_key").unwrap_or("".to_owned());
 
     let data = ApiRedisReq { secret_key: secret, args: args.iter().map(|a| a.to_string()).collect() };
     let client = Client::builder().build().unwrap();
-    let builder = client.post("http://localhost:10000/api/redis/string").body(serde_json::ser::to_string(&data).unwrap_or("[]".to_string()).as_bytes().to_owned());
+    let builder = client.post(&format!("{}/api/redis/string", &base)).body(serde_json::ser::to_string(&data).unwrap_or("[]".to_string()).as_bytes().to_owned());
 
     let future = builder.send()
         .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
@@ -237,11 +241,12 @@ pub fn redis_vec(args: Vec<&str>) -> Result<Vec<String>, String> {
     let mut settings = config::Config::default();
     settings.merge(config::File::with_name("Settings")).unwrap();
     settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
+    let base = settings.get_str("base_url").unwrap();
     let secret = settings.get_str("secret_key").unwrap_or("".to_owned());
 
     let data = ApiRedisReq { secret_key: secret, args: args.iter().map(|a| a.to_string()).collect() };
     let req = reqwest::Client::builder().build().unwrap();
-    let rsp = req.post("http://localhost:10000/api/redis/vec").body(serde_json::ser::to_string(&data).unwrap_or("[]".to_string()).as_bytes().to_owned()).send();
+    let rsp = req.post(&format!("{}/api/redis/vec", &base)).body(serde_json::ser::to_string(&data).unwrap_or("[]".to_string()).as_bytes().to_owned()).send();
 
     match rsp {
         Err(e) => {
@@ -272,11 +277,12 @@ pub fn redis_vec_async(args: Vec<&str>) -> impl Future<Item = Result<Vec<String>
     let mut settings = config::Config::default();
     settings.merge(config::File::with_name("Settings")).unwrap();
     settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
+    let base = settings.get_str("base_url").unwrap();
     let secret = settings.get_str("secret_key").unwrap_or("".to_owned());
 
     let data = ApiRedisReq { secret_key: secret, args: args.iter().map(|a| a.to_string()).collect() };
     let client = Client::builder().build().unwrap();
-    let builder = client.post("http://localhost:10000/api/redis/vec").body(serde_json::ser::to_string(&data).unwrap_or("[]".to_string()).as_bytes().to_owned());
+    let builder = client.post(&format!("{}/api/redis/vec", &base)).body(serde_json::ser::to_string(&data).unwrap_or("[]".to_string()).as_bytes().to_owned());
 
     let future = builder.send()
         .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
@@ -306,11 +312,12 @@ pub fn redis_hash(args: Vec<&str>) -> Result<HashSet<String>, String> {
     let mut settings = config::Config::default();
     settings.merge(config::File::with_name("Settings")).unwrap();
     settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
+    let base = settings.get_str("base_url").unwrap();
     let secret = settings.get_str("secret_key").unwrap_or("".to_owned());
 
     let data = ApiRedisReq { secret_key: secret, args: args.iter().map(|a| a.to_string()).collect() };
     let req = reqwest::Client::builder().build().unwrap();
-    let rsp = req.post("http://localhost:10000/api/redis/hash").body(serde_json::ser::to_string(&data).unwrap_or("[]".to_string()).as_bytes().to_owned()).send();
+    let rsp = req.post(&format!("{}/api/redis/hash", &base)).body(serde_json::ser::to_string(&data).unwrap_or("[]".to_string()).as_bytes().to_owned()).send();
 
     match rsp {
         Err(e) => {
@@ -341,11 +348,12 @@ pub fn redis_hash_async(args: Vec<&str>) -> impl Future<Item = Result<HashSet<St
     let mut settings = config::Config::default();
     settings.merge(config::File::with_name("Settings")).unwrap();
     settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
+    let base = settings.get_str("base_url").unwrap();
     let secret = settings.get_str("secret_key").unwrap_or("".to_owned());
 
     let data = ApiRedisReq { secret_key: secret, args: args.iter().map(|a| a.to_string()).collect() };
     let client = Client::builder().build().unwrap();
-    let builder = client.post("http://localhost:10000/api/redis/vec").body(serde_json::ser::to_string(&data).unwrap_or("[]".to_string()).as_bytes().to_owned());
+    let builder = client.post(&format!("{}/api/redis/hash", &base)).body(serde_json::ser::to_string(&data).unwrap_or("[]".to_string()).as_bytes().to_owned());
 
     let future = builder.send()
         .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })

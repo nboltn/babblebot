@@ -1,3 +1,4 @@
+base_url = "https://www.babblebot.io"
 redis_uri = "redis://127.0.0.1"
 
 bot_name = "babblerbot"

@@ -22,18 +22,18 @@ pub struct DiscordHandler {
 impl EventHandler for DiscordHandler {
     fn message(&self, ctx: Context, msg: Message) {
         let con = Arc::new(acquire_con());
-        let id: String = con.hget(format!("channel:{}:settings", self.channel), "discord:mod-channel").unwrap_or("".to_owned());
+        let id: String = redis_string_async(vec!["hget", &format!("channel:{}:settings", self.channel), "discord:mod-channel"]).wait().unwrap().unwrap_or("".to_owned());
         if msg.channel_id.as_u64().to_string() == id {
             let rgx = Regex::new("<:(\\w+):\\d+>").unwrap();
             let content = rgx.replace_all(&msg.content, |caps: &Captures| { if let Some(emote) = caps.get(1) { emote.as_str().to_owned() } else { "".to_owned() } }).to_string();
-            let _: () = con.publish(format!("channel:{}:signals:command", self.channel), content).unwrap();
+            redis_execute_async(vec!["publish", &format!("channel:{}:signals:command", self.channel), &content]);
         } else {
             let mut words = msg.content.split_whitespace();
             if let Some(word) = words.next() {
                 let word = word.to_lowercase();
                 let args: Vec<String> = words.map(|w| w.to_owned()).collect();
                 // TODO: expand aliases
-                let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", self.channel, word), "message");
+                let res: Result<String,_> = redis_string_async(vec!["hget", &format!("channel:{}:commands:{}", self.channel, word), "message"]).wait().unwrap();
                 if let Ok(mut message) = res {
                     for var in command_vars.iter() {
                         message = parse_var(var, &message, con.clone(), None, self.channel.clone(), None, args.clone());
@@ -420,7 +420,7 @@ pub struct ApiData {
     pub integrations: HashMap<String, HashMap<String,String>>
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ApiReady {
     pub success: bool
 }

@@ -667,8 +667,13 @@ fn start_rocket() {
     });
 
     loop {
+        let mut settings = config::Config::default();
+        settings.merge(config::File::with_name("Settings")).unwrap();
+        settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
+        let base = settings.get_str("base_url").unwrap();
+
         let req = reqwest::Client::builder().build().unwrap();
-        let rsp = req.get("http://localhost:10000/api/ready").send();
+        let rsp = req.get(&format!("{}/api/ready", &base)).send();
 
         match rsp {
             Err(e) => { log_info(None, "start_rocket", "api not ready"); }
@@ -1383,7 +1388,6 @@ fn update_live() {
                     let id: String = redis_string(vec!["get", &format!("channel:{}:id", channel)]).expect("get:id");
                     ids.push(id);
                 }
-                // TODO: should channels[0] be used here?
                 let future = twitch_kraken_request(con.clone(), &channels.iter().next().unwrap(), None, None, Method::GET, &format!("https://api.twitch.tv/kraken/streams?channel={}", ids.join(","))).send()
                     .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                     .map_err(|e| println!("request error: {}", e))
