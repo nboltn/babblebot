@@ -80,6 +80,7 @@ pub enum AuthError {
     Invalid
 }
 
+#[derive(Debug)]
 pub enum ThreadAction {
     Kill,
     Part(String)

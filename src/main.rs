@@ -120,18 +120,28 @@ fn run_reactor(bots: HashMap<String, (HashSet<String>, Config)>) {
                 }
                 log_info(Some(Right(chans.clone())), "run_reactor", "connecting to irc");
                 let mut reactor = IrcReactor::new().unwrap();
+                let mut senders: HashMap<String, Vec<Sender<ThreadAction>>> = HashMap::new();
                 let client = Arc::new(reactor.prepare_client_and_connect(&channels.1).unwrap());
                 let _ = client.identify();
                 let _ = client.send("CAP REQ :twitch.tv/tags");
                 let _ = client.send("CAP REQ :twitch.tv/commands");
                 register_handler((*client).clone(), &mut reactor);
                 for channel in channels.0.iter() {
-                    rename_channel_listener(channel.clone(), client.clone());
+                    let (sender, receiver) = unbounded();
+                    senders.insert(channel.to_owned(), [sender].to_vec());
+                    rename_channel_listener(channel.clone(), client.clone(), receiver);
                 }
                 let res = reactor.run();
                 match res {
                     Err(e) => {
                         log_error(Some(Right(chans)), "run_reactor", &e.to_string());
+                        for channel in channels.0.iter() {
+                            if let Some(senders) = senders.get(channel) {
+                                for sender in senders {
+                                    let _ = sender.send(ThreadAction::Kill);
+                                }
+                            }
+                        }
                         thread::sleep(time::Duration::from_secs(60));
                     }
                     Ok(_) => { break }
@@ -717,72 +727,97 @@ fn new_channel_listener() {
     });
 }
 
-fn rename_channel_listener(channel: String, client: Arc<IrcClient>) {
+fn rename_channel_listener(channel: String, client: Arc<IrcClient>, receiver: Receiver<ThreadAction>) {
     thread::spawn(move || {
         let mut con = acquire_con();
         let mut ps = con.as_pubsub();
         ps.subscribe(format!("channel:{}:signals:rename", channel)).unwrap();
-        let res = ps.get_message();
-        match res {
-            Err(e) => { log_error(Some(Right(vec![&channel])), "rename_channel_listener", &e.to_string()) }
-            Ok(msg) => {
-                let payload: String = msg.get_payload().expect("redis:get_payload");
-                let tokens: Vec<&str> = payload.split_whitespace().collect();
-                let token: String = tokens[0].to_string();
-                let refresh: String = tokens[1].to_string();
+        ps.set_read_timeout(Some(time::Duration::from_secs(1)));
+        loop {
+            let rsp = receiver.recv_timeout(time::Duration::from_secs(1));
+            match rsp {
+                Ok(action) => {
+                    match action {
+                        ThreadAction::Kill => break,
+                        ThreadAction::Part(_) => {}
+                    }
+                }
+                Err(err) => {
+                    match err {
+                        RecvTimeoutError::Disconnected => break,
+                        RecvTimeoutError::Timeout => {}
+                    }
+                }
+            }
 
-                let mut settings = config::Config::default();
-                settings.merge(config::File::with_name("Settings")).unwrap();
-                settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
+            let res = ps.get_message();
+            match res {
+                Err(e) => {
+                    if !e.is_timeout() {
+                        log_error(Some(Right(vec![&channel])), "rename_channel_listener", &e.to_string());
+                        break;
+                    }
+                }
+                Ok(msg) => {
+                    let payload: String = msg.get_payload().expect("redis:get_payload");
+                    let tokens: Vec<&str> = payload.split_whitespace().collect();
+                    let token: String = tokens[0].to_string();
+                    let refresh: String = tokens[1].to_string();
 
-                let mut headers = header::HeaderMap::new();
-                headers.insert("Accept", HeaderValue::from_str("application/vnd.twitchtv.v5+json").unwrap());
-                headers.insert("Authorization", HeaderValue::from_str(&format!("OAuth {}", &token)).unwrap());
-                headers.insert("Client-ID", HeaderValue::from_str(&settings.get_str("client_id").unwrap()).unwrap());
+                    let mut settings = config::Config::default();
+                    settings.merge(config::File::with_name("Settings")).unwrap();
+                    settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
 
-                let req = reqwest::Client::builder().default_headers(headers).build().unwrap();
-                let rsp = req.get("https://api.twitch.tv/kraken/user").send();
-                match rsp {
-                    Err(e) => { log_error(Some(Right(vec![&channel])), "rename_channel_listener", &e.to_string()) }
-                    Ok(mut rsp) => {
-                        let body = rsp.text().unwrap();
-                        let json: Result<KrakenUser,_> = serde_json::from_str(&body);
-                        match json {
-                            Err(e) => {
-                                log_error(Some(Right(vec![&channel])), "rename_channel_listener", &e.to_string());
-                                log_error(Some(Right(vec![&channel])), "request_body", &body);
-                            }
-                            Ok(json) => {
-                                if json.name != channel {
-                                    let _ = client.send_part(format!("#{}", channel));
+                    let mut headers = header::HeaderMap::new();
+                    headers.insert("Accept", HeaderValue::from_str("application/vnd.twitchtv.v5+json").unwrap());
+                    headers.insert("Authorization", HeaderValue::from_str(&format!("OAuth {}", &token)).unwrap());
+                    headers.insert("Client-ID", HeaderValue::from_str(&settings.get_str("client_id").unwrap()).unwrap());
 
-                                    let bot: String = redis_string(vec!["get", &format!("channel:{}:bot", &channel)]).expect("get:bot");
-                                    redis_execute(vec!["srem", &format!("bot:{}:channels", &bot), &channel]);
-                                    redis_execute(vec!["sadd", "bots", &json.name]);
-                                    redis_execute(vec!["sadd", &format!("bot:{}:channels", &json.name), &channel]);
-                                    redis_execute(vec!["set", &format!("bot:{}:token", &json.name), &token]);
-                                    redis_execute(vec!["set", &format!("bot:{}:refresh", &json.name), &refresh]);
-                                    redis_execute(vec!["set", &format!("channel:{}:bot", &channel), &json.name]);
+                    let req = reqwest::Client::builder().default_headers(headers).build().unwrap();
+                    let rsp = req.get("https://api.twitch.tv/kraken/user").send();
+                    match rsp {
+                        Err(e) => { log_error(Some(Right(vec![&channel])), "rename_channel_listener", &e.to_string()) }
+                        Ok(mut rsp) => {
+                            let body = rsp.text().unwrap();
+                            let json: Result<KrakenUser,_> = serde_json::from_str(&body);
+                            match json {
+                                Err(e) => {
+                                    log_error(Some(Right(vec![&channel])), "rename_channel_listener", &e.to_string());
+                                    log_error(Some(Right(vec![&channel])), "request_body", &body);
+                                }
+                                Ok(json) => {
+                                    if json.name != channel {
+                                        let _ = client.send_part(format!("#{}", channel));
 
-                                    let mut bots: HashMap<String, (HashSet<String>, Config)> = HashMap::new();
-                                    let mut channel_hash: HashSet<String> = HashSet::new();
-                                    let mut channels: Vec<String> = Vec::new();
-                                    channel_hash.insert(channel.to_owned());
-                                    channels.extend(channel_hash.iter().cloned().map(|chan| { format!("#{}", chan) }));
-                                    let config = Config {
-                                        server: Some("irc.chat.twitch.tv".to_owned()),
-                                        use_ssl: Some(true),
-                                        nickname: Some(bot.to_owned()),
-                                        password: Some(format!("oauth:{}", token)),
-                                        channels: Some(channels),
-                                        ..Default::default()
-                                    };
-                                    bots.insert(bot.to_owned(), (channel_hash.clone(), config));
-                                    thread::spawn(move || { run_reactor(bots); });
+                                        let bot: String = redis_string(vec!["get", &format!("channel:{}:bot", &channel)]).expect("get:bot");
+                                        redis_execute(vec!["srem", &format!("bot:{}:channels", &bot), &channel]);
+                                        redis_execute(vec!["sadd", "bots", &json.name]);
+                                        redis_execute(vec!["sadd", &format!("bot:{}:channels", &json.name), &channel]);
+                                        redis_execute(vec!["set", &format!("bot:{}:token", &json.name), &token]);
+                                        redis_execute(vec!["set", &format!("bot:{}:refresh", &json.name), &refresh]);
+                                        redis_execute(vec!["set", &format!("channel:{}:bot", &channel), &json.name]);
+
+                                        let mut bots: HashMap<String, (HashSet<String>, Config)> = HashMap::new();
+                                        let mut channel_hash: HashSet<String> = HashSet::new();
+                                        let mut channels: Vec<String> = Vec::new();
+                                        channel_hash.insert(channel.to_owned());
+                                        channels.extend(channel_hash.iter().cloned().map(|chan| { format!("#{}", chan) }));
+                                        let config = Config {
+                                            server: Some("irc.chat.twitch.tv".to_owned()),
+                                            use_ssl: Some(true),
+                                            nickname: Some(bot.to_owned()),
+                                            password: Some(format!("oauth:{}", token)),
+                                            channels: Some(channels),
+                                            ..Default::default()
+                                        };
+                                        bots.insert(bot.to_owned(), (channel_hash.clone(), config));
+                                        thread::spawn(move || { run_reactor(bots); });
+                                    }
                                 }
                             }
                         }
                     }
+                    break;
                 }
             }
         }
