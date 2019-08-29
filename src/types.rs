@@ -431,14 +431,27 @@ pub struct ApiRedisReq {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct ApiRedisGet {
+pub struct ApiRedisExecute {
+    pub success: bool,
+    pub message: String
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ApiRedisString {
     pub success: bool,
     pub message: String,
     pub result: String
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct ApiRedisSmembers {
+pub struct ApiRedisVec {
+    pub success: bool,
+    pub message: String,
+    pub result: Vec<String>
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ApiRedisHash {
     pub success: bool,
     pub message: String,
     pub result: HashSet<String>

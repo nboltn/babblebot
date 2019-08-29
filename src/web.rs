@@ -382,8 +382,34 @@ pub fn ready(_con: RedisConnection) -> Json<ApiReady> {
     return Json(json);
 }
 
-#[post("/api/redis/get", data="<data>")]
-pub fn redis_get(con: RedisConnection, data: Json<ApiRedisReq>) -> Json<ApiRedisGet> {
+#[post("/api/redis/execute", data="<data>")]
+pub fn redis_execute(con: RedisConnection, data: Json<ApiRedisReq>) -> Json<ApiRedisExecute> {
+    let mut settings = config::Config::default();
+    settings.merge(config::File::with_name("Settings")).unwrap();
+    settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
+    let secret = settings.get_str("secret_key").unwrap();
+
+    if secret == data.secret_key {
+        if data.args.len() > 1 {
+            let mut cmd = &mut redis::cmd(&data.args[0]);
+            for arg in data.args[1..].iter() {
+                cmd = cmd.arg(arg);
+            }
+            let _: () = cmd.execute(&*con);
+            let json = ApiRedisExecute { success: true, message: "".to_string() };
+            return Json(json);
+        } else {
+            let json = ApiRedisExecute { success: false, message: "not enough args".to_string() };
+            return Json(json);
+        }
+    } else {
+        let json = ApiRedisExecute { success: false, message: "invalid key".to_string() };
+        return Json(json);
+    }
+}
+
+#[post("/api/redis/string", data="<data>")]
+pub fn redis_string(con: RedisConnection, data: Json<ApiRedisReq>) -> Json<ApiRedisString> {
     let mut settings = config::Config::default();
     settings.merge(config::File::with_name("Settings")).unwrap();
     settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
@@ -398,26 +424,60 @@ pub fn redis_get(con: RedisConnection, data: Json<ApiRedisReq>) -> Json<ApiRedis
             let res: Result<String,_> = cmd.query(&*con);
             match res {
                 Err(e) => {
-                    let json = ApiRedisGet { success: false, message: e.to_string(), result: "".to_owned() };
+                    let json = ApiRedisString { success: false, message: e.to_string(), result: "".to_owned() };
                     return Json(json);
                 }
                 Ok(res) => {
-                    let json = ApiRedisGet { success: true, message: "".to_string(), result: res };
+                    let json = ApiRedisString { success: true, message: "".to_string(), result: res };
                     return Json(json);
                 }
             }
         } else {
-            let json = ApiRedisGet { success: false, message: "not enough args".to_string(), result: "".to_owned() };
+            let json = ApiRedisString { success: false, message: "not enough args".to_string(), result: "".to_owned() };
             return Json(json);
         }
     } else {
-        let json = ApiRedisGet { success: false, message: "invalid key".to_string(), result: "".to_owned() };
+        let json = ApiRedisString { success: false, message: "invalid key".to_string(), result: "".to_owned() };
         return Json(json);
     }
 }
 
-#[post("/api/redis/smembers", data="<data>")]
-pub fn redis_smembers(con: RedisConnection, data: Json<ApiRedisReq>) -> Json<ApiRedisSmembers> {
+#[post("/api/redis/vec", data="<data>")]
+pub fn redis_vec(con: RedisConnection, data: Json<ApiRedisReq>) -> Json<ApiRedisVec> {
+    let mut settings = config::Config::default();
+    settings.merge(config::File::with_name("Settings")).unwrap();
+    settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
+    let secret = settings.get_str("secret_key").unwrap();
+
+    if secret == data.secret_key {
+        if data.args.len() > 1 {
+            let mut cmd = &mut redis::cmd(&data.args[0]);
+            for arg in data.args[1..].iter() {
+                cmd = cmd.arg(arg);
+            }
+            let res: Result<Vec<String>,_> = cmd.query(&*con);
+            match res {
+                Err(e) => {
+                    let json = ApiRedisVec { success: false, message: e.to_string(), result: Vec::new() };
+                    return Json(json);
+                }
+                Ok(res) => {
+                    let json = ApiRedisVec { success: true, message: "".to_string(), result: res };
+                    return Json(json);
+                }
+            }
+        } else {
+            let json = ApiRedisVec { success: false, message: "not enough args".to_string(), result: Vec::new() };
+            return Json(json);
+        }
+    } else {
+        let json = ApiRedisVec { success: false, message: "invalid key".to_string(), result: Vec::new() };
+        return Json(json);
+    }
+}
+
+#[post("/api/redis/hash", data="<data>")]
+pub fn redis_hash(con: RedisConnection, data: Json<ApiRedisReq>) -> Json<ApiRedisHash> {
     let mut settings = config::Config::default();
     settings.merge(config::File::with_name("Settings")).unwrap();
     settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
@@ -432,20 +492,20 @@ pub fn redis_smembers(con: RedisConnection, data: Json<ApiRedisReq>) -> Json<Api
             let res: Result<HashSet<String>,_> = cmd.query(&*con);
             match res {
                 Err(e) => {
-                    let json = ApiRedisSmembers { success: false, message: e.to_string(), result: HashSet::new() };
+                    let json = ApiRedisHash { success: false, message: e.to_string(), result: HashSet::new() };
                     return Json(json);
                 }
                 Ok(res) => {
-                    let json = ApiRedisSmembers { success: true, message: "".to_string(), result: res };
+                    let json = ApiRedisHash { success: true, message: "".to_string(), result: res };
                     return Json(json);
                 }
             }
         } else {
-            let json = ApiRedisSmembers { success: false, message: "not enough args".to_string(), result: HashSet::new() };
+            let json = ApiRedisHash { success: false, message: "not enough args".to_string(), result: HashSet::new() };
             return Json(json);
         }
     } else {
-        let json = ApiRedisSmembers { success: false, message: "invalid key".to_string(), result: HashSet::new() };
+        let json = ApiRedisHash { success: false, message: "invalid key".to_string(), result: HashSet::new() };
         return Json(json);
     }
 }
