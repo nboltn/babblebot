@@ -79,7 +79,7 @@ fn cmd_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: String
 }
 
 fn uptime_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> Option<(RequestBuilder, fn((String, Chunk)) -> String)> {
-    let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
+    let id: String = redis_string_async(vec!["get", &format!("channel:{}:id", channel)]).wait().unwrap().expect("get:id");
     let builder = twitch_kraken_request(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/streams?channel={}", &id));
     let func = move |(channel, body): (String, Chunk)| -> String {
         let con = Arc::new(acquire_con());

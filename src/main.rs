@@ -917,7 +917,7 @@ fn run_notices() {
 
                     for int in ints.iter() {
                         let num: u16 = redis_string(vec!["get", &format!("channel:{}:notices:{}:countdown", channel, int)]).unwrap().parse().unwrap();
-                        if num > 0 { redis_execute(vec!["decr", &format!("channel:{}:notices:{}:countdown", channel, int), "60"]); }
+                        if num > 0 { redis_execute(vec!["decrby", &format!("channel:{}:notices:{}:countdown", channel, int), "60"]); }
                     };
 
                     let int = ints.iter().filter(|int| {
