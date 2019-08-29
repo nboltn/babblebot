@@ -80,7 +80,8 @@ fn cmd_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: String
 
 fn uptime_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> Option<(RequestBuilder, fn((String, Chunk)) -> String)> {
     let id: String = redis_string_async(vec!["get", &format!("channel:{}:id", channel)]).wait().unwrap().expect("get:id");
-    let builder = twitch_kraken_request(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/streams?channel={}", &id));
+    let token: String = redis_string_async(vec!["get", &format!("channel:{}:token", &channel)]).wait().unwrap().unwrap();
+    let builder = twitch_kraken_request(token, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/streams?channel={}", &id));
     let func = move |(channel, body): (String, Chunk)| -> String {
         let con = Arc::new(acquire_con());
         let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
@@ -159,7 +160,8 @@ fn followage_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel:
     if let Some(message) = message {
         let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
         let user_id = get_id(&message).unwrap();
-        let builder = twitch_kraken_request(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/users/{}/follows/channels/{}", &user_id, &id));
+        let token: String = redis_string_async(vec!["get", &format!("channel:{}:token", &channel)]).wait().unwrap().unwrap();
+        let builder = twitch_kraken_request(token, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/users/{}/follows/channels/{}", &user_id, &id));
         let func = move |(channel, body): (String, Chunk)| -> String {
             let con = Arc::new(acquire_con());
             let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
@@ -186,7 +188,8 @@ fn followage_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel:
 
 fn subcount_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> Option<(RequestBuilder, fn((String, Chunk)) -> String)> {
     let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
-    let builder = twitch_kraken_request(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/channels/{}/subscriptions", &id));
+    let token: String = redis_string_async(vec!["get", &format!("channel:{}:token", &channel)]).wait().unwrap().unwrap();
+    let builder = twitch_kraken_request(token, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/channels/{}/subscriptions", &id));
     let func = move |(channel, body): (String, Chunk)| -> String {
         let con = Arc::new(acquire_con());
         let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
@@ -202,7 +205,8 @@ fn subcount_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: 
 
 fn followcount_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> Option<(RequestBuilder, fn((String, Chunk)) -> String)> {
     let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
-    let builder = twitch_kraken_request(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/channels/{}/follows", &id));
+    let token: String = redis_string_async(vec!["get", &format!("channel:{}:token", &channel)]).wait().unwrap().unwrap();
+    let builder = twitch_kraken_request(token, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/channels/{}/follows", &id));
     let func = move |(channel, body): (String, Chunk)| -> String {
         let con = Arc::new(acquire_con());
         let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
@@ -399,7 +403,8 @@ fn urlfetch_var(_con: Arc<Connection>, _client: Option<Arc<IrcClient>>, _channel
 }
 
 fn spotify_playing_title_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> Option<(RequestBuilder, fn((String, Chunk)) -> String)> {
-    let builder = spotify_request(con.clone(), &channel, Method::GET, "https://api.spotify.com/v1/me/player/currently-playing", None);
+    let token: String = redis_string_async(vec!["get", &format!("channel:{}:spotify:token", &channel)]).wait().unwrap().unwrap();
+    let builder = spotify_request(token, Method::GET, "https://api.spotify.com/v1/me/player/currently-playing", None);
     let func = move |(channel, body): (String, Chunk)| -> String {
         let body = std::str::from_utf8(&body).unwrap();
         let json: Result<SpotifyPlaying,_> = serde_json::from_str(&body);
@@ -416,7 +421,8 @@ fn spotify_playing_title_var(con: Arc<Connection>, _client: Option<Arc<IrcClient
 }
 
 fn spotify_playing_album_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> Option<(RequestBuilder, fn((String, Chunk)) -> String)> {
-    let builder = spotify_request(con.clone(), &channel, Method::GET, "https://api.spotify.com/v1/me/player/currently-playing", None);
+    let token: String = redis_string_async(vec!["get", &format!("channel:{}:spotify:token", &channel)]).wait().unwrap().unwrap();
+    let builder = spotify_request(token, Method::GET, "https://api.spotify.com/v1/me/player/currently-playing", None);
     let func = move |(channel, body): (String, Chunk)| -> String {
         let body = std::str::from_utf8(&body).unwrap();
         let json: Result<SpotifyPlaying,_> = serde_json::from_str(&body);
@@ -433,7 +439,8 @@ fn spotify_playing_album_var(con: Arc<Connection>, _client: Option<Arc<IrcClient
 }
 
 fn spotify_playing_artist_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> Option<(RequestBuilder, fn((String, Chunk)) -> String)> {
-    let builder = spotify_request(con.clone(), &channel, Method::GET, "https://api.spotify.com/v1/me/player/currently-playing", None);
+    let token: String = redis_string_async(vec!["get", &format!("channel:{}:spotify:token", &channel)]).wait().unwrap().unwrap();
+    let builder = spotify_request(token, Method::GET, "https://api.spotify.com/v1/me/player/currently-playing", None);
     let func = move |(channel, body): (String, Chunk)| -> String {
         let body = std::str::from_utf8(&body).unwrap();
         let json: Result<SpotifyPlaying,_> = serde_json::from_str(&body);
@@ -593,7 +600,8 @@ fn command_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, ar
 fn title_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, _message: Option<Message>) {
     let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
     if args.len() == 0 {
-        let future = twitch_kraken_request(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/channels/{}", &id)).send()
+        let token: String = redis_string_async(vec!["get", &format!("channel:{}:token", &channel)]).wait().unwrap().unwrap();
+        let future = twitch_kraken_request(token, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/channels/{}", &id)).send()
             .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
             .map_err(|e| println!("request error: {}", e))
             .map(move |body| {
@@ -610,7 +618,8 @@ fn title_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args
             });
         thread::spawn(move || { tokio::run(future) });
     } else {
-        let future = twitch_kraken_request(con.clone(), &channel, Some("application/x-www-form-urlencoded"), Some(format!("channel[status]={}", args.join(" ")).as_bytes().to_owned()), Method::PUT, &format!("https://api.twitch.tv/kraken/channels/{}", &id)).send()
+        let token: String = redis_string_async(vec!["get", &format!("channel:{}:token", &channel)]).wait().unwrap().unwrap();
+        let future = twitch_kraken_request(token, Some("application/x-www-form-urlencoded"), Some(format!("channel[status]={}", args.join(" ")).as_bytes().to_owned()), Method::PUT, &format!("https://api.twitch.tv/kraken/channels/{}", &id)).send()
             .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
             .map_err(|e| println!("request error: {}", e))
             .map(move |body| {
@@ -632,7 +641,8 @@ fn title_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args
 fn game_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, _message: Option<Message>) {
     let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
     if args.len() == 0 {
-        let future = twitch_kraken_request(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/channels/{}", &id)).send()
+        let token: String = redis_string_async(vec!["get", &format!("channel:{}:token", &channel)]).wait().unwrap().unwrap();
+        let future = twitch_kraken_request(token, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/channels/{}", &id)).send()
             .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
             .map_err(|e| println!("request error: {}", e))
             .map(move |body| {
@@ -649,7 +659,8 @@ fn game_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args:
             });
         thread::spawn(move || { tokio::run(future) });
     } else {
-        let future = twitch_helix_request(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/helix/games?name={}", args.join(" "))).send()
+        let token: String = redis_string_async(vec!["get", &format!("channel:{}:token", &channel)]).wait().unwrap().unwrap();
+        let future = twitch_helix_request(token, None, None, Method::GET, &format!("https://api.twitch.tv/helix/games?name={}", args.join(" "))).send()
             .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
             .map_err(|e| println!("request error: {}", e))
             .map(move |body| {
@@ -666,7 +677,8 @@ fn game_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args:
                             send_message(con.clone(), client, channel, format!("Unable to find a game matching: {}", args.join(" ")));
                         } else {
                             let name = json.data[0].name.clone();
-                            let future = twitch_kraken_request(con.clone(), &channel, Some("application/x-www-form-urlencoded"), Some(format!("channel[game]={}", name).as_bytes().to_owned()), Method::PUT, &format!("https://api.twitch.tv/kraken/channels/{}", &id)).send()
+                            let token: String = redis_string_async(vec!["get", &format!("channel:{}:token", &channel)]).wait().unwrap().unwrap();
+                            let future = twitch_kraken_request(token, Some("application/x-www-form-urlencoded"), Some(format!("channel[game]={}", name).as_bytes().to_owned()), Method::PUT, &format!("https://api.twitch.tv/kraken/channels/{}", &id)).send()
                                 .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                                 .map_err(|e| println!("request error: {}", e))
                                 .map(move |body| {
@@ -816,7 +828,8 @@ fn permit_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, arg
 
 fn clip_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, _args: Vec<String>, _message: Option<Message>) {
     let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
-    let future = twitch_helix_request(con.clone(), &channel, None, None, Method::POST, &format!("https://api.twitch.tv/helix/clips?broadcaster_id={}", &id)).send()
+    let token: String = redis_string_async(vec!["get", &format!("channel:{}:token", &channel)]).wait().unwrap().unwrap();
+    let future = twitch_helix_request(token, None, None, Method::POST, &format!("https://api.twitch.tv/helix/clips?broadcaster_id={}", &id)).send()
         .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
         .map_err(|e| println!("request error: {}", e))
         .map(move |body| {
@@ -974,7 +987,8 @@ fn commercials_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String
                                 }
                                 log_info(Some(Right(vec![&channel])), "run_commercials", &format!("{} commercials have been run", args[1]));
                                 send_message(con.clone(), client.clone(), channel.clone(), format!("{} commercials have been run", args[1]));
-                                let future = twitch_kraken_request(con.clone(), &channel, Some("application/json"), Some(format!("{{\"length\": {}}}", num * 30).as_bytes().to_owned()), Method::POST, &format!("https://api.twitch.tv/kraken/channels/{}/commercial", &id)).send().and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() }).map_err(|e| println!("request error: {}", e)).map(move |_body| {});
+                                let token: String = redis_string_async(vec!["get", &format!("channel:{}:token", &channel)]).wait().unwrap().unwrap();
+                                let future = twitch_kraken_request(token, Some("application/json"), Some(format!("{{\"length\": {}}}", num * 30).as_bytes().to_owned()), Method::POST, &format!("https://api.twitch.tv/kraken/channels/{}/commercial", &id)).send().and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() }).map_err(|e| println!("request error: {}", e)).map(move |_body| {});
                                 thread::spawn(move || { tokio::run(future) });
                             }
                         } else {
@@ -1007,7 +1021,8 @@ fn songreq_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, ar
                 _ => {
                     let rgx = Regex::new(r"^[\-_a-zA-Z0-9]+$").unwrap();
                     if rgx.is_match(&args[0]) {
-                        let future = twitch_helix_request(con.clone(), &channel, None, None, Method::GET, &format!("https://www.youtube.com/oembed?format=json&url=https://youtube.com/watch?v={}", args[0])).send()
+                        let token: String = redis_string_async(vec!["get", &format!("channel:{}:token", &channel)]).wait().unwrap().unwrap();
+                        let future = twitch_helix_request(token, None, None, Method::GET, &format!("https://www.youtube.com/oembed?format=json&url=https://youtube.com/watch?v={}", args[0])).send()
                             .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                             .map_err(|e| println!("request error: {}", e))
                             .map(move |body| {

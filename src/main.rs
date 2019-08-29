@@ -1012,7 +1012,8 @@ fn run_commercials() {
                             }
                             log_info(Some(Right(vec![&channel])), "run_commercials", &format!("{} commercials have been run", num));
                             connect_and_send_message(con.clone(), channel.clone(), format!("{} commercials have been run", num));
-                            let future = twitch_kraken_request(con.clone(), &channel, Some("application/json"), Some(format!("{{\"length\": {}}}", num * 30).as_bytes().to_owned()), Method::POST, &format!("https://api.twitch.tv/kraken/channels/{}/commercial", &id)).send().and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() }).map_err(|e| println!("request error: {}", e)).map(move |_body| {});
+                            let token: String = redis_string(vec!["get", &format!("channel:{}:token", &channel)]).unwrap();
+                            let future = twitch_kraken_request(token, Some("application/json"), Some(format!("{{\"length\": {}}}", num * 30).as_bytes().to_owned()), Method::POST, &format!("https://api.twitch.tv/kraken/channels/{}/commercial", &id)).send().and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() }).map_err(|e| println!("request error: {}", e)).map(move |_body| {});
                             thread::spawn(move || { tokio::run(future) });
                         }
                     }
@@ -1031,7 +1032,8 @@ fn update_patreon() {
             for channel in channels {
                 let res: Result<String,_> = redis_string(vec!["get", &format!("channel:{}:patreon:token", &channel)]);
                 if let Ok(_token) = res {
-                    let future = patreon_request(con.clone(), &channel, Method::GET, "https://www.patreon.com/api/oauth2/v2/identity?include=memberships").send()
+                    let token: String = redis_string(vec!["get", &format!("channel:{}:patreon:token", &channel)]).unwrap();
+                    let future = patreon_request(token, Method::GET, "https://www.patreon.com/api/oauth2/v2/identity?include=memberships").send()
                         .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                         .map_err(|e| println!("request error: {}", e))
                         .map(move |body| {
@@ -1043,7 +1045,7 @@ fn update_patreon() {
                                     let res: Result<String,_> = redis_string_async(vec!["get", &format!("channel:{}:patreon:refresh", &channel)]).wait().unwrap();
                                     if let Ok(token) = res {
                                         let channelC = channel.clone();
-                                        let future = patreon_refresh(con.clone(), &channel, Method::POST, "https://www.patreon.com/api/oauth2/token", Some(format!("grant_type=refresh_token&refresh_token={}", token).as_bytes().to_owned())).send()
+                                        let future = patreon_refresh(Method::POST, "https://www.patreon.com/api/oauth2/token", Some(format!("grant_type=refresh_token&refresh_token={}", token).as_bytes().to_owned())).send()
                                             .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                                             .map_err(move |e| log_error(Some(Right(vec![&channelC])), "update_patreon", &e.to_string()))
                                             .map(move |body| {
@@ -1059,7 +1061,8 @@ fn update_patreon() {
                                                         redis_execute_async(vec!["set", &format!("channel:{}:patreon:token", &channel), &json.access_token]).wait();
                                                         redis_execute_async(vec!["set", &format!("channel:{}:patreon:refresh", &channel), &json.refresh_token]).wait();
 
-                                                        let future = patreon_request(con.clone(), &channel, Method::GET, "https://www.patreon.com/api/oauth2/v2/identity?include=memberships").send()
+                                                        let token: String = redis_string_async(vec!["get", &format!("channel:{}:patreon:token", &channel)]).wait().unwrap().unwrap();
+                                                        let future = patreon_request(token, Method::GET, "https://www.patreon.com/api/oauth2/v2/identity?include=memberships").send()
                                                             .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                                                             .map_err(|e| println!("request error: {}", e))
                                                             .map(move |body| {
@@ -1148,7 +1151,7 @@ fn refresh_twitch_bots() {
             let id = settings.get_str("client_id").unwrap_or("".to_owned());
             let secret = settings.get_str("client_secret").unwrap_or("".to_owned());
 
-            let future = twitch_refresh(con.clone(), Method::POST, "https://id.twitch.tv/oauth2/token", Some(format!("grant_type=refresh_token&refresh_token={}&client_id={}&client_secret={}", token, id, secret).as_bytes().to_owned())).send()
+            let future = twitch_refresh(Method::POST, "https://id.twitch.tv/oauth2/token", Some(format!("grant_type=refresh_token&refresh_token={}&client_id={}&client_secret={}", token, id, secret).as_bytes().to_owned())).send()
                 .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                 .map_err(move |e| log_error(Some(Left(&botC)), "refresh_twitch", &e.to_string()))
                 .map(move |body| {
@@ -1188,7 +1191,7 @@ fn refresh_twitch_bots() {
                     let id = settings.get_str("client_id").unwrap_or("".to_owned());
                     let secret = settings.get_str("client_secret").unwrap_or("".to_owned());
 
-                    let future = twitch_refresh(con.clone(), Method::POST, "https://id.twitch.tv/oauth2/token", Some(format!("grant_type=refresh_token&refresh_token={}&client_id={}&client_secret={}", token, id, secret).as_bytes().to_owned())).send()
+                    let future = twitch_refresh(Method::POST, "https://id.twitch.tv/oauth2/token", Some(format!("grant_type=refresh_token&refresh_token={}&client_id={}&client_secret={}", token, id, secret).as_bytes().to_owned())).send()
                         .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                         .map_err(move |e| log_error(Some(Left(&botC)), "refresh_twitch", &e.to_string()))
                         .map(move |body| {
@@ -1228,7 +1231,7 @@ fn refresh_twitch_channels() {
             let id = settings.get_str("client_id").unwrap_or("".to_owned());
             let secret = settings.get_str("client_secret").unwrap_or("".to_owned());
 
-            let future = twitch_refresh(con.clone(), Method::POST, "https://id.twitch.tv/oauth2/token", Some(format!("grant_type=refresh_token&refresh_token={}&client_id={}&client_secret={}", token, id, secret).as_bytes().to_owned())).send()
+            let future = twitch_refresh(Method::POST, "https://id.twitch.tv/oauth2/token", Some(format!("grant_type=refresh_token&refresh_token={}&client_id={}&client_secret={}", token, id, secret).as_bytes().to_owned())).send()
                 .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                 .map_err(move |e| log_error(Some(Right(vec![&channelC])), "refresh_twitch", &e.to_string()))
                 .map(move |body| {
@@ -1268,7 +1271,7 @@ fn refresh_twitch_channels() {
                     let id = settings.get_str("client_id").unwrap_or("".to_owned());
                     let secret = settings.get_str("client_secret").unwrap_or("".to_owned());
 
-                    let future = twitch_refresh(con.clone(), Method::POST, "https://id.twitch.tv/oauth2/token", Some(format!("grant_type=refresh_token&refresh_token={}&client_id={}&client_secret={}", token, id, secret).as_bytes().to_owned())).send()
+                    let future = twitch_refresh(Method::POST, "https://id.twitch.tv/oauth2/token", Some(format!("grant_type=refresh_token&refresh_token={}&client_id={}&client_secret={}", token, id, secret).as_bytes().to_owned())).send()
                         .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                         .map_err(move |e| log_error(Some(Right(vec![&channelC])), "refresh_twitch", &e.to_string()))
                         .map(move |body| {
@@ -1303,7 +1306,7 @@ fn refresh_spotify() {
                 let channelC = channel.clone();
                 let res: Result<String,_> = redis_string(vec!["get", &format!("channel:{}:spotify:refresh", &channel)]);
                 if let Ok(token) = res {
-                    let future = spotify_refresh(con.clone(), &channel, Method::POST, "https://accounts.spotify.com/api/token", Some(format!("grant_type=refresh_token&refresh_token={}", token).as_bytes().to_owned())).send()
+                    let future = spotify_refresh(Method::POST, "https://accounts.spotify.com/api/token", Some(format!("grant_type=refresh_token&refresh_token={}", token).as_bytes().to_owned())).send()
                         .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                         .map_err(move |e| log_error(Some(Right(vec![&channelC])), "update_spotify", &e.to_string()))
                         .map(move |body| {
@@ -1388,7 +1391,9 @@ fn update_live() {
                     let id: String = redis_string(vec!["get", &format!("channel:{}:id", channel)]).expect("get:id");
                     ids.push(id);
                 }
-                let future = twitch_kraken_request(con.clone(), &channels.iter().next().unwrap(), None, None, Method::GET, &format!("https://api.twitch.tv/kraken/streams?channel={}", ids.join(","))).send()
+                let channel = channels.iter().next().unwrap();
+                let token: String = redis_string(vec!["get", &format!("channel:{}:token", &channel)]).unwrap();
+                let future = twitch_kraken_request(token, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/streams?channel={}", ids.join(","))).send()
                     .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                     .map_err(|e| println!("request error: {}", e))
                     .map(move |body| {
@@ -1422,7 +1427,8 @@ fn update_live() {
                                                 let message: String = redis_string_async(vec!["hget", &format!("channel:{}:settings", channel), "discord:live-message"]).wait().unwrap().unwrap_or("".to_owned());
                                                 let display: String = redis_string_async(vec!["get", &format!("channel:{}:display-name", channel)]).wait().unwrap().unwrap();
                                                 let body = format!("{{ \"content\": \"{}\", \"embed\": {{ \"author\": {{ \"name\": \"{}\" }}, \"title\": \"{}\", \"url\": \"http://twitch.tv/{}\", \"thumbnail\": {{ \"url\": \"{}\" }}, \"fields\": [{{ \"name\": \"Now Playing\", \"value\": \"{}\" }}] }} }}", &message, &display, stream.channel.status, channel, stream.channel.logo, stream.channel.game);
-                                                let future = discord_request(con.clone(), &channel, Some(body.as_bytes().to_owned()), Method::POST, &format!("https://discordapp.com/api/channels/{}/messages", id)).send().and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() }).map_err(|e| println!("request error: {}", e)).map(move |_body| {});
+                                                let token: String = redis_string_async(vec!["hget", &format!("channel:{}:settings", &channel), "discord:token"]).wait().unwrap().unwrap();
+                                                let future = discord_request(token, Some(body.as_bytes().to_owned()), Method::POST, &format!("https://discordapp.com/api/channels/{}/messages", id)).send().and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() }).map_err(|e| println!("request error: {}", e)).map(move |_body| {});
                                                 thread::spawn(move || { tokio::run(future) });
                                             }
                                         }
@@ -1477,7 +1483,8 @@ fn update_stats() {
                         let res: Result<String,_> = redis_string(vec!["hget", &format!("channel:{}:settings", &channel), "pubg:id"]);
                         if let Ok(id) = res {
                             let mut cursor: String = redis_string(vec!["hget", &format!("channel:{}:stats:pubg", &channel), "cursor"]).unwrap_or("".to_owned());
-                            let future = pubg_request(con.clone(), &channel, &format!("https://api.pubg.com/shards/{}/players/{}", platform, id)).send()
+                            let token: String = redis_string(vec!["get", &format!("channel:{}:token", &channel)]).unwrap();
+                            let future = pubg_request(token, &format!("https://api.pubg.com/shards/{}/players/{}", platform, id)).send()
                                 .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                                 .map_err(|e| println!("request error: {}", e))
                                 .map(move |body| {
@@ -1498,7 +1505,8 @@ fn update_stats() {
                                                     let channelC = channel.clone();
                                                     if match_.id == cursor { break }
                                                     else {
-                                                        let future = pubg_request(con.clone(), &channel, &format!("https://api.pubg.com/shards/pc-na/matches/{}", &match_.id)).send()
+                                                        let token: String = redis_string_async(vec!["get", &format!("channel:{}:token", &channel)]).wait().unwrap().unwrap();
+                                                        let future = pubg_request(token, &format!("https://api.pubg.com/shards/pc-na/matches/{}", &match_.id)).send()
                                                             .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                                                             .map_err(|e| println!("request error: {}", e))
                                                             .map(move |body| {
@@ -1554,7 +1562,8 @@ fn update_stats() {
                                 });
                             thread::spawn(move || { tokio::run(future) });
                         } else {
-                            let future = pubg_request(con.clone(), &channel, &format!("https://api.pubg.com/shards/{}/players?filter%5BplayerNames%5D={}", platform, name)).send()
+                            let token: String = redis_string(vec!["get", &format!("channel:{}:token", &channel)]).unwrap();
+                            let future = pubg_request(token, &format!("https://api.pubg.com/shards/{}/players?filter%5BplayerNames%5D={}", platform, name)).send()
                                 .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                                 .map_err(|e| println!("request error: {}", e))
                                 .map(move |body| {
@@ -1607,7 +1616,8 @@ fn update_stats() {
                     if let (Ok(_token), Ok(name)) = (res1, res2) {
                         let platform: String = con.hget(format!("channel:{}:settings", &channel), "pubg:platform").unwrap_or("pc".to_owned());
                         let mut cursor: String = redis_string(vec!["hget", &format!("channel:{}:stats:fortnite", &channel), "cursor"]).unwrap_or("".to_owned());
-                        let future = fortnite_request(con.clone(), &channel, &format!("https://api.fortnitetracker.com/v1/profile/{}/{}", platform, name)).send()
+                        let token: String = redis_string(vec!["get", &format!("channel:{}:fortnite:token", &channel)]).unwrap();
+                        let future = fortnite_request(token, &format!("https://api.fortnitetracker.com/v1/profile/{}/{}", platform, name)).send()
                             .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                             .map_err(|e| println!("request error: {}", e))
                             .map(move |body| {
@@ -1728,7 +1738,8 @@ fn spawn_timers(client: Arc<IrcClient>, channel: String, receivers: Vec<Receiver
             if live == "true" && (!hostm.is_empty() || !autom.is_empty()) {
                 let id: String = con.get(format!("channel:{}:id", &so_channel)).unwrap();
                 let recent: Vec<String> = con.smembers(format!("channel:{}:hosts:recent", &so_channel)).unwrap_or(Vec::new());
-                let future = twitch_kraken_request(con.clone(), &channelC, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/channels/{}/hosts", &id)).send()
+                let token: String = redis_string_async(vec!["get", &format!("channel:{}:token", &so_channel)]).wait().unwrap().unwrap();
+                let future = twitch_kraken_request(token, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/channels/{}/hosts", &id)).send()
                     .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                     .map_err(|e| println!("request error: {}", e))
                     .map(move |body| {
@@ -1752,7 +1763,8 @@ fn spawn_timers(client: Arc<IrcClient>, channel: String, receivers: Vec<Receiver
                                     let autom = autom.clone();
                                     if !recent.contains(&host.host_id) {
                                         let _: () = con.sadd(format!("channel:{}:hosts:recent", &channel), &host.host_id).unwrap();
-                                        let future = twitch_kraken_request(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/streams?channel={}", &host.host_id)).send()
+                                        let token: String = redis_string_async(vec!["get", &format!("channel:{}:token", &channel)]).wait().unwrap().unwrap();
+                                        let future = twitch_kraken_request(token, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/streams?channel={}", &host.host_id)).send()
                                             .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                                             .map_err(|e| println!("request error: {}", e))
                                             .map(move |body| {
@@ -1777,7 +1789,8 @@ fn spawn_timers(client: Arc<IrcClient>, channel: String, receivers: Vec<Receiver
                                                                 }
                                                             } else {
                                                                 if !autom.is_empty() {
-                                                                    let future = twitch_kraken_request(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/channels/{}", &host.host_id)).send()
+                                                                    let token: String = redis_string_async(vec!["get", &format!("channel:{}:token", &channel)]).wait().unwrap().unwrap();
+                                                                    let future = twitch_kraken_request(token, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/channels/{}", &host.host_id)).send()
                                                                         .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                                                                         .map_err(|e| println!("request error: {}", e))
                                                                         .map(move |body| {

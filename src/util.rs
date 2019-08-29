@@ -17,51 +17,61 @@ use redis::Value::Data;
 use redis::{self,Commands,Connection,FromRedisValue};
 
 pub fn log_info(id: Option<Either<&str, Vec<&str>>>, descriptor: &str, content: &str) {
-    let con = acquire_con();
     let timestamp = Utc::now().format("%Y-%m-%dT%H:%M:%S%z");
     match id {
         None => {
             let str = format!("[{}] [{}] {}", timestamp, descriptor, content);
             info!("{}", str);
-            let _: () = con.lpush("logs", str).unwrap();
-            let _: () = con.ltrim("logs", 0, 9999).unwrap();
+            thread::spawn(move || {
+                redis_execute(vec!["lpush", "logs", &str]);
+                redis_execute(vec!["ltrim", "logs", "0", "9999"]);
+            });
         }
         Some(ab) => {
             match ab {
                 Left(bot) => {
-                    let mut channels: Vec<String> = Vec::new();
-                    for channel in con.smembers("channels").unwrap_or(Vec::new()) {
-                        let cbot: String = con.get(format!("channel:{}:bot", channel)).unwrap_or("".to_owned());
-                        if cbot == bot { channels.push(channel); }
-                    }
-
-                    let str = format!("[{}] [{}] [{}] {}", timestamp, bot, descriptor, content);
-                    info!("{}", str);
-
-                    for channel in channels {
-                        let str = format!("[{}] [{}] {}", timestamp, descriptor, content);
-                        let _: () = con.lpush(format!("channel:{}:logs", &channel), str).unwrap();
-                        let _: () = con.ltrim(format!("channel:{}:logs", &channel), 0, 9999).unwrap();
-                    }
-                }
-                Right(channels) => {
-                    if channels.len() > 0 {
-                        if channels.len() > 1 {
-                            let bot: String = con.get(format!("channel:{}:bot", &channels[0])).unwrap_or("".to_owned());
-                            let str = format!("[{}] [{}] [{}] {}", timestamp, bot, descriptor, content);
-                            info!("{}", str);
-                        } else {
-                            let str = format!("[{}] [{}] [{}] {}", timestamp, &channels[0], descriptor, content);
-                            info!("{}", str);
+                    let bot = bot.to_string();
+                    let descriptor = descriptor.to_string();
+                    let content = content.to_string();
+                    thread::spawn(move || {
+                        let mut channels: Vec<String> = Vec::new();
+                        for channel in redis_hash(vec!["smembers", "channels"]).unwrap_or(HashSet::new()) {
+                            let cbot: String = redis_string(vec!["get", &format!("channel:{}:bot", channel)]).unwrap_or("".to_owned());
+                            if cbot == bot { channels.push(channel); }
                         }
+
+                        let str = format!("[{}] [{}] [{}] {}", timestamp, bot, descriptor, content);
+                        info!("{}", str);
 
                         for channel in channels {
                             let str = format!("[{}] [{}] {}", timestamp, descriptor, content);
-                            let _: () = con.lpush(format!("channel:{}:logs", &channel), str).unwrap();
-                            let _: () = con.ltrim(format!("channel:{}:logs", &channel), 0, 9999).unwrap();
+                            redis_execute(vec!["lpush", &format!("channel:{}:logs", &channel), &str]);
+                            redis_execute(vec!["ltrim", &format!("channel:{}:logs", &channel), "0", "9999"]);
                         }
-                    }
+                    });
+                }
+                Right(channels) => {
+                    let channels: Vec<String> = channels.iter().map(|c| c.to_string()).collect();
+                    let descriptor = descriptor.to_string();
+                    let content = content.to_string();
+                    thread::spawn(move || {
+                        if channels.len() > 0 {
+                            if channels.len() > 1 {
+                                let bot: String = redis_string(vec!["get", &format!("channel:{}:bot", &channels[0])]).unwrap_or("".to_owned());
+                                let str = format!("[{}] [{}] [{}] {}", timestamp, bot, descriptor, content);
+                                info!("{}", str);
+                            } else {
+                                let str = format!("[{}] [{}] [{}] {}", timestamp, &channels[0], descriptor, content);
+                                info!("{}", str);
+                            }
 
+                            for channel in channels {
+                                let str = format!("[{}] [{}] {}", timestamp, descriptor, content);
+                                redis_execute(vec!["lpush", &format!("channel:{}:logs", &channel), &str]);
+                                redis_execute(vec!["ltrim", &format!("channel:{}:logs", &channel), "0", "9999"]);
+                            }
+                        }
+                    });
                 }
             }
         }
@@ -69,39 +79,61 @@ pub fn log_info(id: Option<Either<&str, Vec<&str>>>, descriptor: &str, content: 
 }
 
 pub fn log_error(id: Option<Either<&str, Vec<&str>>>, descriptor: &str, content: &str) {
-    let con = acquire_con();
-    let timestamp = Utc::now().to_rfc3339();
+    let timestamp = Utc::now().format("%Y-%m-%dT%H:%M:%S%z");
     match id {
         None => {
             let str = format!("[{}] [{}] {}", timestamp, descriptor, content);
-            error!("{}", &str);
-            let _: () = con.lpush("logs", str).unwrap();
-            let _: () = con.ltrim("logs", 0, 9999).unwrap();
+            error!("{}", str);
+            thread::spawn(move || {
+                redis_execute(vec!["lpush", "logs", &str]);
+                redis_execute(vec!["ltrim", "logs", "0", "9999"]);
+            });
         }
         Some(ab) => {
             match ab {
                 Left(bot) => {
-                    let mut channels: Vec<String> = Vec::new();
-                    for channel in con.smembers("channels").unwrap_or(Vec::new()) {
-                        let cbot: String = con.get(format!("channel:{}:bot", channel)).unwrap_or("".to_owned());
-                        if cbot == bot { channels.push(channel); }
-                    }
-                    for channel in channels {
-                        let str1 = format!("[{}] [{}] [{}] {}", timestamp, channel, descriptor, content);
-                        let str2 = format!("[{}] [{}] {}", timestamp, descriptor, content);
-                        error!("{}", &str1);
-                        let _: () = con.lpush(format!("channel:{}:logs", &channel), str2).unwrap();
-                        let _: () = con.ltrim(format!("channel:{}:logs", &channel), 0, 9999).unwrap();
-                    }
+                    let bot = bot.to_string();
+                    let descriptor = descriptor.to_string();
+                    let content = content.to_string();
+                    thread::spawn(move || {
+                        let mut channels: Vec<String> = Vec::new();
+                        for channel in redis_hash(vec!["smembers", "channels"]).unwrap_or(HashSet::new()) {
+                            let cbot: String = redis_string(vec!["get", &format!("channel:{}:bot", channel)]).unwrap_or("".to_owned());
+                            if cbot == bot { channels.push(channel); }
+                        }
+
+                        let str = format!("[{}] [{}] [{}] {}", timestamp, bot, descriptor, content);
+                        error!("{}", str);
+
+                        for channel in channels {
+                            let str = format!("[{}] [{}] {}", timestamp, descriptor, content);
+                            redis_execute(vec!["lpush", &format!("channel:{}:logs", &channel), &str]);
+                            redis_execute(vec!["ltrim", &format!("channel:{}:logs", &channel), "0", "9999"]);
+                        }
+                    });
                 }
                 Right(channels) => {
-                    for channel in channels {
-                        let str1 = format!("[{}] [{}] [{}] {}", timestamp, channel, descriptor, content);
-                        let str2 = format!("[{}] [{}] {}", timestamp, descriptor, content);
-                        error!("{}", &str1);
-                        let _: () = con.lpush(format!("channel:{}:logs", &channel), str2).unwrap();
-                        let _: () = con.ltrim(format!("channel:{}:logs", &channel), 0, 9999).unwrap();
-                    }
+                    let channels: Vec<String> = channels.iter().map(|c| c.to_string()).collect();
+                    let descriptor = descriptor.to_string();
+                    let content = content.to_string();
+                    thread::spawn(move || {
+                        if channels.len() > 0 {
+                            if channels.len() > 1 {
+                                let bot: String = redis_string(vec!["get", &format!("channel:{}:bot", &channels[0])]).unwrap_or("".to_owned());
+                                let str = format!("[{}] [{}] [{}] {}", timestamp, bot, descriptor, content);
+                                error!("{}", str);
+                            } else {
+                                let str = format!("[{}] [{}] [{}] {}", timestamp, &channels[0], descriptor, content);
+                                error!("{}", str);
+                            }
+
+                            for channel in channels {
+                                let str = format!("[{}] [{}] {}", timestamp, descriptor, content);
+                                redis_execute(vec!["lpush", &format!("channel:{}:logs", &channel), &str]);
+                                redis_execute(vec!["ltrim", &format!("channel:{}:logs", &channel), "0", "9999"]);
+                            }
+                        }
+                    });
                 }
             }
         }
@@ -380,134 +412,147 @@ pub fn redis_hash_async(args: Vec<&str>) -> impl Future<Item = Result<HashSet<St
 }
 
 pub fn connect_and_send_privmsg(con: Arc<Connection>, channel: String, message: String) {
-    let bot: String = con.get(format!("channel:{}:bot", channel)).expect("get:bot");
-    let passphrase: String = con.get(format!("bot:{}:token", bot)).expect("get:token");
-    let config = Config {
-        server: Some("irc.chat.twitch.tv".to_owned()),
-        use_ssl: Some(true),
-        nickname: Some(bot.to_owned()),
-        password: Some(format!("oauth:{}", passphrase)),
-        channels: Some(vec![format!("#{}", channel)]),
-        ping_timeout: Some(9999),
-        ..Default::default()
-    };
+    thread::spawn(move || {
+        let bot: String = redis_string(vec!["get", &format!("channel:{}:bot", channel)]).expect("get:bot");
+        let passphrase: String = redis_string(vec!["get", &format!("bot:{}:token", bot)]).expect("get:token");
+        let config = Config {
+            server: Some("irc.chat.twitch.tv".to_owned()),
+            use_ssl: Some(true),
+            nickname: Some(bot.to_owned()),
+            password: Some(format!("oauth:{}", passphrase)),
+            channels: Some(vec![format!("#{}", channel)]),
+            ping_timeout: Some(9999),
+            ..Default::default()
+        };
 
-    match IrcClient::from_config(config) {
-        Err(e) => { log_error(None, "connect_and_send_privmsg", &e.to_string()) }
-        Ok(client) => {
-            let auth: String = con.get(format!("channel:{}:auth", channel)).unwrap_or("false".to_owned());
-            if auth == "true" {
-                let _ = client.identify();
-                let _ = client.send_privmsg(format!("#{}", channel), message);
+        match IrcClient::from_config(config) {
+            Err(e) => { log_error(None, "connect_and_send_privmsg", &e.to_string()) }
+            Ok(client) => {
+                let auth: String = redis_string(vec!["get", &format!("channel:{}:auth", channel)]).unwrap_or("false".to_owned());
+                if auth == "true" {
+                    let _ = client.identify();
+                    let _ = client.send_privmsg(format!("#{}", channel), message);
+                }
+                let _ = client.send_quit("");
             }
-            let _ = client.send_quit("");
         }
-    }
+    });
 }
 
 pub fn connect_and_send_message(con: Arc<Connection>, channel: String, message: String) {
-    let bot: String = con.get(format!("channel:{}:bot", channel)).expect("get:bot");
-    let passphrase: String = con.get(format!("bot:{}:token", bot)).expect("get:token");
-    let config = Config {
-        server: Some("irc.chat.twitch.tv".to_owned()),
-        use_ssl: Some(true),
-        nickname: Some(bot.to_owned()),
-        password: Some(format!("oauth:{}", passphrase)),
-        channels: Some(vec![format!("#{}", channel)]),
-        ping_timeout: Some(9999),
-        ..Default::default()
-    };
+    thread::spawn(move || {
+        let con = Arc::new(acquire_con());
+        let bot: String = redis_string(vec!["get", &format!("channel:{}:bot", channel)]).expect("get:bot");
+        let passphrase: String = redis_string(vec!["get", &format!("bot:{}:token", bot)]).expect("get:token");
+        let config = Config {
+            server: Some("irc.chat.twitch.tv".to_owned()),
+            use_ssl: Some(true),
+            nickname: Some(bot.to_owned()),
+            password: Some(format!("oauth:{}", passphrase)),
+            channels: Some(vec![format!("#{}", channel)]),
+            ping_timeout: Some(9999),
+            ..Default::default()
+        };
 
-    match IrcClient::from_config(config) {
-        Err(e) => { log_error(None, "connect_and_send_message", &e.to_string()) }
-        Ok(client) => {
-            let client = Arc::new(client);
-            let _ = client.identify();
-            send_parsed_message(con, client.clone(), channel, message, Vec::new(), None);
-            let _ = client.send_quit("");
+        match IrcClient::from_config(config) {
+            Err(e) => { log_error(None, "connect_and_send_message", &e.to_string()) }
+            Ok(client) => {
+                let client = Arc::new(client);
+                let _ = client.identify();
+                send_parsed_message(con, client.clone(), channel, message, Vec::new(), None);
+                let _ = client.send_quit("");
+            }
         }
-    }
+    });
 }
 
 pub fn connect_and_run_command(cmd: fn(Arc<Connection>, Arc<IrcClient>, String, Vec<String>, Option<Message>), con: Arc<Connection>, channel: String, args: Vec<String>) {
-    let bot: String = con.get(format!("channel:{}:bot", channel)).expect("get:bot");
-    let passphrase: String = con.get(format!("bot:{}:token", bot)).expect("get:token");
-    let config = Config {
-        server: Some("irc.chat.twitch.tv".to_owned()),
-        use_ssl: Some(true),
-        nickname: Some(bot.to_owned()),
-        password: Some(format!("oauth:{}", passphrase)),
-        channels: Some(vec![format!("#{}", channel)]),
-        ping_timeout: Some(9999),
-        ..Default::default()
-    };
+    thread::spawn(move || {
+        let con = Arc::new(acquire_con());
+        let bot: String = redis_string(vec!["get", &format!("channel:{}:bot", channel)]).expect("get:bot");
+        let passphrase: String = redis_string(vec!["get", &format!("bot:{}:token", bot)]).expect("get:token");
+        let config = Config {
+            server: Some("irc.chat.twitch.tv".to_owned()),
+            use_ssl: Some(true),
+            nickname: Some(bot.to_owned()),
+            password: Some(format!("oauth:{}", passphrase)),
+            channels: Some(vec![format!("#{}", channel)]),
+            ping_timeout: Some(9999),
+            ..Default::default()
+        };
 
-    match IrcClient::from_config(config) {
-        Err(e) => { log_error(None, "connect_and_run_command", &e.to_string()) }
-        Ok(client) => {
-            let client = Arc::new(client);
-            let _ = client.identify();
-            (cmd)(con, client.clone(), channel, args, None);
-            let _ = client.send_quit("");
+        match IrcClient::from_config(config) {
+            Err(e) => { log_error(None, "connect_and_run_command", &e.to_string()) }
+            Ok(client) => {
+                let client = Arc::new(client);
+                let _ = client.identify();
+                (cmd)(con, client.clone(), channel, args, None);
+                let _ = client.send_quit("");
+            }
         }
-    }
+    });
 }
 
 pub fn send_message(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, mut message: String) {
-    let auth: String = con.get(format!("channel:{}:auth", channel)).unwrap_or("false".to_owned());
-    if auth == "true" {
-        let me: String = con.hget(format!("channel:{}:settings", channel), "channel:me").unwrap_or("false".to_owned());
-        if me == "true" { message = format!("/me {}", message); }
-        let _ = client.send_privmsg(format!("#{}", channel), message);
-    }
+    thread::spawn(move || {
+        let auth: String = redis_string(vec!["get", &format!("channel:{}:auth", channel)]).unwrap_or("false".to_owned());
+        if auth == "true" {
+            let me: String = redis_string(vec!["hget", &format!("channel:{}:settings", channel), "channel:me"]).unwrap_or("false".to_owned());
+            if me == "true" { message = format!("/me {}", message); }
+            let _ = client.send_privmsg(format!("#{}", channel), message);
+        }
+    });
 }
 
 pub fn send_parsed_message(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, mut message: String, args: Vec<String>, irc_message: Option<Message>) {
-    let auth: String = con.get(format!("channel:{}:auth", channel)).unwrap_or("false".to_owned());
-    if auth == "true" {
-        if args.len() > 0 {
-            if let Some(char) = args[args.len()-1].chars().next() {
-                if char == '@' { message = format!("{} -> {}", args[args.len()-1], message) }
+    thread::spawn(move || {
+        let con = Arc::new(acquire_con());
+        let auth: String = redis_string(vec!["get", &format!("channel:{}:auth", channel)]).unwrap_or("false".to_owned());
+        if auth == "true" {
+            if args.len() > 0 {
+                if let Some(char) = args[args.len()-1].chars().next() {
+                    if char == '@' { message = format!("{} -> {}", args[args.len()-1], message) }
+                }
             }
-        }
-        let me: String = con.hget(format!("channel:{}:settings", channel), "channel:me").unwrap_or("false".to_owned());
-        if me == "true" { message = format!("/me {}", message); }
+            let me: String = redis_string(vec!["hget", &format!("channel:{}:settings", channel), "channel:me"]).unwrap_or("false".to_owned());
+            if me == "true" { message = format!("/me {}", message); }
 
-        for var in command_vars.iter() {
-            message = parse_var(var, &message, con.clone(), Some(client.clone()), channel.clone(), irc_message.clone(), args.clone());
-        }
+            for var in command_vars.iter() {
+                message = parse_var(var, &message, con.clone(), Some(client.clone()), channel.clone(), irc_message.clone(), args.clone());
+            }
 
-        let mut futures = Vec::new();
-        let mut regexes: Vec<String> = Vec::new();
-        for var in command_vars_async.iter() {
-            let rgx = Regex::new(&format!("\\({} ?((?:[\\w\\-\\?\\._:/&!= ]+)*)\\)", var.0)).unwrap();
-            for captures in rgx.captures_iter(&message) {
-                if let (Some(capture), Some(vargs)) = (captures.get(0), captures.get(1)) {
-                    let vargs: Vec<String> = vargs.as_str().split_whitespace().map(|str| str.to_owned()).collect();
-                    if let Some((builder, func)) = (var.1)(con.clone(), Some(client.clone()), channel.clone(), irc_message.clone(), vargs.clone(), args.clone()) {
-                        let chan = channel.clone();
-                        let future = builder.send().and_then(|mut res| { (Ok(chan), mem::replace(res.body_mut(), Decoder::empty()).concat2()) }).map_err(|e| println!("request error: {}", e)).map(func);
-                        futures.push(future);
-                        regexes.push(capture.as_str().to_owned());
+            let mut futures = Vec::new();
+            let mut regexes: Vec<String> = Vec::new();
+            for var in command_vars_async.iter() {
+                let rgx = Regex::new(&format!("\\({} ?((?:[\\w\\-\\?\\._:/&!= ]+)*)\\)", var.0)).unwrap();
+                for captures in rgx.captures_iter(&message) {
+                    if let (Some(capture), Some(vargs)) = (captures.get(0), captures.get(1)) {
+                        let vargs: Vec<String> = vargs.as_str().split_whitespace().map(|str| str.to_owned()).collect();
+                        if let Some((builder, func)) = (var.1)(con.clone(), Some(client.clone()), channel.clone(), irc_message.clone(), vargs.clone(), args.clone()) {
+                            let chan = channel.clone();
+                            let future = builder.send().and_then(|mut res| { (Ok(chan), mem::replace(res.body_mut(), Decoder::empty()).concat2()) }).map_err(|e| println!("request error: {}", e)).map(func);
+                            futures.push(future);
+                            regexes.push(capture.as_str().to_owned());
+                        }
                     }
                 }
             }
-        }
 
-        thread::spawn(move || {
-            let mut core = tokio_core::reactor::Core::new().unwrap();
-            let work = join_all(futures);
-            for (i,res) in core.run(work).unwrap().into_iter().enumerate() {
-                let rgx = Regex::new(&escape(&regexes[i])).unwrap();
-                message = rgx.replace(&message, |_: &Captures| { &res }).to_string();
-            }
-            let _ = client.send_privmsg(format!("#{}", channel), message);
-        });
-    }
+            thread::spawn(move || {
+                let mut core = tokio_core::reactor::Core::new().unwrap();
+                let work = join_all(futures);
+                for (i,res) in core.run(work).unwrap().into_iter().enumerate() {
+                    let rgx = Regex::new(&escape(&regexes[i])).unwrap();
+                    message = rgx.replace(&message, |_: &Captures| { &res }).to_string();
+                }
+                let _ = client.send_privmsg(format!("#{}", channel), message);
+            });
+        }
+    });
 }
 
 pub fn spawn_age_check(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, nick: String, age: i64, display: String) {
-    let res: Result<String,_> = con.hget("account:ages", &nick);
+    let res: Result<String,_> = redis_string_async(vec!["hget", "account:ages", &nick]).wait().unwrap();
     if let Ok(timestamp) = res {
         let dt = DateTime::parse_from_rfc3339(&timestamp).unwrap();
         let diff = Utc::now().signed_duration_since(dt);
@@ -517,7 +562,8 @@ pub fn spawn_age_check(con: Arc<Connection>, client: Arc<IrcClient>, channel: St
             if display == "true" { send_message(con.clone(), client.clone(), channel.to_owned(), format!("@{} you've been timed out for not reaching the minimum account age", nick)); }
         }
     } else {
-        let future = twitch_kraken_request(con.clone(), &channel, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/users?login={}", &nick)).send()
+        let token: String = redis_string_async(vec!["get", &format!("channel:{}:token", &channel)]).wait().unwrap().unwrap();
+        let future = twitch_kraken_request(token, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/users?login={}", &nick)).send()
             .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
             .map_err(|e| println!("request error: {}", e))
             .map(move |body| {
@@ -531,7 +577,7 @@ pub fn spawn_age_check(con: Arc<Connection>, client: Arc<IrcClient>, channel: St
                     }
                     Ok(json) => {
                         if json.total > 0 {
-                            let _: () = con.hset("account:ages", &nick, &json.users[0].created_at).unwrap();
+                            redis_execute_async(vec!["hset", "account:ages", &nick, &json.users[0].created_at]).wait();
                             let dt = DateTime::parse_from_rfc3339(&json.users[0].created_at).unwrap();
                             let diff = Utc::now().signed_duration_since(dt);
                             if diff.num_minutes() < age {
@@ -554,11 +600,10 @@ pub fn request(method: Method, body: Option<Vec<u8>>, url: &str) -> RequestBuild
     return builder;
 }
 
-pub fn twitch_kraken_request(con: Arc<Connection>, channel: &str, content: Option<&str>, body: Option<Vec<u8>>, method: Method, url: &str) -> RequestBuilder {
+pub fn twitch_kraken_request(token: String, content: Option<&str>, body: Option<Vec<u8>>, method: Method, url: &str) -> RequestBuilder {
     let mut settings = config::Config::default();
     settings.merge(config::File::with_name("Settings")).unwrap();
     settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
-    let token: String = con.get(format!("channel:{}:token", channel)).expect("get:token");
 
     let mut headers = header::HeaderMap::new();
     headers.insert("Accept", HeaderValue::from_str("application/vnd.twitchtv.v5+json").unwrap());
@@ -572,29 +617,10 @@ pub fn twitch_kraken_request(con: Arc<Connection>, channel: &str, content: Optio
     return builder;
 }
 
-pub fn twitch_kraken_request_sync(con: Arc<Connection>, channel: &str, content: Option<&str>, body: Option<Vec<u8>>, method: Method, url: &str) -> reqwest::RequestBuilder {
+pub fn twitch_helix_request(token: String, content: Option<&str>, body: Option<Vec<u8>>, method: Method, url: &str) -> RequestBuilder {
     let mut settings = config::Config::default();
     settings.merge(config::File::with_name("Settings")).unwrap();
     settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
-    let token: String = con.get(format!("channel:{}:token", channel)).expect("get:token");
-
-    let mut headers = header::HeaderMap::new();
-    headers.insert("Accept", HeaderValue::from_str("application/vnd.twitchtv.v5+json").unwrap());
-    headers.insert("Authorization", HeaderValue::from_str(&format!("OAuth {}", token)).unwrap());
-    headers.insert("Client-ID", HeaderValue::from_str(&settings.get_str("client_id").unwrap()).unwrap());
-    if let Some(content) = content { headers.insert("Content-Type", HeaderValue::from_str(content).unwrap()); }
-
-    let client = reqwest::Client::builder().default_headers(headers).build().unwrap();
-    let mut builder = client.request(method, url);
-    if let Some(body) = body { builder = builder.body(body); }
-    return builder;
-}
-
-pub fn twitch_helix_request(con: Arc<Connection>, channel: &str, content: Option<&str>, body: Option<Vec<u8>>, method: Method, url: &str) -> RequestBuilder {
-    let mut settings = config::Config::default();
-    settings.merge(config::File::with_name("Settings")).unwrap();
-    settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
-    let token: String = con.get(format!("channel:{}:token", channel)).expect("get:token");
 
     let mut headers = header::HeaderMap::new();
     headers.insert("Accept", HeaderValue::from_str("application/vnd.twitchtv.v5+json").unwrap());
@@ -608,29 +634,10 @@ pub fn twitch_helix_request(con: Arc<Connection>, channel: &str, content: Option
     return builder;
 }
 
-pub fn twitch_helix_request_sync(con: Arc<Connection>, channel: &str, content: Option<&str>, body: Option<Vec<u8>>, method: Method, url: &str) -> reqwest::RequestBuilder {
+pub fn twitch_user_request(token: String, method: Method, url: &str) -> RequestBuilder {
     let mut settings = config::Config::default();
     settings.merge(config::File::with_name("Settings")).unwrap();
     settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
-    let token: String = con.get(format!("channel:{}:token", channel)).expect("get:token");
-
-    let mut headers = header::HeaderMap::new();
-    headers.insert("Accept", HeaderValue::from_str("application/vnd.twitchtv.v5+json").unwrap());
-    headers.insert("Authorization", HeaderValue::from_str(&format!("Bearer {}", token)).unwrap());
-    headers.insert("Client-ID", HeaderValue::from_str(&settings.get_str("client_id").unwrap()).unwrap());
-    if let Some(content) = content { headers.insert("Content-Type", HeaderValue::from_str(content).unwrap()); }
-
-    let client = reqwest::Client::builder().default_headers(headers).build().unwrap();
-    let mut builder = client.request(method, url);
-    if let Some(body) = body { builder = builder.body(body); }
-    return builder;
-}
-
-pub fn twitch_user_request(con: Arc<Connection>, key: &str, method: Method, url: &str) -> RequestBuilder {
-    let mut settings = config::Config::default();
-    settings.merge(config::File::with_name("Settings")).unwrap();
-    settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
-    let token: String = con.get(key).expect("get:key");
 
     let mut headers = header::HeaderMap::new();
     headers.insert("Accept", HeaderValue::from_str("application/vnd.twitchtv.v5+json").unwrap());
@@ -642,7 +649,7 @@ pub fn twitch_user_request(con: Arc<Connection>, key: &str, method: Method, url:
     return builder;
 }
 
-pub fn twitch_refresh(con: Arc<Connection>, method: Method, url: &str, body: Option<Vec<u8>>) -> RequestBuilder {
+pub fn twitch_refresh(method: Method, url: &str, body: Option<Vec<u8>>) -> RequestBuilder {
     let mut headers = header::HeaderMap::new();
     headers.insert("Content-Type", HeaderValue::from_str("application/x-www-form-urlencoded").unwrap());
 
@@ -652,8 +659,7 @@ pub fn twitch_refresh(con: Arc<Connection>, method: Method, url: &str, body: Opt
     return builder;
 }
 
-pub fn patreon_request(con: Arc<Connection>, channel: &str, method: Method, url: &str) -> RequestBuilder {
-    let token: String = con.get(format!("channel:{}:patreon:token", channel)).unwrap_or("".to_owned());
+pub fn patreon_request(token: String, method: Method, url: &str) -> RequestBuilder {
     let mut headers = header::HeaderMap::new();
     headers.insert("Authorization", HeaderValue::from_str(&format!("Bearer {}", token)).unwrap());
 
@@ -662,7 +668,7 @@ pub fn patreon_request(con: Arc<Connection>, channel: &str, method: Method, url:
     return builder;
 }
 
-pub fn patreon_refresh(con: Arc<Connection>, channel: &str, method: Method, url: &str, body: Option<Vec<u8>>) -> RequestBuilder {
+pub fn patreon_refresh(method: Method, url: &str, body: Option<Vec<u8>>) -> RequestBuilder {
     let mut settings = config::Config::default();
     settings.merge(config::File::with_name("Settings")).unwrap();
     settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
@@ -671,8 +677,7 @@ pub fn patreon_refresh(con: Arc<Connection>, channel: &str, method: Method, url:
 
     let mut headers = header::HeaderMap::new();
     headers.insert("Content-Type", HeaderValue::from_str("application/x-www-form-urlencoded").unwrap());
-    headers.insert("Authorization", HeaderValue::from_str(&format!("Basic {}", base64::encode(&format!("{}:{}",id,secret)))).unwrap());
-
+    headers.insert("Authorization", HeaderValue::from_str(&format!("Basic {}", base64::encode(&format!("{}:{}", id, secret)))).unwrap());
 
     let client = Client::builder().default_headers(headers).build().unwrap();
     let mut builder = client.request(method, url);
@@ -680,8 +685,7 @@ pub fn patreon_refresh(con: Arc<Connection>, channel: &str, method: Method, url:
     return builder;
 }
 
-pub fn spotify_request(con: Arc<Connection>, channel: &str, method: Method, url: &str, body: Option<Vec<u8>>) -> RequestBuilder {
-    let token: String = con.get(format!("channel:{}:spotify:token", channel)).unwrap_or("".to_owned());
+pub fn spotify_request(token: String, method: Method, url: &str, body: Option<Vec<u8>>) -> RequestBuilder {
     let mut headers = header::HeaderMap::new();
     headers.insert("Accept", HeaderValue::from_str("application/vnd.api+json").unwrap());
     headers.insert("Authorization", HeaderValue::from_str(&format!("Bearer {}", token)).unwrap());
@@ -692,7 +696,7 @@ pub fn spotify_request(con: Arc<Connection>, channel: &str, method: Method, url:
     return builder;
 }
 
-pub fn spotify_refresh(con: Arc<Connection>, channel: &str, method: Method, url: &str, body: Option<Vec<u8>>) -> RequestBuilder {
+pub fn spotify_refresh(method: Method, url: &str, body: Option<Vec<u8>>) -> RequestBuilder {
     let mut settings = config::Config::default();
     settings.merge(config::File::with_name("Settings")).unwrap();
     settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
@@ -701,8 +705,7 @@ pub fn spotify_refresh(con: Arc<Connection>, channel: &str, method: Method, url:
 
     let mut headers = header::HeaderMap::new();
     headers.insert("Content-Type", HeaderValue::from_str("application/x-www-form-urlencoded").unwrap());
-    headers.insert("Authorization", HeaderValue::from_str(&format!("Basic {}", base64::encode(&format!("{}:{}",id,secret)))).unwrap());
-
+    headers.insert("Authorization", HeaderValue::from_str(&format!("Basic {}", base64::encode(&format!("{}:{}", id, secret)))).unwrap());
 
     let client = Client::builder().default_headers(headers).build().unwrap();
     let mut builder = client.request(method, url);
@@ -710,8 +713,7 @@ pub fn spotify_refresh(con: Arc<Connection>, channel: &str, method: Method, url:
     return builder;
 }
 
-pub fn discord_request(con: Arc<Connection>, channel: &str, body: Option<Vec<u8>>, method: Method, url: &str) -> RequestBuilder {
-    let token: String = con.hget(format!("channel:{}:settings", channel), "discord:token").unwrap_or("".to_owned());
+pub fn discord_request(token: String, body: Option<Vec<u8>>, method: Method, url: &str) -> RequestBuilder {
     let mut headers = header::HeaderMap::new();
     headers.insert("Authorization", HeaderValue::from_str(&format!("Bot {}", token)).unwrap());
     headers.insert("User-Agent", HeaderValue::from_str("Babblebot (https://gitlab.com/toovs/babblebot, 0.1").unwrap());
@@ -723,8 +725,7 @@ pub fn discord_request(con: Arc<Connection>, channel: &str, body: Option<Vec<u8>
     return builder;
 }
 
-pub fn fortnite_request(con: Arc<Connection>, channel: &str, url: &str) -> RequestBuilder {
-    let token: String = con.hget(format!("channel:{}:settings", channel), "fortnite:token").unwrap_or("".to_owned());
+pub fn fortnite_request(token: String, url: &str) -> RequestBuilder {
     let mut headers = header::HeaderMap::new();
     headers.insert("Accept", HeaderValue::from_str("application/vnd.api+json").unwrap());
     headers.insert("TRN-Api-Key", HeaderValue::from_str(&token).unwrap());
@@ -734,8 +735,7 @@ pub fn fortnite_request(con: Arc<Connection>, channel: &str, url: &str) -> Reque
     return builder;
 }
 
-pub fn pubg_request(con: Arc<Connection>, channel: &str, url: &str) -> RequestBuilder {
-    let token: String = con.hget(format!("channel:{}:settings", channel), "pubg:token").unwrap_or("".to_owned());
+pub fn pubg_request(token: String, url: &str) -> RequestBuilder {
     let mut headers = header::HeaderMap::new();
     headers.insert("Accept", HeaderValue::from_str("application/vnd.api+json").unwrap());
     headers.insert("Authorization", HeaderValue::from_str(&format!("Bearer {}", token)).unwrap());
