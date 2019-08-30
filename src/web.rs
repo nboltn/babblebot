@@ -106,7 +106,7 @@ pub fn twitch_cb(con: RedisConnection, code: String, state: String) -> Template 
     let rsp = client.post(&format!("https://id.twitch.tv/oauth2/token?client_id={}&client_secret={}&code={}&grant_type=authorization_code&redirect_uri=https://www.babblebot.io/callbacks/twitch", client_id, client_secret, code)).send();
     match rsp {
         Err(e) => {
-            log_error(None, "twitch_cb", &e.to_string());
+            //log_error(None, "twitch_cb", &e.to_string(), db.clone());
             let mut context: HashMap<&str, String> = HashMap::new();
             match stateR {
                 Err(_e) => {
@@ -126,8 +126,8 @@ pub fn twitch_cb(con: RedisConnection, code: String, state: String) -> Template 
             let json: Result<TwitchRsp,_> = serde_json::from_str(&body);
             match json {
                 Err(e) => {
-                    log_error(None, "twitch_cb", &e.to_string());
-                    log_error(None, "request_body", &body);
+                    //log_error(None, "twitch_cb", &e.to_string(), db.clone());
+                    //log_error(None, "request_body", &body, db.clone());
                     let mut context: HashMap<&str, String> = HashMap::new();
                     match stateR {
                         Err(_e) => {
@@ -155,7 +155,7 @@ pub fn twitch_cb(con: RedisConnection, code: String, state: String) -> Template 
                     let rsp = client.get("https://api.twitch.tv/kraken/user").send();
                     match rsp {
                         Err(e) => {
-                            log_error(None, "twitch_cb", &e.to_string());
+                            //log_error(None, "twitch_cb", &e.to_string(), db.clone());
                             let mut context: HashMap<&str, String> = HashMap::new();
                             match stateR {
                                 Err(_e) => {
@@ -175,8 +175,8 @@ pub fn twitch_cb(con: RedisConnection, code: String, state: String) -> Template 
                             let json2: Result<KrakenUser,_> = serde_json::from_str(&body);
                             match json2 {
                                 Err(e) => {
-                                    log_error(None, "twitch_cb", &e.to_string());
-                                    log_error(None, "request_body", &body);
+                                    //log_error(None, "twitch_cb", &e.to_string(), db.clone());
+                                    //log_error(None, "request_body", &body, db.clone());
                                     let mut context: HashMap<&str, String> = HashMap::new();
                                     match stateR {
                                         Err(_e) => {
@@ -235,7 +235,7 @@ pub fn patreon_cb(con: RedisConnection, code: String, state: String) -> Template
     let rsp = client.post("https://www.patreon.com/api/oauth2/token").form(&[("grant_type","authorization_code"),("redirect_uri","https://www.babblebot.io/callbacks/patreon"),("code",&code),("client_id",&patreon_id),("client_secret",&patreon_secret)]).send();
     match rsp {
         Err(e) => {
-            log_error(None, "patreon_cb", &e.to_string());
+            //log_error(None, "patreon_cb", &e.to_string(), db.clone());
             let context: HashMap<&str, String> = HashMap::new();
             return Template::render("dashboard", &context);
         }
@@ -244,8 +244,8 @@ pub fn patreon_cb(con: RedisConnection, code: String, state: String) -> Template
             let json: Result<PatreonRsp,_> = serde_json::from_str(&body);
             match json {
                 Err(e) => {
-                    log_error(Some(Right(vec![&state])), "patreon_cb", &e.to_string());
-                    log_error(Some(Right(vec![&state])), "request_body", &body);
+                    //log_error(Some(Right(vec![&state])), "patreon_cb", &e.to_string(), db.clone());
+                    //log_error(Some(Right(vec![&state])), "request_body", &body, db.clone());
                     let context: HashMap<&str, String> = HashMap::new();
                     return Template::render("dashboard", &context);
                 }
@@ -253,14 +253,14 @@ pub fn patreon_cb(con: RedisConnection, code: String, state: String) -> Template
                     let client = reqwest::Client::new();
                     let rsp = client.get("https://www.patreon.com/api/oauth2/v2/identity?include=memberships").header(header::AUTHORIZATION, format!("Bearer {}", &json.access_token)).send();
                     match rsp {
-                        Err(e) => { log_error(None, "patreon_cb", &e.to_string()) }
+                        Err(e) => { /*log_error(None, "patreon_cb", &e.to_string(), db.clone())*/ }
                         Ok(mut rsp) => {
                             let body = rsp.text().unwrap();
                             let json: Result<PatreonIdentity,_> = serde_json::from_str(&body);
                             match json {
                                 Err(e) => {
-                                    log_error(Some(Right(vec![&state])), "patreon_cb", &e.to_string());
-                                    log_error(Some(Right(vec![&state])), "request_body", &body);
+                                    //log_error(Some(Right(vec![&state])), "patreon_cb", &e.to_string(), db.clone());
+                                    //log_error(Some(Right(vec![&state])), "request_body", &body, db.clone());
                                 }
                                 Ok(json) => {
                                     let patreon_id = settings.get_str("patreon_id").unwrap_or("".to_owned());
@@ -297,15 +297,15 @@ pub fn patreon_refresh(con: RedisConnection, auth: Auth) -> Template {
         let rsp = client.get("https://www.patreon.com/api/oauth2/v2/identity?include=memberships").header(header::ACCEPT, "application/vnd.api+json").header(header::AUTHORIZATION, format!("Bearer {}", token)).send();
         match rsp {
             Err(e) => {
-                log_error(None, "patreon_refresh", &e.to_string());
+                //log_error(None, "patreon_refresh", &e.to_string(), db.clone());
             }
             Ok(mut rsp) => {
                 let body = rsp.text().unwrap();
                 let json: Result<PatreonIdentity,_> = serde_json::from_str(&body);
                 match json {
                     Err(e) => {
-                        log_error(Some(Right(vec![&auth.channel])), "patreon_refresh", &e.to_string());
-                        log_error(Some(Right(vec![&auth.channel])), "request_body", &body);
+                        //log_error(Some(Right(vec![&auth.channel])), "patreon_refresh", &e.to_string(), db.clone());
+                        //log_error(Some(Right(vec![&auth.channel])), "request_body", &body, db.clone());
                     }
                     Ok(json) => {
                         let mut settings = config::Config::default();
@@ -343,7 +343,7 @@ pub fn spotify_cb(con: RedisConnection, auth: Auth, code: String) -> Template {
     let rsp = client.post("https://accounts.spotify.com/api/token").form(&[("grant_type","authorization_code"),("redirect_uri","https://www.babblebot.io/callbacks/spotify"),("code",&code)]).header(header::AUTHORIZATION, format!("Basic {}", base64::encode(&format!("{}:{}",spotify_id,spotify_secret)))).send();
     match rsp {
         Err(e) => {
-            log_error(None, "spotify_cb", &e.to_string());
+            //log_error(None, "spotify_cb", &e.to_string(), db.clone());
             let context: HashMap<&str, String> = HashMap::new();
             return Template::render("dashboard", &context);
         }
@@ -352,8 +352,8 @@ pub fn spotify_cb(con: RedisConnection, auth: Auth, code: String) -> Template {
             let json: Result<SpotifyRsp,_> = serde_json::from_str(&body);
             match json {
                 Err(e) => {
-                    log_error(Some(Right(vec![&auth.channel])), "spotify_cb", &e.to_string());
-                    log_error(Some(Right(vec![&auth.channel])), "request_body", &body);
+                    //log_error(Some(Right(vec![&auth.channel])), "spotify_cb", &e.to_string(), db.clone());
+                    //log_error(Some(Right(vec![&auth.channel])), "request_body", &body, db.clone());
                     let context: HashMap<&str, String> = HashMap::new();
                     return Template::render("dashboard", &context);
                 }
@@ -374,140 +374,6 @@ pub fn commands(_con: RedisConnection, channel: String) -> Template {
     let channel = channel;
     context.insert("channel", channel);
     return Template::render("commands", &context);
-}
-
-#[get("/api/ready")]
-pub fn ready(_con: RedisConnection) -> Json<ApiReady> {
-    let json = ApiReady { success: true };
-    return Json(json);
-}
-
-#[post("/api/redis/execute", data="<data>")]
-pub fn redis_execute(con: RedisConnection, data: Json<ApiRedisReq>) -> Json<ApiRedisExecute> {
-    let mut settings = config::Config::default();
-    settings.merge(config::File::with_name("Settings")).unwrap();
-    settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
-    let secret = settings.get_str("secret_key").unwrap();
-
-    if secret == data.secret_key {
-        if data.args.len() > 1 {
-            let mut cmd = &mut redis::cmd(&data.args[0]);
-            for arg in data.args[1..].iter() {
-                cmd = cmd.arg(arg);
-            }
-            let _: () = cmd.execute(&*con);
-            let json = ApiRedisExecute { success: true, message: "".to_string() };
-            return Json(json);
-        } else {
-            let json = ApiRedisExecute { success: false, message: "not enough args".to_string() };
-            return Json(json);
-        }
-    } else {
-        let json = ApiRedisExecute { success: false, message: "invalid key".to_string() };
-        return Json(json);
-    }
-}
-
-#[post("/api/redis/string", data="<data>")]
-pub fn redis_string(con: RedisConnection, data: Json<ApiRedisReq>) -> Json<ApiRedisString> {
-    let mut settings = config::Config::default();
-    settings.merge(config::File::with_name("Settings")).unwrap();
-    settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
-    let secret = settings.get_str("secret_key").unwrap();
-
-    if secret == data.secret_key {
-        if data.args.len() > 1 {
-            let mut cmd = &mut redis::cmd(&data.args[0]);
-            for arg in data.args[1..].iter() {
-                cmd = cmd.arg(arg);
-            }
-            let res: Result<String,_> = cmd.query(&*con);
-            match res {
-                Err(e) => {
-                    let json = ApiRedisString { success: false, message: e.to_string(), result: "".to_owned() };
-                    return Json(json);
-                }
-                Ok(res) => {
-                    let json = ApiRedisString { success: true, message: "".to_string(), result: res };
-                    return Json(json);
-                }
-            }
-        } else {
-            let json = ApiRedisString { success: false, message: "not enough args".to_string(), result: "".to_owned() };
-            return Json(json);
-        }
-    } else {
-        let json = ApiRedisString { success: false, message: "invalid key".to_string(), result: "".to_owned() };
-        return Json(json);
-    }
-}
-
-#[post("/api/redis/vec", data="<data>")]
-pub fn redis_vec(con: RedisConnection, data: Json<ApiRedisReq>) -> Json<ApiRedisVec> {
-    let mut settings = config::Config::default();
-    settings.merge(config::File::with_name("Settings")).unwrap();
-    settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
-    let secret = settings.get_str("secret_key").unwrap();
-
-    if secret == data.secret_key {
-        if data.args.len() > 1 {
-            let mut cmd = &mut redis::cmd(&data.args[0]);
-            for arg in data.args[1..].iter() {
-                cmd = cmd.arg(arg);
-            }
-            let res: Result<Vec<String>,_> = cmd.query(&*con);
-            match res {
-                Err(e) => {
-                    let json = ApiRedisVec { success: false, message: e.to_string(), result: Vec::new() };
-                    return Json(json);
-                }
-                Ok(res) => {
-                    let json = ApiRedisVec { success: true, message: "".to_string(), result: res };
-                    return Json(json);
-                }
-            }
-        } else {
-            let json = ApiRedisVec { success: false, message: "not enough args".to_string(), result: Vec::new() };
-            return Json(json);
-        }
-    } else {
-        let json = ApiRedisVec { success: false, message: "invalid key".to_string(), result: Vec::new() };
-        return Json(json);
-    }
-}
-
-#[post("/api/redis/hash", data="<data>")]
-pub fn redis_hash(con: RedisConnection, data: Json<ApiRedisReq>) -> Json<ApiRedisHash> {
-    let mut settings = config::Config::default();
-    settings.merge(config::File::with_name("Settings")).unwrap();
-    settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
-    let secret = settings.get_str("secret_key").unwrap();
-
-    if secret == data.secret_key {
-        if data.args.len() > 1 {
-            let mut cmd = &mut redis::cmd(&data.args[0]);
-            for arg in data.args[1..].iter() {
-                cmd = cmd.arg(arg);
-            }
-            let res: Result<HashSet<String>,_> = cmd.query(&*con);
-            match res {
-                Err(e) => {
-                    let json = ApiRedisHash { success: false, message: e.to_string(), result: HashSet::new() };
-                    return Json(json);
-                }
-                Ok(res) => {
-                    let json = ApiRedisHash { success: true, message: "".to_string(), result: res };
-                    return Json(json);
-                }
-            }
-        } else {
-            let json = ApiRedisHash { success: false, message: "not enough args".to_string(), result: HashSet::new() };
-            return Json(json);
-        }
-    } else {
-        let json = ApiRedisHash { success: false, message: "invalid key".to_string(), result: HashSet::new() };
-        return Json(json);
-    }
 }
 
 #[get("/api/data")]
@@ -532,7 +398,7 @@ pub fn data(con: RedisConnection, auth: Auth) -> Json<ApiData> {
 
     match rsp {
         Err(e) => {
-            log_error(Some(Right(vec![&auth.channel])), "data", &e.to_string());
+            //log_error(Some(Right(vec![&auth.channel])), "data", &e.to_string(), db.clone());
             let fields: HashMap<String, String> = HashMap::new();
             let commands: HashMap<String, String> = HashMap::new();
             let notices: HashMap<String, Vec<String>> = HashMap::new();
@@ -547,7 +413,7 @@ pub fn data(con: RedisConnection, auth: Auth) -> Json<ApiData> {
             let json: Result<KrakenChannel,_> = rsp.json();
             match json {
                 Err(e) => {
-                    log_error(Some(Right(vec![&auth.channel])), "data", &e.to_string());
+                    //log_error(Some(Right(vec![&auth.channel])), "data", &e.to_string(), db.clone());
                     let fields: HashMap<String, String> = HashMap::new();
                     let commands: HashMap<String, String> = HashMap::new();
                     let notices: HashMap<String, Vec<String>> = HashMap::new();
@@ -756,7 +622,7 @@ pub fn signup(con: RedisConnection, mut cookies: Cookies, data: Form<ApiSignupRe
 
     match rsp {
         Err(e) => {
-            log_error(None, "signup", &e.to_string());
+            //log_error(None, "signup", &e.to_string(), db.clone());
             let json = ApiRsp { success: false, success_value: None, field: Some("token".to_owned()), error_message: Some("invalid access code".to_owned()) };
             return Json(json);
         }
@@ -764,7 +630,7 @@ pub fn signup(con: RedisConnection, mut cookies: Cookies, data: Form<ApiSignupRe
             let json: Result<HelixUsers,_> = rsp.json();
             match json {
                 Err(e) => {
-                    log_error(None, "signup", &e.to_string());
+                    //log_error(None, "signup", &e.to_string(), db.clone());
                     let json = ApiRsp { success: false, success_value: None, field: Some("token".to_owned()), error_message: Some("invalid access code".to_owned()) };
                     return Json(json);
                 }
@@ -858,7 +724,7 @@ pub fn title(con: RedisConnection, data: Form<ApiTitleReq>, auth: Auth) -> Json<
 
     match rsp {
         Err(e) => {
-            log_error(None, "title", &e.to_string());
+            //log_error(None, "title", &e.to_string(), db.clone());
             let json = ApiRsp { success: false, success_value: None, field: Some("title-field".to_owned()), error_message: Some("twitch api error".to_owned()) };
             return Json(json);
         }
@@ -866,7 +732,7 @@ pub fn title(con: RedisConnection, data: Form<ApiTitleReq>, auth: Auth) -> Json<
             let json: Result<KrakenChannel,_> = rsp.json();
             match json {
                 Err(e) => {
-                    log_error(None, "title", &e.to_string());
+                    //log_error(None, "title", &e.to_string(), db.clone());
                     let json = ApiRsp { success: false, success_value: None, field: Some("title-field".to_owned()), error_message: Some("twitch api error".to_owned()) };
                     return Json(json);
                 }
@@ -898,7 +764,7 @@ pub fn game(con: RedisConnection, data: Form<ApiGameReq>, auth: Auth) -> Json<Ap
 
     match rsp {
         Err(e) => {
-            log_error(None, "game", &e.to_string());
+            //log_error(None, "game", &e.to_string(), db.clone());
             let json = ApiRsp { success: false, success_value: None, field: Some("game".to_owned()), error_message: Some("game not found".to_owned()) };
             return Json(json);
         }
@@ -906,7 +772,7 @@ pub fn game(con: RedisConnection, data: Form<ApiGameReq>, auth: Auth) -> Json<Ap
             let json: Result<HelixGames,_> = rsp.json();
             match json {
                 Err(e) => {
-                    log_error(None, "game", &e.to_string());
+                    //log_error(None, "game", &e.to_string(), db.clone());
                     let json = ApiRsp { success: false, success_value: None, field: Some("game".to_owned()), error_message: Some("game not found".to_owned()) };
                     return Json(json);
                 }
@@ -921,7 +787,7 @@ pub fn game(con: RedisConnection, data: Form<ApiGameReq>, auth: Auth) -> Json<Ap
 
                         match rsp {
                             Err(e) => {
-                                log_error(None, "game", &e.to_string());
+                                //log_error(None, "game", &e.to_string(), db.clone());
                                 let json = ApiRsp { success: false, success_value: None, field: Some("game".to_owned()), error_message: Some("game not found".to_owned()) };
                                 return Json(json);
                             }
@@ -929,7 +795,7 @@ pub fn game(con: RedisConnection, data: Form<ApiGameReq>, auth: Auth) -> Json<Ap
                                 let json: Result<KrakenChannel,_> = rsp.json();
                                 match json {
                                     Err(e) => {
-                                        log_error(None, "game", &e.to_string());
+                                        //log_error(None, "game", &e.to_string(), db.clone());
                                         let json = ApiRsp { success: false, success_value: None, field: Some("game".to_owned()), error_message: Some("game not found".to_owned()) };
                                         return Json(json);
                                     }

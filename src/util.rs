@@ -8,24 +8,23 @@ use base64;
 use config;
 use chrono::{Utc, DateTime};
 use http::header::{self,HeaderValue};
+use crossbeam_channel::{Sender,Receiver,RecvTimeoutError};
 use reqwest::Method;
 use reqwest::r#async::{Client,RequestBuilder,Decoder};
 use futures::future::{Future,join_all};
 use irc::client::prelude::*;
 use regex::{Regex,RegexBuilder,Captures,escape};
 use redis::Value::Data;
-use redis::{self,Commands,Connection,FromRedisValue};
+use redis::{self,Value,Commands,Connection,from_redis_value};
 
-pub fn log_info(id: Option<Either<&str, Vec<&str>>>, descriptor: &str, content: &str) {
+pub fn log_info(id: Option<Either<&str, Vec<&str>>>, descriptor: &str, content: &str, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
     let timestamp = Utc::now().format("%Y-%m-%dT%H:%M:%S%z");
     match id {
         None => {
             let str = format!("[{}] [{}] {}", timestamp, descriptor, content);
             info!("{}", str);
-            thread::spawn(move || {
-                redis_execute(vec!["lpush", "logs", &str]);
-                redis_execute(vec!["ltrim", "logs", "0", "9999"]);
-            });
+            redis_call(db.clone(), vec!["lpush", "logs", &str]);
+            redis_call(db.clone(), vec!["ltrim", "logs", "0", "9999"]);
         }
         Some(ab) => {
             match ab {
@@ -35,8 +34,9 @@ pub fn log_info(id: Option<Either<&str, Vec<&str>>>, descriptor: &str, content: 
                     let content = content.to_string();
                     thread::spawn(move || {
                         let mut channels: Vec<String> = Vec::new();
-                        for channel in redis_hash(vec!["smembers", "channels"]).unwrap_or(HashSet::new()) {
-                            let cbot: String = redis_string(vec!["get", &format!("channel:{}:bot", channel)]).unwrap_or("".to_owned());
+                        let channels_: Vec<String> = from_redis_value(&redis_call(db.clone(), vec!["smembers", "channels"]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
+                        for channel in channels_ {
+                            let cbot: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:bot", channel)]).unwrap_or(Value::Data("".as_bytes().to_owned()))).unwrap();
                             if cbot == bot { channels.push(channel); }
                         }
 
@@ -45,8 +45,8 @@ pub fn log_info(id: Option<Either<&str, Vec<&str>>>, descriptor: &str, content: 
 
                         for channel in channels {
                             let str = format!("[{}] [{}] {}", timestamp, descriptor, content);
-                            redis_execute(vec!["lpush", &format!("channel:{}:logs", &channel), &str]);
-                            redis_execute(vec!["ltrim", &format!("channel:{}:logs", &channel), "0", "9999"]);
+                            redis_call(db.clone(), vec!["lpush", &format!("channel:{}:logs", &channel), &str]);
+                            redis_call(db.clone(), vec!["ltrim", &format!("channel:{}:logs", &channel), "0", "9999"]);
                         }
                     });
                 }
@@ -57,7 +57,7 @@ pub fn log_info(id: Option<Either<&str, Vec<&str>>>, descriptor: &str, content: 
                     thread::spawn(move || {
                         if channels.len() > 0 {
                             if channels.len() > 1 {
-                                let bot: String = redis_string(vec!["get", &format!("channel:{}:bot", &channels[0])]).unwrap_or("".to_owned());
+                                let bot: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:bot", &channels[0])]).unwrap_or(Value::Data("".as_bytes().to_owned()))).unwrap();
                                 let str = format!("[{}] [{}] [{}] {}", timestamp, bot, descriptor, content);
                                 info!("{}", str);
                             } else {
@@ -67,8 +67,8 @@ pub fn log_info(id: Option<Either<&str, Vec<&str>>>, descriptor: &str, content: 
 
                             for channel in channels {
                                 let str = format!("[{}] [{}] {}", timestamp, descriptor, content);
-                                redis_execute(vec!["lpush", &format!("channel:{}:logs", &channel), &str]);
-                                redis_execute(vec!["ltrim", &format!("channel:{}:logs", &channel), "0", "9999"]);
+                                redis_call(db.clone(), vec!["lpush", &format!("channel:{}:logs", &channel), &str]);
+                                redis_call(db.clone(), vec!["ltrim", &format!("channel:{}:logs", &channel), "0", "9999"]);
                             }
                         }
                     });
@@ -78,16 +78,14 @@ pub fn log_info(id: Option<Either<&str, Vec<&str>>>, descriptor: &str, content: 
     }
 }
 
-pub fn log_error(id: Option<Either<&str, Vec<&str>>>, descriptor: &str, content: &str) {
+pub fn log_error(id: Option<Either<&str, Vec<&str>>>, descriptor: &str, content: &str, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
     let timestamp = Utc::now().format("%Y-%m-%dT%H:%M:%S%z");
     match id {
         None => {
             let str = format!("[{}] [{}] {}", timestamp, descriptor, content);
             error!("{}", str);
-            thread::spawn(move || {
-                redis_execute(vec!["lpush", "logs", &str]);
-                redis_execute(vec!["ltrim", "logs", "0", "9999"]);
-            });
+            redis_call(db.clone(), vec!["lpush", "logs", &str]);
+            redis_call(db.clone(), vec!["ltrim", "logs", "0", "9999"]);
         }
         Some(ab) => {
             match ab {
@@ -97,8 +95,9 @@ pub fn log_error(id: Option<Either<&str, Vec<&str>>>, descriptor: &str, content:
                     let content = content.to_string();
                     thread::spawn(move || {
                         let mut channels: Vec<String> = Vec::new();
-                        for channel in redis_hash(vec!["smembers", "channels"]).unwrap_or(HashSet::new()) {
-                            let cbot: String = redis_string(vec!["get", &format!("channel:{}:bot", channel)]).unwrap_or("".to_owned());
+                        let channels_: Vec<String> = from_redis_value(&redis_call(db.clone(), vec!["smembers", "channels"]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
+                        for channel in channels_ {
+                            let cbot: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:bot", channel)]).unwrap_or(Value::Data("".as_bytes().to_owned()))).unwrap();
                             if cbot == bot { channels.push(channel); }
                         }
 
@@ -107,8 +106,8 @@ pub fn log_error(id: Option<Either<&str, Vec<&str>>>, descriptor: &str, content:
 
                         for channel in channels {
                             let str = format!("[{}] [{}] {}", timestamp, descriptor, content);
-                            redis_execute(vec!["lpush", &format!("channel:{}:logs", &channel), &str]);
-                            redis_execute(vec!["ltrim", &format!("channel:{}:logs", &channel), "0", "9999"]);
+                            redis_call(db.clone(), vec!["lpush", &format!("channel:{}:logs", &channel), &str]);
+                            redis_call(db.clone(), vec!["ltrim", &format!("channel:{}:logs", &channel), "0", "9999"]);
                         }
                     });
                 }
@@ -119,7 +118,7 @@ pub fn log_error(id: Option<Either<&str, Vec<&str>>>, descriptor: &str, content:
                     thread::spawn(move || {
                         if channels.len() > 0 {
                             if channels.len() > 1 {
-                                let bot: String = redis_string(vec!["get", &format!("channel:{}:bot", &channels[0])]).unwrap_or("".to_owned());
+                                let bot: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:bot", &channels[0])]).unwrap_or(Value::Data("".as_bytes().to_owned()))).unwrap();
                                 let str = format!("[{}] [{}] [{}] {}", timestamp, bot, descriptor, content);
                                 error!("{}", str);
                             } else {
@@ -129,8 +128,8 @@ pub fn log_error(id: Option<Either<&str, Vec<&str>>>, descriptor: &str, content:
 
                             for channel in channels {
                                 let str = format!("[{}] [{}] {}", timestamp, descriptor, content);
-                                redis_execute(vec!["lpush", &format!("channel:{}:logs", &channel), &str]);
-                                redis_execute(vec!["ltrim", &format!("channel:{}:logs", &channel), "0", "9999"]);
+                                redis_call(db.clone(), vec!["lpush", &format!("channel:{}:logs", &channel), &str]);
+                                redis_call(db.clone(), vec!["ltrim", &format!("channel:{}:logs", &channel), "0", "9999"]);
                             }
                         }
                     });
@@ -148,273 +147,36 @@ pub fn acquire_con() -> redis::Connection {
     let client = redis::Client::open(&redis_uri[..]).unwrap();
     loop {
         match client.get_connection() {
-            Err(e) => log_error(None, "acquire_con", &e.to_string()),
+            Err(e) => println!("[acquire_con] {}", &e.to_string()),
             Ok(con) => return con
         }
         thread::sleep(time::Duration::from_secs(1));
     }
 }
 
-pub fn redis_execute(args: Vec<&str>) {
-    let mut settings = config::Config::default();
-    settings.merge(config::File::with_name("Settings")).unwrap();
-    settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
-    let base = settings.get_str("base_url").unwrap();
-    let secret = settings.get_str("secret_key").unwrap_or("".to_owned());
-
-    let data = ApiRedisReq { secret_key: secret, args: args.iter().map(|a| a.to_string()).collect() };
-    let req = reqwest::Client::builder().build().unwrap();
-    let rsp = req.post(&format!("{}/api/redis/execute", &base)).body(serde_json::ser::to_string(&data).unwrap_or("[]".to_string()).as_bytes().to_owned()).send();
-
+pub fn redis_call(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>), args: Vec<&str>) -> Result<Value, String> {
+    (db.0).send(args.iter().map(|a| a.to_string()).collect());
+    let rsp = (db.1).recv_timeout(time::Duration::from_secs(10));
     match rsp {
-        Err(e) => { log_error(None, "redis_execute", &e.to_string()); }
-        Ok(mut rsp) => {
-            let body = rsp.text().unwrap();
-            let json: Result<ApiRedisExecute,_> = serde_json::from_str(&body);
-            match json {
-                Err(e) => { log_error(None, "redis_execute", &e.to_string()); }
-                Ok(json) => {}
+        Ok(res) => {
+            match res {
+                Ok(Value::Nil) => Err("nil value".to_string()),
+                _ => { return res }
+            }
+        }
+        Err(err) => {
+            match err {
+                RecvTimeoutError::Disconnected => { Err("disconnected".to_string()) }
+                RecvTimeoutError::Timeout => { Err("timeout".to_string()) }
             }
         }
     }
 }
 
-pub fn redis_execute_async(args: Vec<&str>) -> impl Future<Item = (), Error = ()> {
-    let mut settings = config::Config::default();
-    settings.merge(config::File::with_name("Settings")).unwrap();
-    settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
-    let base = settings.get_str("base_url").unwrap();
-    let secret = settings.get_str("secret_key").unwrap_or("".to_owned());
-
-    let data = ApiRedisReq { secret_key: secret, args: args.iter().map(|a| a.to_string()).collect() };
-    let client = Client::builder().build().unwrap();
-    let builder = client.post(&format!("{}/api/redis/execute", &base)).body(serde_json::ser::to_string(&data).unwrap_or("[]".to_string()).as_bytes().to_owned());
-
-    let future = builder.send()
-        .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
-        .map_err(|e| log_error(None, "redis_execute_async", &e.to_string()))
-        .map(|res| {});
-
-    return future;
-}
-
-pub fn redis_string(args: Vec<&str>) -> Result<String, String> {
-    let mut settings = config::Config::default();
-    settings.merge(config::File::with_name("Settings")).unwrap();
-    settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
-    let base = settings.get_str("base_url").unwrap();
-    let secret = settings.get_str("secret_key").unwrap_or("".to_owned());
-
-    let data = ApiRedisReq { secret_key: secret, args: args.iter().map(|a| a.to_string()).collect() };
-    let req = reqwest::Client::builder().build().unwrap();
-    let rsp = req.post(&format!("{}/api/redis/string", &base)).body(serde_json::ser::to_string(&data).unwrap_or("[]".to_string()).as_bytes().to_owned()).send();
-
-    match rsp {
-        Err(e) => {
-            log_error(None, "redis_string", &e.to_string());
-            return Err(e.to_string());
-        }
-        Ok(mut rsp) => {
-            let body = rsp.text().unwrap();
-            let json: Result<ApiRedisString,_> = serde_json::from_str(&body);
-            match json {
-                Err(e) => {
-                    log_error(None, "redis_string", &e.to_string());
-                    return Err(e.to_string());
-                }
-                Ok(json) => {
-                    if json.success {
-                        return Ok(json.result);
-                    } else {
-                        return Err(json.message);
-                    }
-                }
-            }
-        }
-    }
-}
-
-pub fn redis_string_async(args: Vec<&str>) -> impl Future<Item = Result<String, String>, Error = ()> {
-    let mut settings = config::Config::default();
-    settings.merge(config::File::with_name("Settings")).unwrap();
-    settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
-    let base = settings.get_str("base_url").unwrap();
-    let secret = settings.get_str("secret_key").unwrap_or("".to_owned());
-
-    let data = ApiRedisReq { secret_key: secret, args: args.iter().map(|a| a.to_string()).collect() };
-    let client = Client::builder().build().unwrap();
-    let builder = client.post(&format!("{}/api/redis/string", &base)).body(serde_json::ser::to_string(&data).unwrap_or("[]".to_string()).as_bytes().to_owned());
-
-    let future = builder.send()
-        .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
-        .map_err(move |e| log_error(None, "redis_string_async", &e.to_string()))
-        .map(move |res| {
-            let body = std::str::from_utf8(&res).unwrap().to_string();
-            let json: Result<ApiRedisString,_> = serde_json::from_str(&body);
-            match json {
-                Err(e) => {
-                    log_error(None, "redis_string_async", &e.to_string());
-                    return Err(e.to_string());
-                }
-                Ok(json) => {
-                    if json.success {
-                        return Ok(json.result);
-                    } else {
-                        return Err(json.message);
-                    }
-                }
-            }
-        });
-
-    return future;
-}
-
-pub fn redis_vec(args: Vec<&str>) -> Result<Vec<String>, String> {
-    let mut settings = config::Config::default();
-    settings.merge(config::File::with_name("Settings")).unwrap();
-    settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
-    let base = settings.get_str("base_url").unwrap();
-    let secret = settings.get_str("secret_key").unwrap_or("".to_owned());
-
-    let data = ApiRedisReq { secret_key: secret, args: args.iter().map(|a| a.to_string()).collect() };
-    let req = reqwest::Client::builder().build().unwrap();
-    let rsp = req.post(&format!("{}/api/redis/vec", &base)).body(serde_json::ser::to_string(&data).unwrap_or("[]".to_string()).as_bytes().to_owned()).send();
-
-    match rsp {
-        Err(e) => {
-            log_error(None, "redis_vec", &e.to_string());
-            return Err(e.to_string());
-        }
-        Ok(mut rsp) => {
-            let body = rsp.text().unwrap();
-            let json: Result<ApiRedisVec,_> = serde_json::from_str(&body);
-            match json {
-                Err(e) => {
-                    log_error(None, "redis_vec", &e.to_string());
-                    return Err(e.to_string());
-                }
-                Ok(json) => {
-                    if json.success {
-                        return Ok(json.result);
-                    } else {
-                        return Err(json.message);
-                    }
-                }
-            }
-        }
-    }
-}
-
-pub fn redis_vec_async(args: Vec<&str>) -> impl Future<Item = Result<Vec<String>, String>, Error = ()> {
-    let mut settings = config::Config::default();
-    settings.merge(config::File::with_name("Settings")).unwrap();
-    settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
-    let base = settings.get_str("base_url").unwrap();
-    let secret = settings.get_str("secret_key").unwrap_or("".to_owned());
-
-    let data = ApiRedisReq { secret_key: secret, args: args.iter().map(|a| a.to_string()).collect() };
-    let client = Client::builder().build().unwrap();
-    let builder = client.post(&format!("{}/api/redis/vec", &base)).body(serde_json::ser::to_string(&data).unwrap_or("[]".to_string()).as_bytes().to_owned());
-
-    let future = builder.send()
-        .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
-        .map_err(move |e| log_error(None, "redis_vec_async", &e.to_string()))
-        .map(move |res| {
-            let body = std::str::from_utf8(&res).unwrap().to_string();
-            let json: Result<ApiRedisVec,_> = serde_json::from_str(&body);
-            match json {
-                Err(e) => {
-                    log_error(None, "redis_vec_async", &e.to_string());
-                    return Err(e.to_string());
-                }
-                Ok(json) => {
-                    if json.success {
-                        return Ok(json.result);
-                    } else {
-                        return Err(json.message);
-                    }
-                }
-            }
-        });
-
-    return future;
-}
-
-pub fn redis_hash(args: Vec<&str>) -> Result<HashSet<String>, String> {
-    let mut settings = config::Config::default();
-    settings.merge(config::File::with_name("Settings")).unwrap();
-    settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
-    let base = settings.get_str("base_url").unwrap();
-    let secret = settings.get_str("secret_key").unwrap_or("".to_owned());
-
-    let data = ApiRedisReq { secret_key: secret, args: args.iter().map(|a| a.to_string()).collect() };
-    let req = reqwest::Client::builder().build().unwrap();
-    let rsp = req.post(&format!("{}/api/redis/hash", &base)).body(serde_json::ser::to_string(&data).unwrap_or("[]".to_string()).as_bytes().to_owned()).send();
-
-    match rsp {
-        Err(e) => {
-            log_error(None, "redis_hash", &e.to_string());
-            return Err(e.to_string());
-        }
-        Ok(mut rsp) => {
-            let body = rsp.text().unwrap();
-            let json: Result<ApiRedisHash,_> = serde_json::from_str(&body);
-            match json {
-                Err(e) => {
-                    log_error(None, "redis_hash", &e.to_string());
-                    return Err(e.to_string());
-                }
-                Ok(json) => {
-                    if json.success {
-                        return Ok(json.result);
-                    } else {
-                        return Err(json.message);
-                    }
-                }
-            }
-        }
-    }
-}
-
-pub fn redis_hash_async(args: Vec<&str>) -> impl Future<Item = Result<HashSet<String>, String>, Error = ()> {
-    let mut settings = config::Config::default();
-    settings.merge(config::File::with_name("Settings")).unwrap();
-    settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
-    let base = settings.get_str("base_url").unwrap();
-    let secret = settings.get_str("secret_key").unwrap_or("".to_owned());
-
-    let data = ApiRedisReq { secret_key: secret, args: args.iter().map(|a| a.to_string()).collect() };
-    let client = Client::builder().build().unwrap();
-    let builder = client.post(&format!("{}/api/redis/hash", &base)).body(serde_json::ser::to_string(&data).unwrap_or("[]".to_string()).as_bytes().to_owned());
-
-    let future = builder.send()
-        .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
-        .map_err(move |e| log_error(None, "redis_hash_async", &e.to_string()))
-        .map(move |res| {
-            let body = std::str::from_utf8(&res).unwrap().to_string();
-            let json: Result<ApiRedisHash,_> = serde_json::from_str(&body);
-            match json {
-                Err(e) => {
-                    log_error(None, "redis_hash_async", &e.to_string());
-                    return Err(e.to_string());
-                }
-                Ok(json) => {
-                    if json.success {
-                        return Ok(json.result);
-                    } else {
-                        return Err(json.message);
-                    }
-                }
-            }
-        });
-
-    return future;
-}
-
-pub fn connect_and_send_privmsg(con: Arc<Connection>, channel: String, message: String) {
+pub fn connect_and_send_privmsg(channel: String, message: String, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
     thread::spawn(move || {
-        let bot: String = redis_string(vec!["get", &format!("channel:{}:bot", channel)]).expect("get:bot");
-        let passphrase: String = redis_string(vec!["get", &format!("bot:{}:token", bot)]).expect("get:token");
+        let bot: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:bot", channel)]).unwrap()).unwrap();
+        let passphrase: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("bot:{}:token", bot)]).unwrap()).unwrap();
         let config = Config {
             server: Some("irc.chat.twitch.tv".to_owned()),
             use_ssl: Some(true),
@@ -426,9 +188,9 @@ pub fn connect_and_send_privmsg(con: Arc<Connection>, channel: String, message: 
         };
 
         match IrcClient::from_config(config) {
-            Err(e) => { log_error(None, "connect_and_send_privmsg", &e.to_string()) }
+            Err(e) => { log_error(None, "connect_and_send_privmsg", &e.to_string(), db.clone()) }
             Ok(client) => {
-                let auth: String = redis_string(vec!["get", &format!("channel:{}:auth", channel)]).unwrap_or("false".to_owned());
+                let auth: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:auth", channel)]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
                 if auth == "true" {
                     let _ = client.identify();
                     let _ = client.send_privmsg(format!("#{}", channel), message);
@@ -439,11 +201,11 @@ pub fn connect_and_send_privmsg(con: Arc<Connection>, channel: String, message: 
     });
 }
 
-pub fn connect_and_send_message(con: Arc<Connection>, channel: String, message: String) {
+pub fn connect_and_send_message(con: Arc<Connection>, channel: String, message: String, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
     thread::spawn(move || {
         let con = Arc::new(acquire_con());
-        let bot: String = redis_string(vec!["get", &format!("channel:{}:bot", channel)]).expect("get:bot");
-        let passphrase: String = redis_string(vec!["get", &format!("bot:{}:token", bot)]).expect("get:token");
+        let bot: String = con.get(&format!("channel:{}:bot", channel)).unwrap();
+        let passphrase: String = con.get(&format!("bot:{}:token", bot)).unwrap();
         let config = Config {
             server: Some("irc.chat.twitch.tv".to_owned()),
             use_ssl: Some(true),
@@ -455,22 +217,22 @@ pub fn connect_and_send_message(con: Arc<Connection>, channel: String, message: 
         };
 
         match IrcClient::from_config(config) {
-            Err(e) => { log_error(None, "connect_and_send_message", &e.to_string()) }
+            Err(e) => { log_error(None, "connect_and_send_message", &e.to_string(), db.clone()) }
             Ok(client) => {
                 let client = Arc::new(client);
                 let _ = client.identify();
-                send_parsed_message(con, client.clone(), channel, message, Vec::new(), None);
+                send_parsed_message(con, client.clone(), channel, message, Vec::new(), None, db.clone());
                 let _ = client.send_quit("");
             }
         }
     });
 }
 
-pub fn connect_and_run_command(cmd: fn(Arc<Connection>, Arc<IrcClient>, String, Vec<String>, Option<Message>), con: Arc<Connection>, channel: String, args: Vec<String>) {
+pub fn connect_and_run_command(cmd: fn(Arc<Connection>, Arc<IrcClient>, String, Vec<String>, Option<Message>, (Sender<Vec<String>>, Receiver<Result<Value, String>>)), channel: String, args: Vec<String>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
     thread::spawn(move || {
         let con = Arc::new(acquire_con());
-        let bot: String = redis_string(vec!["get", &format!("channel:{}:bot", channel)]).expect("get:bot");
-        let passphrase: String = redis_string(vec!["get", &format!("bot:{}:token", bot)]).expect("get:token");
+        let bot: String = con.get(&format!("channel:{}:bot", channel)).unwrap();
+        let passphrase: String = con.get(&format!("bot:{}:token", bot)).unwrap();
         let config = Config {
             server: Some("irc.chat.twitch.tv".to_owned()),
             use_ssl: Some(true),
@@ -482,43 +244,43 @@ pub fn connect_and_run_command(cmd: fn(Arc<Connection>, Arc<IrcClient>, String, 
         };
 
         match IrcClient::from_config(config) {
-            Err(e) => { log_error(None, "connect_and_run_command", &e.to_string()) }
+            Err(e) => { log_error(None, "connect_and_run_command", &e.to_string(), db.clone()) }
             Ok(client) => {
                 let client = Arc::new(client);
                 let _ = client.identify();
-                (cmd)(con, client.clone(), channel, args, None);
+                (cmd)(con, client.clone(), channel, args, None, db);
                 let _ = client.send_quit("");
             }
         }
     });
 }
 
-pub fn send_message(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, mut message: String) {
+pub fn send_message(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, mut message: String, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
     thread::spawn(move || {
-        let auth: String = redis_string(vec!["get", &format!("channel:{}:auth", channel)]).unwrap_or("false".to_owned());
+        let auth: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:auth", channel)]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
         if auth == "true" {
-            let me: String = redis_string(vec!["hget", &format!("channel:{}:settings", channel), "channel:me"]).unwrap_or("false".to_owned());
+            let me: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:settings", channel), "channel:me"]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
             if me == "true" { message = format!("/me {}", message); }
             let _ = client.send_privmsg(format!("#{}", channel), message);
         }
     });
 }
 
-pub fn send_parsed_message(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, mut message: String, args: Vec<String>, irc_message: Option<Message>) {
+pub fn send_parsed_message(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, mut message: String, args: Vec<String>, irc_message: Option<Message>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
     thread::spawn(move || {
         let con = Arc::new(acquire_con());
-        let auth: String = redis_string(vec!["get", &format!("channel:{}:auth", channel)]).unwrap_or("false".to_owned());
+        let auth: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:auth", channel)]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
         if auth == "true" {
             if args.len() > 0 {
                 if let Some(char) = args[args.len()-1].chars().next() {
                     if char == '@' { message = format!("{} -> {}", args[args.len()-1], message) }
                 }
             }
-            let me: String = redis_string(vec!["hget", &format!("channel:{}:settings", channel), "channel:me"]).unwrap_or("false".to_owned());
+            let me: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:settings", channel), "channel:me"]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
             if me == "true" { message = format!("/me {}", message); }
 
             for var in command_vars.iter() {
-                message = parse_var(var, &message, con.clone(), Some(client.clone()), channel.clone(), irc_message.clone(), args.clone());
+                message = parse_var(var, &message, con.clone(), Some(client.clone()), channel.clone(), irc_message.clone(), args.clone(), db.clone());
             }
 
             let mut futures = Vec::new();
@@ -528,9 +290,10 @@ pub fn send_parsed_message(con: Arc<Connection>, client: Arc<IrcClient>, channel
                 for captures in rgx.captures_iter(&message) {
                     if let (Some(capture), Some(vargs)) = (captures.get(0), captures.get(1)) {
                         let vargs: Vec<String> = vargs.as_str().split_whitespace().map(|str| str.to_owned()).collect();
-                        if let Some((builder, func)) = (var.1)(con.clone(), Some(client.clone()), channel.clone(), irc_message.clone(), vargs.clone(), args.clone()) {
+                        if let Some((builder, func)) = (var.1)(con.clone(), Some(client.clone()), channel.clone(), irc_message.clone(), vargs.clone(), args.clone(), db.clone()) {
+                            let db = db.clone();
                             let chan = channel.clone();
-                            let future = builder.send().and_then(|mut res| { (Ok(chan), mem::replace(res.body_mut(), Decoder::empty()).concat2()) }).map_err(|e| println!("request error: {}", e)).map(func);
+                            let future = builder.send().and_then(|mut res| { (Ok(chan), Ok(db), mem::replace(res.body_mut(), Decoder::empty()).concat2()) }).map_err(|e| println!("request error: {}", e)).map(func);
                             futures.push(future);
                             regexes.push(capture.as_str().to_owned());
                         }
@@ -551,18 +314,19 @@ pub fn send_parsed_message(con: Arc<Connection>, client: Arc<IrcClient>, channel
     });
 }
 
-pub fn spawn_age_check(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, nick: String, age: i64, display: String) {
-    let res: Result<String,_> = redis_string_async(vec!["hget", "account:ages", &nick]).wait().unwrap();
-    if let Ok(timestamp) = res {
+pub fn spawn_age_check(con: Arc<Connection>, client: Arc<IrcClient>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>), channel: String, nick: String, age: i64, display: String) {
+    let res: Result<Value,_> = redis_call(db.clone(), vec!["hget", "account:ages", &nick]);
+    if let Ok(value) = res {
+        let timestamp: String = from_redis_value(&value).unwrap();
         let dt = DateTime::parse_from_rfc3339(&timestamp).unwrap();
         let diff = Utc::now().signed_duration_since(dt);
         if diff.num_minutes() < age {
             let length = age - diff.num_minutes();
             let _ = client.send_privmsg(format!("#{}", channel), format!("/timeout {} {}", nick, length * 60));
-            if display == "true" { send_message(con.clone(), client.clone(), channel.to_owned(), format!("@{} you've been timed out for not reaching the minimum account age", nick)); }
+            if display == "true" { send_message(con.clone(), client.clone(), channel.to_owned(), format!("@{} you've been timed out for not reaching the minimum account age", nick), db.clone()); }
         }
     } else {
-        let token: String = redis_string_async(vec!["get", &format!("channel:{}:token", &channel)]).wait().unwrap().unwrap();
+        let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).unwrap()).unwrap();
         let future = twitch_kraken_request(token, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/users?login={}", &nick)).send()
             .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
             .map_err(|e| println!("request error: {}", e))
@@ -572,18 +336,18 @@ pub fn spawn_age_check(con: Arc<Connection>, client: Arc<IrcClient>, channel: St
                 let json: Result<KrakenUsers,_> = serde_json::from_str(&body);
                 match json {
                     Err(e) => {
-                        log_error(Some(Right(vec![&channel])), "spawn_age_check", &e.to_string());
-                        log_error(Some(Right(vec![&channel])), "request_body", &body);
+                        log_error(Some(Right(vec![&channel])), "spawn_age_check", &e.to_string(), db.clone());
+                        log_error(Some(Right(vec![&channel])), "request_body", &body, db.clone());
                     }
                     Ok(json) => {
                         if json.total > 0 {
-                            redis_execute_async(vec!["hset", "account:ages", &nick, &json.users[0].created_at]).wait();
+                            redis_call(db.clone(), vec!["hset", "account:ages", &nick, &json.users[0].created_at]);
                             let dt = DateTime::parse_from_rfc3339(&json.users[0].created_at).unwrap();
                             let diff = Utc::now().signed_duration_since(dt);
                             if diff.num_minutes() < age {
                                 let length = age - diff.num_minutes();
                                 let _ = client.send_privmsg(format!("#{}", channel), format!("/timeout {} {}", nick, length * 60));
-                                if display == "true" { send_message(con.clone(), client.clone(), channel.to_owned(), format!("@{} you've been timed out for not reaching the minimum account age", nick)); }
+                                if display == "true" { send_message(con.clone(), client.clone(), channel.to_owned(), format!("@{} you've been timed out for not reaching the minimum account age", nick), db.clone()); }
                             }
                         }
                     }
@@ -745,13 +509,13 @@ pub fn pubg_request(token: String, url: &str) -> RequestBuilder {
     return builder;
 }
 
-pub fn parse_var(var: &(&str, fn(Arc<Connection>, Option<Arc<IrcClient>>, String, Option<Message>, Vec<String>, Vec<String>) -> String), message: &str, con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: String, irc_message: Option<Message>, cargs: Vec<String>) -> String {
+pub fn parse_var(var: &(&str, fn(Arc<Connection>, Option<Arc<IrcClient>>, String, Option<Message>, Vec<String>, Vec<String>, (Sender<Vec<String>>, Receiver<Result<Value, String>>)) -> String), message: &str, con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: String, irc_message: Option<Message>, cargs: Vec<String>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) -> String {
     let rgx = Regex::new(&format!("\\({} ?((?:[\\w\\-\\?\\._:/&!= ]+)*)\\)", var.0)).unwrap();
     let mut msg: String = message.to_owned();
     for captures in rgx.captures_iter(message) {
         if let Some(capture) = captures.get(1) {
             let vargs: Vec<String> = capture.as_str().split_whitespace().map(|str| str.to_owned()).collect();
-            let res = (var.1)(con.clone(), client.clone(), channel.clone(), irc_message.clone(), vargs, cargs.clone());
+            let res = (var.1)(con.clone(), client.clone(), channel.clone(), irc_message.clone(), vargs, cargs.clone(), db.clone());
             msg = rgx.replace(&msg, |_: &Captures| { &res }).to_string();
         }
     }

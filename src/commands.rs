@@ -14,6 +14,7 @@ use either::Either::{Left, Right};
 use tokio;
 use bcrypt::{DEFAULT_COST, hash};
 use regex::Regex;
+use crossbeam_channel::{Sender,Receiver};
 use reqwest::Method;
 use reqwest::r#async::{RequestBuilder,Chunk,Decoder};
 use irc::client::prelude::*;
@@ -21,17 +22,17 @@ use chrono::{Utc, DateTime, FixedOffset, Duration, TimeZone};
 use chrono_tz::{Tz};
 use humantime::format_duration;
 use itertools::Itertools;
-use redis::{self,Commands,Connection};
+use redis::{self,Value,Commands,Connection,from_redis_value};
 
-pub const native_commands: [(&str, fn(Arc<Connection>, Arc<IrcClient>, String, Vec<String>, Option<Message>), bool, bool); 15] = [("echo", echo_cmd, true, true), ("set", set_cmd, true, true), ("unset", unset_cmd, true, true), ("command", command_cmd, true, true), ("title", title_cmd, false, true), ("game", game_cmd, false, true), ("notices", notices_cmd, true, true), ("moderation", moderation_cmd, true, true), ("permit", permit_cmd, true, true), ("multi", multi_cmd, false, true), ("clip", clip_cmd, true, true), ("counters", counters_cmd, true, true), ("phrases", phrases_cmd, true, true), ("commercials", commercials_cmd, true, true), ("songreq", songreq_cmd, true, false)];
+pub const native_commands: [(&str, fn(Arc<Connection>, Arc<IrcClient>, String, Vec<String>, Option<Message>, (Sender<Vec<String>>, Receiver<Result<Value, String>>)), bool, bool); 15] = [("echo", echo_cmd, true, true), ("set", set_cmd, true, true), ("unset", unset_cmd, true, true), ("command", command_cmd, true, true), ("title", title_cmd, false, true), ("game", game_cmd, false, true), ("notices", notices_cmd, true, true), ("moderation", moderation_cmd, true, true), ("permit", permit_cmd, true, true), ("multi", multi_cmd, false, true), ("clip", clip_cmd, true, true), ("counters", counters_cmd, true, true), ("phrases", phrases_cmd, true, true), ("commercials", commercials_cmd, true, true), ("songreq", songreq_cmd, true, false)];
 
-pub const command_vars: [(&str, fn(Arc<Connection>, Option<Arc<IrcClient>>, String, Option<Message>, Vec<String>, Vec<String>) -> String); 22] = [("args", args_var), ("user", user_var), ("channel", channel_var), ("cmd", cmd_var), ("counterinc", counterinc_var), ("counter", counter_var), ("phrase", phrase_var), ("countdown", countdown_var), ("time", time_var), ("date", date_var), ("dateinc", dateinc_var), ("watchtime", watchtime_var), ("watchrank", watchrank_var), ("fortnite:wins", fortnite_wins_var), ("fortnite:kills", fortnite_kills_var), ("pubg:damage", pubg_damage_var), ("pubg:headshots", pubg_headshots_var), ("pubg:kills", pubg_kills_var), ("pubg:roadkills", pubg_roadkills_var), ("pubg:teamkills", pubg_teamkills_var), ("pubg:vehicles-destroyed", pubg_vehicles_destroyed_var), ("pubg:wins", pubg_wins_var)];
+pub const command_vars: [(&str, fn(Arc<Connection>, Option<Arc<IrcClient>>, String, Option<Message>, Vec<String>, Vec<String>, (Sender<Vec<String>>, Receiver<Result<Value, String>>)) -> String); 22] = [("args", args_var), ("user", user_var), ("channel", channel_var), ("cmd", cmd_var), ("counterinc", counterinc_var), ("counter", counter_var), ("phrase", phrase_var), ("countdown", countdown_var), ("time", time_var), ("date", date_var), ("dateinc", dateinc_var), ("watchtime", watchtime_var), ("watchrank", watchrank_var), ("fortnite:wins", fortnite_wins_var), ("fortnite:kills", fortnite_kills_var), ("pubg:damage", pubg_damage_var), ("pubg:headshots", pubg_headshots_var), ("pubg:kills", pubg_kills_var), ("pubg:roadkills", pubg_roadkills_var), ("pubg:teamkills", pubg_teamkills_var), ("pubg:vehicles-destroyed", pubg_vehicles_destroyed_var), ("pubg:wins", pubg_wins_var)];
 
-pub const command_vars_async: [(&str, fn(Arc<Connection>, Option<Arc<IrcClient>>, String, Option<Message>, Vec<String>, Vec<String>) -> Option<(RequestBuilder, fn((String, Chunk)) -> String)>); 10] = [("uptime", uptime_var), ("followage", followage_var), ("subcount", subcount_var), ("followcount", followcount_var), ("urlfetch", urlfetch_var), ("spotify:playing-title", spotify_playing_title_var), ("spotify:playing-album", spotify_playing_album_var), ("spotify:playing-artist", spotify_playing_artist_var), ("youtube:latest-url", youtube_latest_url_var), ("youtube:latest-title", youtube_latest_title_var)];
+pub const command_vars_async: [(&str, fn(Arc<Connection>, Option<Arc<IrcClient>>, String, Option<Message>, Vec<String>, Vec<String>, (Sender<Vec<String>>, Receiver<Result<Value, String>>)) -> Option<(RequestBuilder, fn((String, (Sender<Vec<String>>, Receiver<Result<Value, String>>), Chunk)) -> String)>); 10] = [("uptime", uptime_var), ("followage", followage_var), ("subcount", subcount_var), ("followcount", followcount_var), ("urlfetch", urlfetch_var), ("spotify:playing-title", spotify_playing_title_var), ("spotify:playing-album", spotify_playing_album_var), ("spotify:playing-artist", spotify_playing_artist_var), ("youtube:latest-url", youtube_latest_url_var), ("youtube:latest-title", youtube_latest_title_var)];
 
 pub const twitch_bots: [&str; 20] = ["electricallongboard","lanfusion","cogwhistle","freddyybot","anotherttvviewer","apricotdrupefruit","skinnyseahorse","p0lizei_","xbit01","n3td3v","cachebear","icon_bot","virgoproz","v_and_k","slocool","host_giveaway","nightbot","commanderroot","p0sitivitybot","streamlabs"];
 
-fn args_var(_con: Arc<Connection>, _client: Option<Arc<IrcClient>>, _channel: String, _message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> String {
+fn args_var(_con: Arc<Connection>, _client: Option<Arc<IrcClient>>, _channel: String, _message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) -> String {
     if vargs.len() > 0 {
         let num: Result<usize,_> = vargs[0].parse();
         match num {
@@ -49,7 +50,7 @@ fn args_var(_con: Arc<Connection>, _client: Option<Arc<IrcClient>>, _channel: St
     }
 }
 
-fn cmd_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: String, irc_message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>) -> String {
+fn cmd_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: String, irc_message: Option<Message>, vargs: Vec<String>, cargs: Vec<String>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) -> String {
     if let Some(client) = client {
         if vargs.len() > 0 {
             let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", channel, vargs[0]), "message");
@@ -58,17 +59,17 @@ fn cmd_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: String
                 for var in command_vars.iter() {
                     if var.0 != "cmd" && var.0 != "var" {
                         let args: Vec<String> = vargs[1..].iter().map(|a| a.to_string()).collect();
-                        message = parse_var(var, &message, con.clone(), Some(client.clone()), channel.clone(), irc_message.clone(), args);
+                        message = parse_var(var, &message, con.clone(), Some(client.clone()), channel.clone(), irc_message.clone(), args, db.clone());
                     }
                 }
-                send_parsed_message(con.clone(), client, channel.to_owned(), message, cargs, irc_message);
+                send_parsed_message(con.clone(), client, channel.to_owned(), message, cargs, irc_message, db.clone());
             } else {
                 for cmd in native_commands.iter() {
                     if format!("!{}", cmd.0) == vargs[0] {
                         let args: Vec<String> = vargs[1..].iter().map(|a| a.to_string()).collect();
                         match irc_message.clone() {
-                            None => { (cmd.1)(con.clone(), client.clone(), channel.to_owned(), args, None) }
-                            Some(msg) => { (cmd.1)(con.clone(), client.clone(), channel.to_owned(), args, Some(msg)) }
+                            None => { (cmd.1)(con.clone(), client.clone(), channel.to_owned(), args, None, db.clone()) }
+                            Some(msg) => { (cmd.1)(con.clone(), client.clone(), channel.to_owned(), args, Some(msg), db.clone()) }
                         }
                     }
                 }
@@ -78,19 +79,19 @@ fn cmd_var(con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: String
     "".to_owned()
 }
 
-fn uptime_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> Option<(RequestBuilder, fn((String, Chunk)) -> String)> {
-    let id: String = redis_string_async(vec!["get", &format!("channel:{}:id", channel)]).wait().unwrap().expect("get:id");
-    let token: String = redis_string_async(vec!["get", &format!("channel:{}:token", &channel)]).wait().unwrap().unwrap();
+fn uptime_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) -> Option<(RequestBuilder, fn((String, (Sender<Vec<String>>, Receiver<Result<Value, String>>), Chunk)) -> String)> {
+    let id: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:id", &channel)]).unwrap()).unwrap();
+    let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).unwrap()).unwrap();
     let builder = twitch_kraken_request(token, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/streams?channel={}", &id));
-    let func = move |(channel, body): (String, Chunk)| -> String {
+    let func = move |(channel, db, body): (String, (Sender<Vec<String>>, Receiver<Result<Value, String>>), Chunk)| -> String {
         let con = Arc::new(acquire_con());
         let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
         let body = std::str::from_utf8(&body).unwrap().to_string();
         let json: Result<KrakenStreams,_> = serde_json::from_str(&body);
         match json {
             Err(e) => {
-                log_error(None, "uptime_var", &e.to_string());
-                log_error(None, "request_body", &body.to_string());
+                log_error(None, "uptime_var", &e.to_string(), db.clone());
+                log_error(None, "request_body", &body.to_string(), db.clone());
                 "".to_owned()
             }
             Ok(json) => {
@@ -113,7 +114,7 @@ fn uptime_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: St
     return Some((builder, func));
 }
 
-fn user_var(_con: Arc<Connection>, _client: Option<Arc<IrcClient>>, _channel: String, message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> String {
+fn user_var(_con: Arc<Connection>, _client: Option<Arc<IrcClient>>, _channel: String, message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) -> String {
     if let Some(message) = message {
         let mut display = get_nick(&message);
         if let Some(tags) = &message.tags {
@@ -133,12 +134,12 @@ fn user_var(_con: Arc<Connection>, _client: Option<Arc<IrcClient>>, _channel: St
     }
 }
 
-fn channel_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> String {
+fn channel_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) -> String {
     let display: String = con.get(format!("channel:{}:display-name", channel)).expect("get:display-name");
     display
 }
 
-fn counterinc_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, vargs: Vec<String>, _cargs: Vec<String>) -> String {
+fn counterinc_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, vargs: Vec<String>, _cargs: Vec<String>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) -> String {
     if vargs.len() > 0 {
         let res: Result<String,_> = con.hget(format!("channel:{}:counters", channel), &vargs[0]);
         if let Ok(counter) = res {
@@ -156,19 +157,19 @@ fn counterinc_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel
     "".to_owned()
 }
 
-fn followage_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> Option<(RequestBuilder, fn((String, Chunk)) -> String)> {
+fn followage_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) -> Option<(RequestBuilder, fn((String, (Sender<Vec<String>>, Receiver<Result<Value, String>>), Chunk)) -> String)> {
     if let Some(message) = message {
         let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
         let user_id = get_id(&message).unwrap();
-        let token: String = redis_string_async(vec!["get", &format!("channel:{}:token", &channel)]).wait().unwrap().unwrap();
+        let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).unwrap()).unwrap();
         let builder = twitch_kraken_request(token, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/users/{}/follows/channels/{}", &user_id, &id));
-        let func = move |(channel, body): (String, Chunk)| -> String {
+        let func = move |(channel, db, body): (String, (Sender<Vec<String>>, Receiver<Result<Value, String>>), Chunk)| -> String {
             let con = Arc::new(acquire_con());
             let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
             let body = std::str::from_utf8(&body).unwrap().to_string();
             let json: Result<KrakenFollow,_> = serde_json::from_str(&body);
             match json {
-                Err(e) => { log_error(Some(Right(vec![&channel])), "followage_var", &e.to_string()); "0m".to_owned() }
+                Err(e) => { log_error(Some(Right(vec![&channel])), "followage_var", &e.to_string(), db.clone()); "0m".to_owned() }
                 Ok(json) => {
                     let timestamp = DateTime::parse_from_rfc3339(&json.created_at).unwrap();
                     let diff = Utc::now().signed_duration_since(timestamp);
@@ -186,41 +187,41 @@ fn followage_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel:
     } else { None }
 }
 
-fn subcount_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> Option<(RequestBuilder, fn((String, Chunk)) -> String)> {
+fn subcount_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) -> Option<(RequestBuilder, fn((String, (Sender<Vec<String>>, Receiver<Result<Value, String>>), Chunk)) -> String)> {
     let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
-    let token: String = redis_string_async(vec!["get", &format!("channel:{}:token", &channel)]).wait().unwrap().unwrap();
+    let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).unwrap()).unwrap();
     let builder = twitch_kraken_request(token, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/channels/{}/subscriptions", &id));
-    let func = move |(channel, body): (String, Chunk)| -> String {
+    let func = move |(channel, db, body): (String, (Sender<Vec<String>>, Receiver<Result<Value, String>>), Chunk)| -> String {
         let con = Arc::new(acquire_con());
         let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
         let body = std::str::from_utf8(&body).unwrap().to_string();
         let json: Result<KrakenSubs,_> = serde_json::from_str(&body);
         match json {
-            Err(e) => { log_error(Some(Right(vec![&channel])), "subcount_var", &e.to_string()); log_error(Some(Right(vec![&channel])), "subcount_var", &body); "0".to_owned() }
+            Err(e) => { log_error(Some(Right(vec![&channel])), "subcount_var", &e.to_string(), db.clone()); log_error(Some(Right(vec![&channel])), "subcount_var", &body, db.clone()); "0".to_owned() }
             Ok(json) => { json.total.to_string() }
         }
     };
     return Some((builder, func));
 }
 
-fn followcount_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> Option<(RequestBuilder, fn((String, Chunk)) -> String)> {
+fn followcount_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) -> Option<(RequestBuilder, fn((String, (Sender<Vec<String>>, Receiver<Result<Value, String>>), Chunk)) -> String)> {
     let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
-    let token: String = redis_string_async(vec!["get", &format!("channel:{}:token", &channel)]).wait().unwrap().unwrap();
+    let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).unwrap()).unwrap();
     let builder = twitch_kraken_request(token, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/channels/{}/follows", &id));
-    let func = move |(channel, body): (String, Chunk)| -> String {
+    let func = move |(channel, db, body): (String, (Sender<Vec<String>>, Receiver<Result<Value, String>>), Chunk)| -> String {
         let con = Arc::new(acquire_con());
         let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
         let body = std::str::from_utf8(&body).unwrap().to_string();
         let json: Result<KrakenFollows,_> = serde_json::from_str(&body);
         match json {
-            Err(e) => { log_error(Some(Right(vec![&channel])), "followcount_var", &e.to_string()); "0".to_owned() }
+            Err(e) => { log_error(Some(Right(vec![&channel])), "followcount_var", &e.to_string(), db.clone()); "0".to_owned() }
             Ok(json) => { json.total.to_string() }
         }
     };
     return Some((builder, func));
 }
 
-fn counter_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, vargs: Vec<String>, _cargs: Vec<String>) -> String {
+fn counter_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, vargs: Vec<String>, _cargs: Vec<String>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) -> String {
     if vargs.len() > 0 {
         let res: Result<String,_> = con.hget(format!("channel:{}:counters", channel), &vargs[0]);
         if let Ok(counter) = res {
@@ -237,7 +238,7 @@ fn counter_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: S
     }
 }
 
-fn phrase_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, vargs: Vec<String>, _cargs: Vec<String>) -> String {
+fn phrase_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, vargs: Vec<String>, _cargs: Vec<String>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) -> String {
     if vargs.len() > 0 {
         let res: Result<String,_> = con.hget(format!("channel:{}:phrases", channel), &vargs[0]);
         if let Ok(phrase) = res {
@@ -250,7 +251,7 @@ fn phrase_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: St
     }
 }
 
-fn time_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, vargs: Vec<String>, _cargs: Vec<String>) -> String {
+fn time_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, vargs: Vec<String>, _cargs: Vec<String>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) -> String {
     if vargs.len() > 0 {
         if let Ok(tz) = chrono_tz::Tz::from_str(&vargs[0]) {
             let date = Utc::now().with_timezone(&tz);
@@ -263,7 +264,7 @@ fn time_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: Stri
     }
 }
 
-fn date_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, vargs: Vec<String>, _cargs: Vec<String>) -> String {
+fn date_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, vargs: Vec<String>, _cargs: Vec<String>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) -> String {
     if vargs.len() > 0 {
         let res: Result<String,_> = con.hget(format!("channel:{}:phrases", channel), &vargs[0]);
         if let Ok(phrase) = res {
@@ -281,7 +282,7 @@ fn date_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: Stri
     }
 }
 
-fn dateinc_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, vargs: Vec<String>, _cargs: Vec<String>) -> String {
+fn dateinc_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, vargs: Vec<String>, _cargs: Vec<String>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) -> String {
     if vargs.len() > 1 {
         let res: Result<String,_> = con.hget(format!("channel:{}:phrases", channel), &vargs[0]);
         if let Ok(phrase) = res {
@@ -298,7 +299,7 @@ fn dateinc_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: S
     "".to_owned()
 }
 
-fn countdown_var(_con: Arc<Connection>, _client: Option<Arc<IrcClient>>, _channel: String, _message: Option<Message>, vargs: Vec<String>, _cargs: Vec<String>) -> String {
+fn countdown_var(_con: Arc<Connection>, _client: Option<Arc<IrcClient>>, _channel: String, _message: Option<Message>, vargs: Vec<String>, _cargs: Vec<String>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) -> String {
     if vargs.len() > 0 {
         let dt = DateTime::parse_from_str(&vargs[0], "%Y-%m-%dT%H:%M%z");
         if let Ok(timestamp) = dt {
@@ -322,7 +323,7 @@ fn countdown_var(_con: Arc<Connection>, _client: Option<Arc<IrcClient>>, _channe
     }
 }
 
-fn watchtime_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> String {
+fn watchtime_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) -> String {
     if let Some(message) = message {
         let res: Result<String,_> = con.hget(format!("channel:{}:watchtimes", channel), get_nick(&message));
         if let Ok(watchtime) = res {
@@ -347,7 +348,7 @@ fn watchtime_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel:
     }
 }
 
-fn watchrank_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, message: Option<Message>, vargs: Vec<String>, _cargs: Vec<String>) -> String {
+fn watchrank_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, message: Option<Message>, vargs: Vec<String>, _cargs: Vec<String>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) -> String {
     if let Some(message) = message {
         let hashtimes: HashMap<String,String> = con.hgetall(format!("channel:{}:watchtimes", channel)).unwrap_or(HashMap::new());
         let mut watchtimes: Vec<(String,u64)> = Vec::new();
@@ -391,10 +392,10 @@ fn watchrank_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel:
     }
 }
 
-fn urlfetch_var(_con: Arc<Connection>, _client: Option<Arc<IrcClient>>, _channel: String, _message: Option<Message>, vargs: Vec<String>, _cargs: Vec<String>) -> Option<(RequestBuilder, fn((String, Chunk)) -> String)> {
+fn urlfetch_var(_con: Arc<Connection>, _client: Option<Arc<IrcClient>>, _channel: String, _message: Option<Message>, vargs: Vec<String>, _cargs: Vec<String>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) -> Option<(RequestBuilder, fn((String, (Sender<Vec<String>>, Receiver<Result<Value, String>>), Chunk)) -> String)> {
     if vargs.len() > 0 {
         let builder = request(Method::GET, None, &vargs[0]);
-        let func = move |(channel, body): (String, Chunk)| -> String {
+        let func = move |(channel, db, body): (String, (Sender<Vec<String>>, Receiver<Result<Value, String>>), Chunk)| -> String {
             let body = std::str::from_utf8(&body).unwrap();
             return body.to_owned();
         };
@@ -402,16 +403,16 @@ fn urlfetch_var(_con: Arc<Connection>, _client: Option<Arc<IrcClient>>, _channel
     } else { None }
 }
 
-fn spotify_playing_title_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> Option<(RequestBuilder, fn((String, Chunk)) -> String)> {
-    let token: String = redis_string_async(vec!["get", &format!("channel:{}:spotify:token", &channel)]).wait().unwrap().unwrap();
+fn spotify_playing_title_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) -> Option<(RequestBuilder, fn((String, (Sender<Vec<String>>, Receiver<Result<Value, String>>), Chunk)) -> String)> {
+    let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:spotify:token", &channel)]).unwrap()).unwrap();
     let builder = spotify_request(token, Method::GET, "https://api.spotify.com/v1/me/player/currently-playing", None);
-    let func = move |(channel, body): (String, Chunk)| -> String {
+    let func = move |(channel, db, body): (String, (Sender<Vec<String>>, Receiver<Result<Value, String>>), Chunk)| -> String {
         let body = std::str::from_utf8(&body).unwrap();
         let json: Result<SpotifyPlaying,_> = serde_json::from_str(&body);
         match json {
             Err(e) => {
-                log_error(None, "spotify_playing_title_var", &e.to_string());
-                log_error(None, "request_body", &body);
+                log_error(None, "spotify_playing_title_var", &e.to_string(), db.clone());
+                log_error(None, "request_body", &body, db.clone());
                 "".to_owned()
             }
             Ok(json) => { json.item.name.to_owned() }
@@ -420,16 +421,16 @@ fn spotify_playing_title_var(con: Arc<Connection>, _client: Option<Arc<IrcClient
     return Some((builder, func));
 }
 
-fn spotify_playing_album_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> Option<(RequestBuilder, fn((String, Chunk)) -> String)> {
-    let token: String = redis_string_async(vec!["get", &format!("channel:{}:spotify:token", &channel)]).wait().unwrap().unwrap();
+fn spotify_playing_album_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) -> Option<(RequestBuilder, fn((String, (Sender<Vec<String>>, Receiver<Result<Value, String>>), Chunk)) -> String)> {
+    let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:spotify:token", &channel)]).unwrap()).unwrap();
     let builder = spotify_request(token, Method::GET, "https://api.spotify.com/v1/me/player/currently-playing", None);
-    let func = move |(channel, body): (String, Chunk)| -> String {
+    let func = move |(channel, db, body): (String, (Sender<Vec<String>>, Receiver<Result<Value, String>>), Chunk)| -> String {
         let body = std::str::from_utf8(&body).unwrap();
         let json: Result<SpotifyPlaying,_> = serde_json::from_str(&body);
         match json {
             Err(e) => {
-                log_error(None, "spotify_playing_album_var", &e.to_string());
-                log_error(None, "request_body", &body);
+                log_error(None, "spotify_playing_album_var", &e.to_string(), db.clone());
+                log_error(None, "request_body", &body, db.clone());
                 "".to_owned()
             }
             Ok(json) => { json.item.album.name.to_owned() }
@@ -438,16 +439,16 @@ fn spotify_playing_album_var(con: Arc<Connection>, _client: Option<Arc<IrcClient
     return Some((builder, func));
 }
 
-fn spotify_playing_artist_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> Option<(RequestBuilder, fn((String, Chunk)) -> String)> {
-    let token: String = redis_string_async(vec!["get", &format!("channel:{}:spotify:token", &channel)]).wait().unwrap().unwrap();
+fn spotify_playing_artist_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) -> Option<(RequestBuilder, fn((String, (Sender<Vec<String>>, Receiver<Result<Value, String>>), Chunk)) -> String)> {
+    let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:spotify:token", &channel)]).unwrap()).unwrap();
     let builder = spotify_request(token, Method::GET, "https://api.spotify.com/v1/me/player/currently-playing", None);
-    let func = move |(channel, body): (String, Chunk)| -> String {
+    let func = move |(channel, db, body): (String, (Sender<Vec<String>>, Receiver<Result<Value, String>>), Chunk)| -> String {
         let body = std::str::from_utf8(&body).unwrap();
         let json: Result<SpotifyPlaying,_> = serde_json::from_str(&body);
         match json {
             Err(e) => {
-                log_error(None, "spotify_playing_artist_var", &e.to_string());
-                log_error(None, "request_body", &body);
+                log_error(None, "spotify_playing_artist_var", &e.to_string(), db.clone());
+                log_error(None, "request_body", &body, db.clone());
                 "".to_owned()
             }
             Ok(json) => { json.item.artists[0].name.to_owned() }
@@ -456,10 +457,10 @@ fn spotify_playing_artist_var(con: Arc<Connection>, _client: Option<Arc<IrcClien
     return Some((builder, func));
 }
 
-fn youtube_latest_url_var(_con: Arc<Connection>, _client: Option<Arc<IrcClient>>, _channel: String, _message: Option<Message>, vargs: Vec<String>, _cargs: Vec<String>) -> Option<(RequestBuilder, fn((String, Chunk)) -> String)> {
+fn youtube_latest_url_var(_con: Arc<Connection>, _client: Option<Arc<IrcClient>>, _channel: String, _message: Option<Message>, vargs: Vec<String>, _cargs: Vec<String>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) -> Option<(RequestBuilder, fn((String, (Sender<Vec<String>>, Receiver<Result<Value, String>>), Chunk)) -> String)> {
     if vargs.len() > 0 {
         let builder = request(Method::GET, None, &format!("https://decapi.me/youtube/latest_video?id={}", vargs[0]));
-        let func = move |(channel, body): (String, Chunk)| -> String {
+        let func = move |(channel, db, body): (String, (Sender<Vec<String>>, Receiver<Result<Value, String>>), Chunk)| -> String {
             let body = std::str::from_utf8(&body).unwrap();
             let data: Vec<&str> = body.split(" - ").collect();
             if data.len() > 1 {
@@ -472,10 +473,10 @@ fn youtube_latest_url_var(_con: Arc<Connection>, _client: Option<Arc<IrcClient>>
     } else { None }
 }
 
-fn youtube_latest_title_var(_con: Arc<Connection>, _client: Option<Arc<IrcClient>>, _channel: String, _message: Option<Message>, vargs: Vec<String>, _cargs: Vec<String>) -> Option<(RequestBuilder, fn((String, Chunk)) -> String)> {
+fn youtube_latest_title_var(_con: Arc<Connection>, _client: Option<Arc<IrcClient>>, _channel: String, _message: Option<Message>, vargs: Vec<String>, _cargs: Vec<String>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) -> Option<(RequestBuilder, fn((String, (Sender<Vec<String>>, Receiver<Result<Value, String>>), Chunk)) -> String)> {
     if vargs.len() > 0 {
         let builder = request(Method::GET, None, &format!("https://decapi.me/youtube/latest_video?id={}", vargs[0]));
-        let func = move |(channel, body): (String, Chunk)| -> String {
+        let func = move |(channel, db, body): (String, (Sender<Vec<String>>, Receiver<Result<Value, String>>), Chunk)| -> String {
             let body = std::str::from_utf8(&body).unwrap();
             let data: Vec<&str> = body.split(" - ").collect();
             if data.len() > 1 {
@@ -488,77 +489,77 @@ fn youtube_latest_title_var(_con: Arc<Connection>, _client: Option<Arc<IrcClient
     } else { None }
 }
 
-fn fortnite_wins_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> String {
+fn fortnite_wins_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) -> String {
     let value: String = con.hget(format!("channel:{}:stats:fortnite", channel), "wins").unwrap_or("0".to_owned());
     value
 }
 
-fn fortnite_kills_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> String {
+fn fortnite_kills_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) -> String {
     let value: String = con.hget(format!("channel:{}:stats:fortnite", channel), "kills").unwrap_or("0".to_owned());
     value
 }
 
-fn pubg_damage_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> String {
+fn pubg_damage_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) -> String {
     let value: String = con.hget(format!("channel:{}:stats:pubg", channel), "damageDealt").unwrap_or("0".to_owned());
     value
 }
 
-fn pubg_headshots_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> String {
+fn pubg_headshots_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) -> String {
     let value: String = con.hget(format!("channel:{}:stats:pubg", channel), "headshotKills").unwrap_or("0".to_owned());
     value
 }
 
-fn pubg_kills_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> String {
+fn pubg_kills_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) -> String {
     let value: String = con.hget(format!("channel:{}:stats:pubg", channel), "kills").unwrap_or("0".to_owned());
     value
 }
 
-fn pubg_roadkills_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> String {
+fn pubg_roadkills_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) -> String {
     let value: String = con.hget(format!("channel:{}:stats:pubg", channel), "roadKills").unwrap_or("0".to_owned());
     value
 }
 
-fn pubg_teamkills_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> String {
+fn pubg_teamkills_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) -> String {
     let value: String = con.hget(format!("channel:{}:stats:pubg", channel), "teamKills").unwrap_or("0".to_owned());
     value
 }
 
-fn pubg_vehicles_destroyed_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> String {
+fn pubg_vehicles_destroyed_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) -> String {
     let value: String = con.hget(format!("channel:{}:stats:pubg", channel), "vehicleDestroys").unwrap_or("0".to_owned());
     value
 }
 
-fn pubg_wins_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>) -> String {
+fn pubg_wins_var(con: Arc<Connection>, _client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) -> String {
     let value: String = con.hget(format!("channel:{}:stats:pubg", channel), "wins").unwrap_or("0".to_owned());
     value
 }
 
-fn echo_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, _message: Option<Message>) {
-    send_message(con.clone(), client, channel, args.join(" "));
+fn echo_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, _message: Option<Message>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
+    send_message(con.clone(), client, channel, args.join(" "), db.clone());
 }
 
-fn set_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, _message: Option<Message>) {
+fn set_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, _message: Option<Message>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
     match args.len() {
         0 => {}
         1 => {
             let _: () = con.hset(format!("channel:{}:settings", channel), &args[0], true).unwrap();
-            send_message(con.clone(), client, channel, format!("{} has been set to: true", args[0]));
+            send_message(con.clone(), client, channel, format!("{} has been set to: true", args[0]), db.clone());
         }
         _ => {
             let _: () = con.hset(format!("channel:{}:settings", channel), &args[0], args[1..].join(" ")).unwrap();
-            send_message(con.clone(), client, channel, format!("{} has been set to: {}", &args[0], args[1..].join(" ")));
+            send_message(con.clone(), client, channel, format!("{} has been set to: {}", &args[0], args[1..].join(" ")), db.clone());
         }
     }
 }
 
-fn unset_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, _message: Option<Message>) {
+fn unset_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, _message: Option<Message>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
     if args.len() == 1 {
         let _: () = con.hdel(format!("channel:{}:settings", channel), &args[0]).unwrap();
-        send_message(con.clone(), client, channel, format!("{} has been unset", &args[0]));
+        send_message(con.clone(), client, channel, format!("{} has been unset", &args[0]), db.clone());
     }
 }
 
-fn command_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, _message: Option<Message>) {
+fn command_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, _message: Option<Message>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
     if args.len() > 1 {
         match args[0].to_lowercase().as_ref() {
             "add" => {
@@ -566,7 +567,7 @@ fn command_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, ar
                     let _: () = con.hset(format!("channel:{}:commands:{}", channel, &args[1]), "message", args[2..].join(" ")).unwrap();
                     let _: () = con.hset(format!("channel:{}:commands:{}", channel, &args[1]), "cmd_protected", false).unwrap();
                     let _: () = con.hset(format!("channel:{}:commands:{}", channel, &args[1]), "arg_protected", false).unwrap();
-                    send_message(con.clone(), client, channel, format!("{} has been added", &args[1]));
+                    send_message(con.clone(), client, channel, format!("{} has been added", &args[1]), db.clone());
                 }
             }
             "modadd" => {
@@ -574,33 +575,33 @@ fn command_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, ar
                     let _: () = con.hset(format!("channel:{}:commands:{}", channel, &args[1]), "message", args[2..].join(" ")).unwrap();
                     let _: () = con.hset(format!("channel:{}:commands:{}", channel, &args[1]), "cmd_protected", true).unwrap();
                     let _: () = con.hset(format!("channel:{}:commands:{}", channel, &args[1]), "arg_protected", true).unwrap();
-                    send_message(con.clone(), client, channel, format!("{} has been added", &args[1]));
+                    send_message(con.clone(), client, channel, format!("{} has been added", &args[1]), db.clone());
                 }
             }
             "remove" => {
                 let _: () = con.del(format!("channel:{}:commands:{}", channel, &args[1])).unwrap();
-                send_message(con.clone(), client, channel, format!("{} has been removed", &args[1]));
+                send_message(con.clone(), client, channel, format!("{} has been removed", &args[1]), db.clone());
             }
             "alias" => {
                 if args.len() > 2 {
                     // TODO: validate command exists
                     let _: () = con.hset(format!("channel:{}:aliases", channel), &args[1], args[2..].join(" ")).unwrap();
-                    send_message(con.clone(), client, channel, format!("{} has been added as an alias to {}", &args[1], args[2..].join(" ")));
+                    send_message(con.clone(), client, channel, format!("{} has been added as an alias to {}", &args[1], args[2..].join(" ")), db.clone());
                 }
             }
             "remalias" => {
                 let _: () = con.hdel(format!("channel:{}:aliases", channel), &args[1]).unwrap();
-                send_message(con.clone(), client, channel, format!("{} has been removed as an alias", &args[1]));
+                send_message(con.clone(), client, channel, format!("{} has been removed as an alias", &args[1]), db.clone());
             }
             _ => {}
         }
     }
 }
 
-fn title_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, _message: Option<Message>) {
+fn title_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, _message: Option<Message>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
     let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
     if args.len() == 0 {
-        let token: String = redis_string_async(vec!["get", &format!("channel:{}:token", &channel)]).wait().unwrap().unwrap();
+        let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).unwrap()).unwrap();
         let future = twitch_kraken_request(token, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/channels/{}", &id)).send()
             .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
             .map_err(|e| println!("request error: {}", e))
@@ -610,15 +611,15 @@ fn title_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args
                 let json: Result<KrakenChannel,_> = serde_json::from_str(&body);
                 match json {
                     Err(e) => {
-                        log_error(Some(Right(vec![&channel])), "title_cmd", &e.to_string());
-                        log_error(Some(Right(vec![&channel])), "request_body", &body);
+                        log_error(Some(Right(vec![&channel])), "title_cmd", &e.to_string(), db.clone());
+                        log_error(Some(Right(vec![&channel])), "request_body", &body, db.clone());
                     }
-                    Ok(json) => { let _ = send_message(con.clone(), client, channel, json.status); }
+                    Ok(json) => { let _ = send_message(con.clone(), client, channel, json.status, db.clone()); }
                 }
             });
         thread::spawn(move || { tokio::run(future) });
     } else {
-        let token: String = redis_string_async(vec!["get", &format!("channel:{}:token", &channel)]).wait().unwrap().unwrap();
+        let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).unwrap()).unwrap();
         let future = twitch_kraken_request(token, Some("application/x-www-form-urlencoded"), Some(format!("channel[status]={}", args.join(" ")).as_bytes().to_owned()), Method::PUT, &format!("https://api.twitch.tv/kraken/channels/{}", &id)).send()
             .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
             .map_err(|e| println!("request error: {}", e))
@@ -628,20 +629,20 @@ fn title_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args
                 let json: Result<KrakenChannel,_> = serde_json::from_str(&body);
                 match json {
                     Err(e) => {
-                        log_error(Some(Right(vec![&channel])), "title_cmd", &e.to_string());
-                        log_error(Some(Right(vec![&channel])), "request_body", &body);
+                        log_error(Some(Right(vec![&channel])), "title_cmd", &e.to_string(), db.clone());
+                        log_error(Some(Right(vec![&channel])), "request_body", &body, db.clone());
                     }
-                    Ok(json) => { send_message(con.clone(), client, channel, format!("Title is now set to: {}", json.status)); }
+                    Ok(json) => { send_message(con.clone(), client, channel, format!("Title is now set to: {}", json.status), db.clone()); }
                 }
             });
         thread::spawn(move || { tokio::run(future) });
     }
 }
 
-fn game_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, _message: Option<Message>) {
+fn game_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, _message: Option<Message>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
     let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
     if args.len() == 0 {
-        let token: String = redis_string_async(vec!["get", &format!("channel:{}:token", &channel)]).wait().unwrap().unwrap();
+        let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).unwrap()).unwrap();
         let future = twitch_kraken_request(token, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/channels/{}", &id)).send()
             .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
             .map_err(|e| println!("request error: {}", e))
@@ -651,15 +652,15 @@ fn game_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args:
                 let json: Result<KrakenChannel,_> = serde_json::from_str(&body);
                 match json {
                     Err(e) => {
-                        log_error(Some(Right(vec![&channel])), "game_cmd", &e.to_string());
-                        log_error(Some(Right(vec![&channel])), "request_body", &body);
+                        log_error(Some(Right(vec![&channel])), "game_cmd", &e.to_string(), db.clone());
+                        log_error(Some(Right(vec![&channel])), "request_body", &body, db.clone());
                     }
-                    Ok(json) => { let _ = send_message(con.clone(), client, channel, json.game); }
+                    Ok(json) => { let _ = send_message(con.clone(), client, channel, json.game, db.clone()); }
                 }
             });
         thread::spawn(move || { tokio::run(future) });
     } else {
-        let token: String = redis_string_async(vec!["get", &format!("channel:{}:token", &channel)]).wait().unwrap().unwrap();
+        let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).unwrap()).unwrap();
         let future = twitch_helix_request(token, None, None, Method::GET, &format!("https://api.twitch.tv/helix/games?name={}", args.join(" "))).send()
             .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
             .map_err(|e| println!("request error: {}", e))
@@ -669,15 +670,15 @@ fn game_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args:
                 let json: Result<HelixGames,_> = serde_json::from_str(&body);
                 match json {
                     Err(e) => {
-                        log_error(Some(Right(vec![&channel])), "game_cmd", &e.to_string());
-                        log_error(Some(Right(vec![&channel])), "request_body", &body);
+                        log_error(Some(Right(vec![&channel])), "game_cmd", &e.to_string(), db.clone());
+                        log_error(Some(Right(vec![&channel])), "request_body", &body, db.clone());
                     }
                     Ok(json) => {
                         if json.data.len() == 0 {
-                            send_message(con.clone(), client, channel, format!("Unable to find a game matching: {}", args.join(" ")));
+                            send_message(con.clone(), client, channel, format!("Unable to find a game matching: {}", args.join(" ")), db.clone());
                         } else {
                             let name = json.data[0].name.clone();
-                            let token: String = redis_string_async(vec!["get", &format!("channel:{}:token", &channel)]).wait().unwrap().unwrap();
+                            let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).unwrap()).unwrap();
                             let future = twitch_kraken_request(token, Some("application/x-www-form-urlencoded"), Some(format!("channel[game]={}", name).as_bytes().to_owned()), Method::PUT, &format!("https://api.twitch.tv/kraken/channels/{}", &id)).send()
                                 .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                                 .map_err(|e| println!("request error: {}", e))
@@ -687,10 +688,10 @@ fn game_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args:
                                     let json: Result<KrakenChannel,_> = serde_json::from_str(&body);
                                     match json {
                                         Err(e) => {
-                                            log_error(Some(Right(vec![&channel])), "game_cmd", &e.to_string());
-                                            log_error(Some(Right(vec![&channel])), "request_body", &body);
+                                            log_error(Some(Right(vec![&channel])), "game_cmd", &e.to_string(), db.clone());
+                                            log_error(Some(Right(vec![&channel])), "request_body", &body, db.clone());
                                         }
-                                        Ok(_json) => { send_message(con.clone(), client, channel, format!("Game is now set to: {}", &name)); }
+                                        Ok(_json) => { send_message(con.clone(), client, channel, format!("Game is now set to: {}", &name), db.clone()); }
                                     }
                                 });
                             thread::spawn(move || { tokio::run(future) });
@@ -702,7 +703,7 @@ fn game_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args:
     }
 }
 
-fn notices_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, _message: Option<Message>) {
+fn notices_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, _message: Option<Message>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
     if args.len() > 1 {
         match args[0].to_lowercase().as_ref() {
             "add" => {
@@ -712,9 +713,9 @@ fn notices_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, ar
                         if num % 60 == 0 {
                             let _: () = con.rpush(format!("channel:{}:notices:{}:commands", channel, args[1]), &args[2]).unwrap();
                             let _: () = con.set(format!("channel:{}:notices:{}:countdown", channel, args[1]), &args[1]).unwrap();
-                            send_message(con.clone(), client, channel, "notice has been added".to_owned());
+                            send_message(con.clone(), client, channel, "notice has been added".to_owned(), db.clone());
                         } else {
-                            send_message(con.clone(), client, channel, "notice interval must be a multiple of 60".to_owned());
+                            send_message(con.clone(), client, channel, "notice interval must be a multiple of 60".to_owned(), db.clone());
                         }
                     }
                     Err(_) => {}
@@ -725,7 +726,7 @@ fn notices_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, ar
     }
 }
 
-fn moderation_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, _message: Option<Message>) {
+fn moderation_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, _message: Option<Message>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
     if args.len() > 1 {
         match args[0].to_lowercase().as_ref() {
             "links" => {
@@ -733,22 +734,22 @@ fn moderation_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String,
                     "add" => {
                         if args.len() > 2 {
                             let _: () = con.sadd(format!("channel:{}:moderation:links", channel), &args[2]).unwrap();
-                            send_message(con.clone(), client, channel, format!("{} has been whitelisted", &args[2]));
+                            send_message(con.clone(), client, channel, format!("{} has been whitelisted", &args[2]), db.clone());
                         }
                     }
                     "remove" => {
                         if args.len() > 2 {
                             let _: () = con.srem(format!("channel:{}:moderation:links", channel), &args[2]).unwrap();
-                            send_message(con.clone(), client, channel, format!("{} has been removed from the whitelist", &args[2]));
+                            send_message(con.clone(), client, channel, format!("{} has been removed from the whitelist", &args[2]), db.clone());
                         }
                     }
                     "allowsubs" => {
                         let _: () = con.set(format!("channel:{}:moderation:links:subs", channel), true).unwrap();
-                        send_message(con.clone(), client, channel, "Subs are now allowed to post links".to_owned());
+                        send_message(con.clone(), client, channel, "Subs are now allowed to post links".to_owned(), db.clone());
                     }
                     "blocksubs" => {
                         let _: () = con.set(format!("channel:{}:moderation:links:subs", channel), false).unwrap();
-                        send_message(con.clone(), client, channel, "Subs are not allowed to post links".to_owned());
+                        send_message(con.clone(), client, channel, "Subs are not allowed to post links".to_owned(), db.clone());
                     }
                     _ => {}
                 }
@@ -757,11 +758,11 @@ fn moderation_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String,
                 match args[1].to_lowercase().as_ref() {
                     "on" => {
                         let _: () = con.set(format!("channel:{}:moderation:colors", channel), true).unwrap();
-                        send_message(con.clone(), client, channel, "Color filter has been turned on".to_owned());
+                        send_message(con.clone(), client, channel, "Color filter has been turned on".to_owned(), db.clone());
                     }
                     "off" => {
                         let _: () = con.set(format!("channel:{}:moderation:colors", channel), false).unwrap();
-                        send_message(con.clone(), client, channel, "Color filter has been turned off".to_owned());
+                        send_message(con.clone(), client, channel, "Color filter has been turned off".to_owned(), db.clone());
                     }
                     _ => {}
                 }
@@ -774,12 +775,12 @@ fn moderation_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String,
                             let _: () = con.set(format!("channel:{}:moderation:caps:limit", channel), &args[2]).unwrap();
                             let _: () = con.set(format!("channel:{}:moderation:caps:trigger", channel), &args[3]).unwrap();
                             if args.len() > 4 { let _: () = con.set(format!("channel:{}:moderation:caps:subs", channel), &args[4]).unwrap(); }
-                            send_message(con.clone(), client, channel, "Caps filter has been turned on".to_owned());
+                            send_message(con.clone(), client, channel, "Caps filter has been turned on".to_owned(), db.clone());
                         }
                     }
                     "off" => {
                         let _: () = con.del(format!("channel:{}:moderation:caps", channel)).unwrap();
-                        send_message(con.clone(), client, channel, "Caps filter has been turned off".to_owned());
+                        send_message(con.clone(), client, channel, "Caps filter has been turned off".to_owned(), db.clone());
                     }
                     _ => {}
                 }
@@ -789,12 +790,12 @@ fn moderation_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String,
                     "set" => {
                         if args.len() > 2 {
                             let _: () = con.set(format!("channel:{}:moderation:age", channel), &args[2]).unwrap();
-                            send_message(con.clone(), client, channel, format!("Minimum account age has been set to: {}", &args[2]).to_owned());
+                            send_message(con.clone(), client, channel, format!("Minimum account age has been set to: {}", &args[2]).to_owned(), db.clone());
                         }
                     }
                     "off" => {
                         let _: () = con.del(format!("channel:{}:moderation:age", channel)).unwrap();
-                        send_message(con.clone(), client, channel, "Minimum account age filter has been turned off".to_owned());
+                        send_message(con.clone(), client, channel, "Minimum account age filter has been turned off".to_owned(), db.clone());
                     }
                     _ => {}
                 }
@@ -803,11 +804,11 @@ fn moderation_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String,
                 match args[1].to_lowercase().as_ref() {
                     "on" => {
                         let _: () = con.set(format!("channel:{}:moderation:display", channel), true).unwrap();
-                        send_message(con.clone(), client, channel, "Displaying timeout reasons has been turned on".to_owned());
+                        send_message(con.clone(), client, channel, "Displaying timeout reasons has been turned on".to_owned(), db.clone());
                     }
                     "off" => {
                         let _: () = con.set(format!("channel:{}:moderation:display", channel), false).unwrap();
-                        send_message(con.clone(), client, channel, "Displaying timeout reasons has been turned off".to_owned());
+                        send_message(con.clone(), client, channel, "Displaying timeout reasons has been turned off".to_owned(), db.clone());
                     }
                     _ => {}
                 }
@@ -817,18 +818,18 @@ fn moderation_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String,
     }
 }
 
-fn permit_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, _message: Option<Message>) {
+fn permit_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, _message: Option<Message>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
     if args.len() > 0 {
         let nick = args[0].to_lowercase();
         let _: () = con.set(format!("channel:{}:moderation:permitted:{}", channel, nick), "").unwrap();
         let _: () = con.expire(format!("channel:{}:moderation:permitted:{}", channel, nick), 30).unwrap();
-        send_message(con.clone(), client, channel, format!("{} can post links for the next 30 seconds", nick));
+        send_message(con.clone(), client, channel, format!("{} can post links for the next 30 seconds", nick), db.clone());
     }
 }
 
-fn clip_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, _args: Vec<String>, _message: Option<Message>) {
+fn clip_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, _args: Vec<String>, _message: Option<Message>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
     let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
-    let token: String = redis_string_async(vec!["get", &format!("channel:{}:token", &channel)]).wait().unwrap().unwrap();
+    let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).unwrap()).unwrap();
     let future = twitch_helix_request(token, None, None, Method::POST, &format!("https://api.twitch.tv/helix/clips?broadcaster_id={}", &id)).send()
         .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
         .map_err(|e| println!("request error: {}", e))
@@ -838,12 +839,12 @@ fn clip_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, _args
             let json: Result<HelixClips,_> = serde_json::from_str(&body);
             match json {
                 Err(e) => {
-                    log_error(Some(Right(vec![&channel])), "clip_cmd", &e.to_string());
-                    log_error(Some(Right(vec![&channel])), "request_body", &body);
+                    log_error(Some(Right(vec![&channel])), "clip_cmd", &e.to_string(), db.clone());
+                    log_error(Some(Right(vec![&channel])), "request_body", &body, db.clone());
                 }
                 Ok(json) => {
                     if json.data.len() > 0 {
-                        send_message(con.clone(), client, channel, format!("https://clips.twitch.tv/{}", json.data[0].id));
+                        send_message(con.clone(), client, channel, format!("https://clips.twitch.tv/{}", json.data[0].id), db.clone());
                     }
                 }
             }
@@ -851,29 +852,29 @@ fn clip_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, _args
     thread::spawn(move || { tokio::run(future) });
 }
 
-fn multi_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, _message: Option<Message>) {
+fn multi_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, _message: Option<Message>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
     if args.len() == 0 {
         let streams: HashSet<String> = con.smembers(format!("channel:{}:multi", channel)).unwrap();
         if streams.len() > 0 { let _ = client.send_privmsg(format!("#{}", channel), format!("http://multistre.am/{}/{}", channel, streams.iter().join("/"))); }
     } else if args.len() == 1 && args[0] == "clear" {
         let _: () = con.del(format!("channel:{}:multi", channel)).unwrap();
-        send_message(con.clone(), client, channel, "!multi has been cleared".to_owned());
+        send_message(con.clone(), client, channel, "!multi has been cleared".to_owned(), db.clone());
     } else if args.len() > 1 && args[0] == "set" {
         let _: () = con.del(format!("channel:{}:multi", channel)).unwrap();
         for arg in args[1..].iter() {
             let _: () = con.sadd(format!("channel:{}:multi", channel), arg.to_owned()).unwrap();
         }
-        send_message(con.clone(), client, channel, "!multi has been set".to_owned());
+        send_message(con.clone(), client, channel, "!multi has been set".to_owned(), db.clone());
     }
 }
 
-fn counters_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, _message: Option<Message>) {
+fn counters_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, _message: Option<Message>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
     if args.len() > 1 {
         match args[0].to_lowercase().as_ref() {
             "set" => {
                 if args.len() > 2 {
                     let _: () = con.hset(format!("channel:{}:counters", channel), &args[1], &args[2]).unwrap();
-                    send_message(con.clone(), client, channel, format!("{} has been set to: {}", &args[1], &args[2]));
+                    send_message(con.clone(), client, channel, format!("{} has been set to: {}", &args[1], &args[2]), db.clone());
                 }
             }
             "inc" => {
@@ -888,37 +889,37 @@ fn counters_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, a
                 } else {
                     let _: () = con.hset(format!("channel:{}:counters", channel), &args[1], 1).unwrap();
                 }
-                send_message(con.clone(), client, channel, format!("{} has been increased", &args[1]));
+                send_message(con.clone(), client, channel, format!("{} has been increased", &args[1]), db.clone());
             }
             _ => {}
         }
     }
 }
 
-fn phrases_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, _message: Option<Message>) {
+fn phrases_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, _message: Option<Message>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
     if args.len() > 2 {
         match args[0].to_lowercase().as_ref() {
             "set" => {
                 let _: () = con.hset(format!("channel:{}:phrases", channel), &args[1], args[2..].join(" ")).unwrap();
-                send_message(con.clone(), client, channel, format!("{} has been set to: {}", &args[1], args[2..].join(" ")));
+                send_message(con.clone(), client, channel, format!("{} has been set to: {}", &args[1], args[2..].join(" ")), db.clone());
             }
             _ => {}
         }
     }
 }
 
-fn commercials_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, _message: Option<Message>) {
+fn commercials_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, _message: Option<Message>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
     if args.len() > 1 {
         match args[0].to_lowercase().as_ref() {
             "submode" => {
                 match args[1].to_lowercase().as_ref() {
                     "on" => {
                         let _: () = con.set(format!("channel:{}:commercials:submode", channel), true).unwrap();
-                        send_message(con.clone(), client, channel, "Submode during commercials has been turned on".to_owned());
+                        send_message(con.clone(), client, channel, "Submode during commercials has been turned on".to_owned(), db.clone());
                     }
                     "off" => {
                         let _: () = con.set(format!("channel:{}:commercials:submode", channel), false).unwrap();
-                        send_message(con.clone(), client, channel, "Submode during commercials has been turned off".to_owned());
+                        send_message(con.clone(), client, channel, "Submode during commercials has been turned off".to_owned(), db.clone());
                     }
                     _ => {}
                 }
@@ -927,9 +928,9 @@ fn commercials_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String
                 let exists: bool = con.exists(format!("channel:{}:commands:{}", channel, &args[1])).unwrap();
                 if exists {
                     let _: () = con.set(format!("channel:{}:commercials:notice", channel), &args[1]).unwrap();
-                    send_message(con.clone(), client, channel, format!("{} will be run at the start of commercials", &args[1]));
+                    send_message(con.clone(), client, channel, format!("{} will be run at the start of commercials", &args[1]), db.clone());
                 } else {
-                    send_message(con.clone(), client, channel, format!("{} is not an existing command", &args[1]));
+                    send_message(con.clone(), client, channel, format!("{} is not an existing command", &args[1]), db.clone());
                 }
             }
             "hourly" => {
@@ -937,10 +938,10 @@ fn commercials_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String
                 match num {
                     Ok(_num) => {
                         let _: () = con.set(format!("channel:{}:commercials:hourly", channel), &args[1]).unwrap();
-                        send_message(con.clone(), client, channel, format!("{} commercials will be run each hour", &args[1]));
+                        send_message(con.clone(), client, channel, format!("{} commercials will be run each hour", &args[1]), db.clone());
                     }
                     Err(_e) => {
-                        send_message(con.clone(), client, channel, format!("{} could not be parsed as a number", &args[1]));
+                        send_message(con.clone(), client, channel, format!("{} could not be parsed as a number", &args[1]), db.clone());
                     }
                 }
             }
@@ -960,7 +961,7 @@ fn commercials_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String
                                 }
                             }
                             if within8 {
-                                send_message(con.clone(), client, channel, "Commercials can't be run within eight minutes of each other".to_owned());
+                                send_message(con.clone(), client, channel, "Commercials can't be run within eight minutes of each other".to_owned(), db.clone());
                             } else {
                                 let id: String = con.get(format!("channel:{}:id", channel)).expect("get:id");
                                 let submode: String = con.get(format!("channel:{}:commercials:submode", channel)).unwrap_or("false".to_owned());
@@ -982,21 +983,21 @@ fn commercials_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String
                                 if let Ok(notice) = nres {
                                     let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", channel, notice), "message");
                                     if let Ok(message) = res {
-                                        send_message(con.clone(), client.clone(), channel.clone(), message);
+                                        send_message(con.clone(), client.clone(), channel.clone(), message, db.clone());
                                     }
                                 }
-                                log_info(Some(Right(vec![&channel])), "run_commercials", &format!("{} commercials have been run", args[1]));
-                                send_message(con.clone(), client.clone(), channel.clone(), format!("{} commercials have been run", args[1]));
-                                let token: String = redis_string_async(vec!["get", &format!("channel:{}:token", &channel)]).wait().unwrap().unwrap();
+                                log_info(Some(Right(vec![&channel])), "run_commercials", &format!("{} commercials have been run", args[1]), db.clone());
+                                send_message(con.clone(), client.clone(), channel.clone(), format!("{} commercials have been run", args[1]), db.clone());
+                                let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).unwrap()).unwrap();
                                 let future = twitch_kraken_request(token, Some("application/json"), Some(format!("{{\"length\": {}}}", num * 30).as_bytes().to_owned()), Method::POST, &format!("https://api.twitch.tv/kraken/channels/{}/commercial", &id)).send().and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() }).map_err(|e| println!("request error: {}", e)).map(move |_body| {});
                                 thread::spawn(move || { tokio::run(future) });
                             }
                         } else {
-                            send_message(con.clone(), client.clone(), channel.clone(), format!("{} must be a number between one and six", args[1]));
+                            send_message(con.clone(), client.clone(), channel.clone(), format!("{} must be a number between one and six", args[1]), db.clone());
                         }
                     }
                     Err(_e) => {
-                        send_message(con.clone(), client.clone(), channel.clone(), format!("{} could not be parsed as a number", args[1]));
+                        send_message(con.clone(), client.clone(), channel.clone(), format!("{} could not be parsed as a number", args[1]), db.clone());
                     }
                 }
             }
@@ -1005,7 +1006,7 @@ fn commercials_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String
     }
 }
 
-fn songreq_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, message: Option<Message>) {
+fn songreq_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, args: Vec<String>, message: Option<Message>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
     if let Some(message) = message {
         let nick = get_nick(&message);
         if args.len() > 0 {
@@ -1016,12 +1017,12 @@ fn songreq_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, ar
                     for key in keys.iter() {
                         let _: () = con.del(key).unwrap();
                     }
-                    send_message(con.clone(), client, channel, "song requests have been cleared".to_owned());
+                    send_message(con.clone(), client, channel, "song requests have been cleared".to_owned(), db.clone());
                 }
                 _ => {
                     let rgx = Regex::new(r"^[\-_a-zA-Z0-9]+$").unwrap();
                     if rgx.is_match(&args[0]) {
-                        let token: String = redis_string_async(vec!["get", &format!("channel:{}:token", &channel)]).wait().unwrap().unwrap();
+                        let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).unwrap()).unwrap();
                         let future = twitch_helix_request(token, None, None, Method::GET, &format!("https://www.youtube.com/oembed?format=json&url=https://youtube.com/watch?v={}", args[0])).send()
                             .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                             .map_err(|e| println!("request error: {}", e))
@@ -1039,7 +1040,7 @@ fn songreq_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, ar
                                         }
                                     }
                                     if exists {
-                                        send_message(con.clone(), client, channel, format!("{} already has an entry in the queue", nick));
+                                        send_message(con.clone(), client, channel, format!("{} already has an entry in the queue", nick), db.clone());
                                     } else {
                                         let json: YoutubeData = serde_json::from_str(&body).unwrap();
                                         let key = hash(&args[0], DEFAULT_COST).unwrap();
@@ -1047,15 +1048,15 @@ fn songreq_cmd(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, ar
                                         let _: () = con.hset(format!("channel:{}:songreqs:{}", channel, key), "src", format!("https://youtube.com/watch?v={}", args[0])).unwrap();
                                         let _: () = con.hset(format!("channel:{}:songreqs:{}", channel, key), "title", json.title).unwrap();
                                         let _: () = con.hset(format!("channel:{}:songreqs:{}", channel, key), "nick", nick).unwrap();
-                                        send_message(con.clone(), client, channel, format!("{} has been added to the queue", args[0]));
+                                        send_message(con.clone(), client, channel, format!("{} has been added to the queue", args[0]), db.clone());
                                     }
                                 } else {
-                                    send_message(con.clone(), client, channel, format!("{} is not a proper youtube id", args[0]));
+                                    send_message(con.clone(), client, channel, format!("{} is not a proper youtube id", args[0]), db.clone());
                                 }
                             });
                         thread::spawn(move || { tokio::run(future) });
                     } else {
-                        send_message(con.clone(), client, channel, format!("{} is not a proper youtube id", args[0]));
+                        send_message(con.clone(), client, channel, format!("{} is not a proper youtube id", args[0]), db.clone());
                     }
                 }
             }
