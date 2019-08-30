@@ -193,8 +193,11 @@ pub fn connect_and_send_privmsg(channel: String, message: String, db: (Sender<Ve
                 let auth: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:auth", channel)]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
                 if auth == "true" {
                     let _ = client.identify();
+                    let _ = client.send("CAP REQ :twitch.tv/tags");
+                    let _ = client.send("CAP REQ :twitch.tv/commands");
                     let _ = client.send_privmsg(format!("#{}", channel), message);
                 }
+                thread::sleep(time::Duration::from_secs(10));
                 let _ = client.send_quit("");
             }
         }
@@ -221,7 +224,10 @@ pub fn connect_and_send_message(con: Arc<Connection>, channel: String, message: 
             Ok(client) => {
                 let client = Arc::new(client);
                 let _ = client.identify();
+                let _ = client.send("CAP REQ :twitch.tv/tags");
+                let _ = client.send("CAP REQ :twitch.tv/commands");
                 send_parsed_message(con, client.clone(), channel, message, Vec::new(), None, db.clone());
+                thread::sleep(time::Duration::from_secs(10));
                 let _ = client.send_quit("");
             }
         }
@@ -248,7 +254,10 @@ pub fn connect_and_run_command(cmd: fn(Arc<Connection>, Arc<IrcClient>, String, 
             Ok(client) => {
                 let client = Arc::new(client);
                 let _ = client.identify();
+                let _ = client.send("CAP REQ :twitch.tv/tags");
+                let _ = client.send("CAP REQ :twitch.tv/commands");
                 (cmd)(con, client.clone(), channel, args, None, db);
+                thread::sleep(time::Duration::from_secs(10));
                 let _ = client.send_quit("");
             }
         }
