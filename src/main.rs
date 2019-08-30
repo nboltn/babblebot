@@ -157,7 +157,6 @@ fn run_reactor(bots: HashMap<String, (HashSet<String>, Config)>, db: (Sender<Vec
 fn register_handler(client: IrcClient, reactor: &mut IrcReactor, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
     let clientC = Arc::new(client.clone());
     let msg_handler = move |client: &IrcClient, irc_message: Message| -> irc::error::Result<()> {
-        let con = Arc::new(acquire_con());
         match &irc_message.command {
             Command::PING(_,_) => { let _ = client.send_pong(":tmi.twitch.tv"); }
             Command::Raw(cmd, chans, _) => {
@@ -581,9 +580,8 @@ fn command_listeners(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>))
     for channel in channels {
         let db = db.clone();
         thread::spawn(move || {
-            let con = Arc::new(acquire_con());
-            let mut conn = acquire_con();
-            let mut ps = conn.as_pubsub();
+            let mut con = acquire_con();
+            let mut ps = con.as_pubsub();
             ps.subscribe(format!("channel:{}:signals:command", channel)).unwrap();
 
             loop {
@@ -658,7 +656,6 @@ fn discord_handlers(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) 
 
 fn run_notices(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
     thread::spawn(move || {
-        let con = Arc::new(acquire_con());
         loop {
             let channels: HashSet<String> = from_redis_value(&redis_call(db.clone(), vec!["smembers", "channels"]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
             for channel in channels {
@@ -704,7 +701,6 @@ fn run_notices(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
 
 fn run_commercials(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
     thread::spawn(move || {
-        let con = Arc::new(acquire_con());
         loop {
             let channels: HashSet<String> = from_redis_value(&redis_call(db.clone(), vec!["smembers", "channels"]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
             for channel in channels {
@@ -788,7 +784,6 @@ fn run_commercials(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
 
 fn update_patreon(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
     thread::spawn(move || {
-        let con = Arc::new(acquire_con());
         loop {
             let channels: HashSet<String> = from_redis_value(&redis_call(db.clone(), vec!["smembers", "channels"]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
             for channel in channels {
@@ -801,7 +796,6 @@ fn update_patreon(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
                         .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                         .map_err(|e| println!("request error: {}", e))
                         .map(move |body| {
-                            let con = Arc::new(acquire_con());
                             let body = std::str::from_utf8(&body).unwrap();
                             let json: Result<PatreonIdentity,_> = serde_json::from_str(&body);
                             match json {
@@ -815,7 +809,6 @@ fn update_patreon(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
                                             .map_err(move |e| log_error(Some(Right(vec![&channelC])), "update_patreon", &e.to_string(), db.clone()))
                                             .map(move |body| {
                                                 let db = dbC.clone();
-                                                let con = Arc::new(acquire_con());
                                                 let body = std::str::from_utf8(&body).unwrap();
                                                 let json: Result<PatreonRsp,_> = serde_json::from_str(&body);
                                                 match json {
@@ -832,7 +825,6 @@ fn update_patreon(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
                                                             .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                                                             .map_err(|e| println!("request error: {}", e))
                                                             .map(move |body| {
-                                                                let con = Arc::new(acquire_con());
                                                                 let body = std::str::from_utf8(&body).unwrap();
                                                                 let json: Result<PatreonIdentity,_> = serde_json::from_str(&body);
                                                                 match json {
@@ -904,7 +896,6 @@ fn update_patreon(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
 }
 
 fn refresh_twitch_bots(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
-    let con = Arc::new(acquire_con());
     let bots: HashSet<String> = from_redis_value(&redis_call(db.clone(), vec!["smembers", "bots"]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
     let mut futures = Vec::new();
     for bot in bots.clone() {
@@ -925,7 +916,6 @@ fn refresh_twitch_bots(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>
                 .map_err(move |e| log_error(Some(Left(&botC)), "refresh_twitch", &e.to_string(), db.clone()))
                 .map(move |body| {
                     let db = dbC.clone();
-                    let con = Arc::new(acquire_con());
                     let body = std::str::from_utf8(&body).unwrap();
                     let json: Result<TwitchRefresh,_> = serde_json::from_str(&body);
                     match json {
@@ -948,7 +938,6 @@ fn refresh_twitch_bots(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>
 
     thread::spawn(move || {
         thread::sleep(time::Duration::from_secs(3600));
-        let con = Arc::new(acquire_con());
         let bots: HashSet<String> = from_redis_value(&redis_call(db.clone(), vec!["smembers", "bots"]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
         loop {
             for bot in bots.clone() {
@@ -969,7 +958,6 @@ fn refresh_twitch_bots(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>
                         .map_err(move |e| log_error(Some(Left(&botC)), "refresh_twitch", &e.to_string(), db.clone()))
                         .map(move |body| {
                             let db = dbC.clone();
-                            let con = Arc::new(acquire_con());
                             let body = std::str::from_utf8(&body).unwrap();
                             let json: Result<TwitchRefresh,_> = serde_json::from_str(&body);
                             match json {
@@ -992,7 +980,6 @@ fn refresh_twitch_bots(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>
 }
 
 fn refresh_twitch_channels(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
-    let con = Arc::new(acquire_con());
     let channels: HashSet<String> = from_redis_value(&redis_call(db.clone(), vec!["smembers", "channels"]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
     let mut futures = Vec::new();
     for channel in channels.clone() {
@@ -1013,7 +1000,6 @@ fn refresh_twitch_channels(db: (Sender<Vec<String>>, Receiver<Result<Value, Stri
                 .map_err(move |e| log_error(Some(Right(vec![&channelC])), "refresh_twitch", &e.to_string(), db.clone()))
                 .map(move |body| {
                     let db = dbC.clone();
-                    let con = Arc::new(acquire_con());
                     let body = std::str::from_utf8(&body).unwrap();
                     let json: Result<TwitchRefresh,_> = serde_json::from_str(&body);
                     match json {
@@ -1036,7 +1022,6 @@ fn refresh_twitch_channels(db: (Sender<Vec<String>>, Receiver<Result<Value, Stri
 
     thread::spawn(move || {
         thread::sleep(time::Duration::from_secs(3600));
-        let con = Arc::new(acquire_con());
         loop {
             let channels: HashSet<String> = from_redis_value(&redis_call(db.clone(), vec!["smembers", "channels"]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
             for channel in channels {
@@ -1057,7 +1042,6 @@ fn refresh_twitch_channels(db: (Sender<Vec<String>>, Receiver<Result<Value, Stri
                         .map_err(move |e| log_error(Some(Right(vec![&channelC])), "refresh_twitch", &e.to_string(), db.clone()))
                         .map(move |body| {
                             let db = dbC.clone();
-                            let con = Arc::new(acquire_con());
                             let body = std::str::from_utf8(&body).unwrap();
                             let json: Result<TwitchRefresh,_> = serde_json::from_str(&body);
                             match json {
@@ -1081,7 +1065,6 @@ fn refresh_twitch_channels(db: (Sender<Vec<String>>, Receiver<Result<Value, Stri
 
 fn refresh_spotify(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
     thread::spawn(move || {
-        let con = Arc::new(acquire_con());
         loop {
             let channels: HashSet<String> = from_redis_value(&redis_call(db.clone(), vec!["smembers", "channels"]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
             for channel in channels {
@@ -1096,7 +1079,6 @@ fn refresh_spotify(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
                         .map_err(move |e| log_error(Some(Right(vec![&channelC])), "update_spotify", &e.to_string(), db.clone()))
                         .map(move |body| {
                             let db = dbC.clone();
-                            let con = Arc::new(acquire_con());
                             let body = std::str::from_utf8(&body).unwrap();
                             let json: Result<SpotifyRefresh,_> = serde_json::from_str(&body);
                             match json {
@@ -1119,7 +1101,6 @@ fn refresh_spotify(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
 
 fn update_watchtime(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
     thread::spawn(move || {
-        let con = Arc::new(acquire_con());
         loop {
             let channels: HashSet<String> = from_redis_value(&redis_call(db.clone(), vec!["smembers", "channels"]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
             for channel in channels {
@@ -1131,7 +1112,6 @@ fn update_watchtime(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) 
                         .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                         .map_err(|e| println!("request error: {}", e))
                         .map(move |body| {
-                            let con = Arc::new(acquire_con());
                             let body = std::str::from_utf8(&body).unwrap();
                             let json: Result<TmiChatters,_> = serde_json::from_str(&body);
                             match json {
@@ -1170,7 +1150,6 @@ fn update_watchtime(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) 
 
 fn update_live(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
     thread::spawn(move || {
-        let con = Arc::new(acquire_con());
         loop {
             let db = db.clone();
             let channels: HashSet<String> = from_redis_value(&redis_call(db.clone(), vec!["smembers", "channels"]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
@@ -1186,7 +1165,6 @@ fn update_live(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
                     .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                     .map_err(|e| println!("request error: {}", e))
                     .map(move |body| {
-                        let con = Arc::new(acquire_con());
                         let body = std::str::from_utf8(&body).unwrap().to_string();
                         let json: Result<KrakenStreams,_> = serde_json::from_str(&body);
                         match json {
@@ -1252,7 +1230,6 @@ fn update_stats(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
     // pubg
     thread::spawn(move || {
         let db = dbP.clone();
-        let con = Arc::new(acquire_con());
         loop {
             let channels: HashSet<String> = from_redis_value(&redis_call(db.clone(), vec!["smembers", "channels"]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
             for channel in channels {
@@ -1288,7 +1265,6 @@ fn update_stats(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
                                 .map_err(|e| println!("request error: {}", e))
                                 .map(move |body| {
                                     let token = tokenC.clone();
-                                    let con = Arc::new(acquire_con());
                                     let body = std::str::from_utf8(&body).unwrap();
                                     let json: Result<PubgPlayer,_> = serde_json::from_str(&body);
                                     match json {
@@ -1311,7 +1287,6 @@ fn update_stats(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
                                                             .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                                                             .map_err(|e| println!("request error: {}", e))
                                                             .map(move |body| {
-                                                                let con = Arc::new(acquire_con());
                                                                 let body = std::str::from_utf8(&body).unwrap();
                                                                 let json: Result<PubgMatch,_> = serde_json::from_str(&body);
                                                                 match json {
@@ -1368,7 +1343,6 @@ fn update_stats(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
                                 .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                                 .map_err(|e| println!("request error: {}", e))
                                 .map(move |body| {
-                                    let con = Arc::new(acquire_con());
                                     let body = std::str::from_utf8(&body).unwrap();
                                     let json: Result<PubgPlayers,_> = serde_json::from_str(&body);
                                     match json {
@@ -1395,7 +1369,6 @@ fn update_stats(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
     // fortnite
     thread::spawn(move || {
         let db = dbF.clone();
-        let con = Arc::new(acquire_con());
         loop {
             let channels: HashSet<String> = from_redis_value(&redis_call(db.clone(), vec!["smembers", "channels"]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
             for channel in channels {
@@ -1426,7 +1399,6 @@ fn update_stats(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
                             .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                             .map_err(|e| println!("request error: {}", e))
                             .map(move |body| {
-                                let con = Arc::new(acquire_con());
                                 let body = std::str::from_utf8(&body).unwrap();
                                 let json: Result<FortniteApi,_> = serde_json::from_str(&body);
                                 match json {

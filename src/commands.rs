@@ -84,7 +84,6 @@ fn uptime_var(_client: Option<Arc<IrcClient>>, channel: String, _message: Option
     let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).unwrap()).unwrap();
     let builder = twitch_kraken_request(token, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/streams?channel={}", &id));
     let func = move |(channel, db, body): (String, (Sender<Vec<String>>, Receiver<Result<Value, String>>), Chunk)| -> String {
-        let con = Arc::new(acquire_con());
         let id: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:id", channel)]).unwrap()).unwrap();
         let body = std::str::from_utf8(&body).unwrap().to_string();
         let json: Result<KrakenStreams,_> = serde_json::from_str(&body);
@@ -165,7 +164,6 @@ fn followage_var(_client: Option<Arc<IrcClient>>, channel: String, message: Opti
         let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).unwrap()).unwrap();
         let builder = twitch_kraken_request(token, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/users/{}/follows/channels/{}", &user_id, &id));
         let func = move |(channel, db, body): (String, (Sender<Vec<String>>, Receiver<Result<Value, String>>), Chunk)| -> String {
-            let con = Arc::new(acquire_con());
             let id: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:id", channel)]).unwrap()).unwrap();
             let body = std::str::from_utf8(&body).unwrap().to_string();
             let json: Result<KrakenFollow,_> = serde_json::from_str(&body);
@@ -193,7 +191,6 @@ fn subcount_var(_client: Option<Arc<IrcClient>>, channel: String, _message: Opti
     let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).unwrap()).unwrap();
     let builder = twitch_kraken_request(token, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/channels/{}/subscriptions", &id));
     let func = move |(channel, db, body): (String, (Sender<Vec<String>>, Receiver<Result<Value, String>>), Chunk)| -> String {
-        let con = Arc::new(acquire_con());
         let id: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:id", channel)]).unwrap()).unwrap();
         let body = std::str::from_utf8(&body).unwrap().to_string();
         let json: Result<KrakenSubs,_> = serde_json::from_str(&body);
@@ -210,7 +207,6 @@ fn followcount_var(_client: Option<Arc<IrcClient>>, channel: String, _message: O
     let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).unwrap()).unwrap();
     let builder = twitch_kraken_request(token, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/channels/{}/follows", &id));
     let func = move |(channel, db, body): (String, (Sender<Vec<String>>, Receiver<Result<Value, String>>), Chunk)| -> String {
-        let con = Arc::new(acquire_con());
         let id: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:id", channel)]).unwrap()).unwrap();
         let body = std::str::from_utf8(&body).unwrap().to_string();
         let json: Result<KrakenFollows,_> = serde_json::from_str(&body);
@@ -612,7 +608,6 @@ fn title_cmd(client: Arc<IrcClient>, channel: String, args: Vec<String>, _messag
             .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
             .map_err(|e| println!("request error: {}", e))
             .map(move |body| {
-                let con = Arc::new(acquire_con());
                 let body = std::str::from_utf8(&body).unwrap().to_string();
                 let json: Result<KrakenChannel,_> = serde_json::from_str(&body);
                 match json {
@@ -630,7 +625,6 @@ fn title_cmd(client: Arc<IrcClient>, channel: String, args: Vec<String>, _messag
             .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
             .map_err(|e| println!("request error: {}", e))
             .map(move |body| {
-                let con = Arc::new(acquire_con());
                 let body = std::str::from_utf8(&body).unwrap().to_string();
                 let json: Result<KrakenChannel,_> = serde_json::from_str(&body);
                 match json {
@@ -653,7 +647,6 @@ fn game_cmd(client: Arc<IrcClient>, channel: String, args: Vec<String>, _message
             .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
             .map_err(|e| println!("request error: {}", e))
             .map(move |body| {
-                let con = Arc::new(acquire_con());
                 let body = std::str::from_utf8(&body).unwrap().to_string();
                 let json: Result<KrakenChannel,_> = serde_json::from_str(&body);
                 match json {
@@ -671,7 +664,6 @@ fn game_cmd(client: Arc<IrcClient>, channel: String, args: Vec<String>, _message
             .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
             .map_err(|e| println!("request error: {}", e))
             .map(move |body| {
-                let con = Arc::new(acquire_con());
                 let body = std::str::from_utf8(&body).unwrap().to_string();
                 let json: Result<HelixGames,_> = serde_json::from_str(&body);
                 match json {
@@ -689,7 +681,6 @@ fn game_cmd(client: Arc<IrcClient>, channel: String, args: Vec<String>, _message
                                 .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                                 .map_err(|e| println!("request error: {}", e))
                                 .map(move |body| {
-                                    let con = Arc::new(acquire_con());
                                     let body = std::str::from_utf8(&body).unwrap().to_string();
                                     let json: Result<KrakenChannel,_> = serde_json::from_str(&body);
                                     match json {
@@ -840,7 +831,6 @@ fn clip_cmd(client: Arc<IrcClient>, channel: String, _args: Vec<String>, _messag
         .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
         .map_err(|e| println!("request error: {}", e))
         .map(move |body| {
-            let con = Arc::new(acquire_con());
             let body = std::str::from_utf8(&body).unwrap().to_string();
             let json: Result<HelixClips,_> = serde_json::from_str(&body);
             match json {
@@ -1037,7 +1027,6 @@ fn songreq_cmd(client: Arc<IrcClient>, channel: String, args: Vec<String>, messa
                             .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                             .map_err(|e| println!("request error: {}", e))
                             .map(move |body| {
-                                let con = Arc::new(acquire_con());
                                 let body = std::str::from_utf8(&body).unwrap();
                                 if body != "Not Found" {
                                     let mut exists = false;
