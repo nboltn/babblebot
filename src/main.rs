@@ -752,8 +752,7 @@ fn run_commercials(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
                             let id: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:id", channel)]).unwrap()).unwrap();
                             let submode: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:commercials:submode", channel)]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
                             let nres: Result<Value,_> = redis_call(db.clone(), vec!["get", &format!("channel:{}:commercials:notice", channel)]);
-                            let length: String = from_redis_value(&redis_call(db.clone(), vec!["llen", &format!("channel:{}:commercials:recent", channel)]).unwrap()).unwrap();
-                            let length: u16 = length.parse().unwrap();
+                            let length: u16 = from_redis_value(&redis_call(db.clone(), vec!["llen", &format!("channel:{}:commercials:recent", channel)]).unwrap()).unwrap();
                             redis_call(db.clone(), vec!["lpush", &format!("channel:{}:commercials:recent", channel), &format!("{} {}", Utc::now().to_rfc3339(), num)]);
                             if length > 7 {
                                 redis_call(db.clone(), vec!["rpop", &format!("channel:{}:commercials:recent", channel)]);
