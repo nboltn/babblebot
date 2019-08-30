@@ -21,7 +21,6 @@ use clap::load_yaml;
 use clap::{App, ArgMatches};
 use flexi_logger::{Criterion,Naming,Cleanup,Duplicate,Logger};
 use crossbeam_channel::{bounded,unbounded,Sender,Receiver,RecvTimeoutError};
-use irc::error::IrcError;
 use irc::client::prelude::*;
 use url::Url;
 use regex::RegexBuilder;

@@ -10,7 +10,7 @@ use chrono::{Utc, DateTime};
 use http::header::{self,HeaderValue};
 use crossbeam_channel::{Sender,Receiver,RecvTimeoutError};
 use reqwest::Method;
-use reqwest::r#async::{Client,RequestBuilder,Decoder};
+use reqwest::r#async::{RequestBuilder,Decoder};
 use futures::future::{Future,join_all};
 use irc::client::prelude::*;
 use regex::{Regex,RegexBuilder,Captures,escape};
@@ -367,7 +367,7 @@ pub fn spawn_age_check(con: Arc<Connection>, client: Arc<IrcClient>, db: (Sender
 }
 
 pub fn request(method: Method, body: Option<Vec<u8>>, url: &str) -> RequestBuilder {
-    let client = Client::builder().build().unwrap();
+    let client = reqwest::r#async::Client::builder().build().unwrap();
     let mut builder = client.request(method, url);
     if let Some(body) = body { builder = builder.body(body); }
     return builder;
@@ -384,7 +384,7 @@ pub fn twitch_kraken_request(token: String, content: Option<&str>, body: Option<
     headers.insert("Client-ID", HeaderValue::from_str(&settings.get_str("client_id").unwrap()).unwrap());
     if let Some(content) = content { headers.insert("Content-Type", HeaderValue::from_str(content).unwrap()); }
 
-    let client = Client::builder().default_headers(headers).build().unwrap();
+    let client = reqwest::r#async::Client::builder().default_headers(headers).build().unwrap();
     let mut builder = client.request(method, url);
     if let Some(body) = body { builder = builder.body(body); }
     return builder;
@@ -401,7 +401,7 @@ pub fn twitch_helix_request(token: String, content: Option<&str>, body: Option<V
     headers.insert("Client-ID", HeaderValue::from_str(&settings.get_str("client_id").unwrap()).unwrap());
     if let Some(content) = content { headers.insert("Content-Type", HeaderValue::from_str(content).unwrap()); }
 
-    let client = Client::builder().default_headers(headers).build().unwrap();
+    let client = reqwest::r#async::Client::builder().default_headers(headers).build().unwrap();
     let mut builder = client.request(method, url);
     if let Some(body) = body { builder = builder.body(body); }
     return builder;
@@ -417,7 +417,7 @@ pub fn twitch_user_request(token: String, method: Method, url: &str) -> RequestB
     headers.insert("Authorization", HeaderValue::from_str(&format!("OAuth {}", token)).unwrap());
     headers.insert("Client-ID", HeaderValue::from_str(&settings.get_str("client_id").unwrap()).unwrap());
 
-    let client = Client::builder().default_headers(headers).build().unwrap();
+    let client = reqwest::r#async::Client::builder().default_headers(headers).build().unwrap();
     let builder = client.request(method, url);
     return builder;
 }
@@ -426,7 +426,7 @@ pub fn twitch_refresh(method: Method, url: &str, body: Option<Vec<u8>>) -> Reque
     let mut headers = header::HeaderMap::new();
     headers.insert("Content-Type", HeaderValue::from_str("application/x-www-form-urlencoded").unwrap());
 
-    let client = Client::builder().default_headers(headers).build().unwrap();
+    let client = reqwest::r#async::Client::builder().default_headers(headers).build().unwrap();
     let mut builder = client.request(method, url);
     if let Some(body) = body { builder = builder.body(body); }
     return builder;
@@ -436,7 +436,7 @@ pub fn patreon_request(token: String, method: Method, url: &str) -> RequestBuild
     let mut headers = header::HeaderMap::new();
     headers.insert("Authorization", HeaderValue::from_str(&format!("Bearer {}", token)).unwrap());
 
-    let client = Client::builder().default_headers(headers).build().unwrap();
+    let client = reqwest::r#async::Client::builder().default_headers(headers).build().unwrap();
     let builder = client.request(method, url);
     return builder;
 }
@@ -452,7 +452,7 @@ pub fn patreon_refresh(method: Method, url: &str, body: Option<Vec<u8>>) -> Requ
     headers.insert("Content-Type", HeaderValue::from_str("application/x-www-form-urlencoded").unwrap());
     headers.insert("Authorization", HeaderValue::from_str(&format!("Basic {}", base64::encode(&format!("{}:{}", id, secret)))).unwrap());
 
-    let client = Client::builder().default_headers(headers).build().unwrap();
+    let client = reqwest::r#async::Client::builder().default_headers(headers).build().unwrap();
     let mut builder = client.request(method, url);
     if let Some(body) = body { builder = builder.body(body); }
     return builder;
@@ -463,7 +463,7 @@ pub fn spotify_request(token: String, method: Method, url: &str, body: Option<Ve
     headers.insert("Accept", HeaderValue::from_str("application/vnd.api+json").unwrap());
     headers.insert("Authorization", HeaderValue::from_str(&format!("Bearer {}", token)).unwrap());
 
-    let client = Client::builder().default_headers(headers).build().unwrap();
+    let client = reqwest::r#async::Client::builder().default_headers(headers).build().unwrap();
     let mut builder = client.request(method, url);
     if let Some(body) = body { builder = builder.body(body); }
     return builder;
@@ -480,7 +480,7 @@ pub fn spotify_refresh(method: Method, url: &str, body: Option<Vec<u8>>) -> Requ
     headers.insert("Content-Type", HeaderValue::from_str("application/x-www-form-urlencoded").unwrap());
     headers.insert("Authorization", HeaderValue::from_str(&format!("Basic {}", base64::encode(&format!("{}:{}", id, secret)))).unwrap());
 
-    let client = Client::builder().default_headers(headers).build().unwrap();
+    let client = reqwest::r#async::Client::builder().default_headers(headers).build().unwrap();
     let mut builder = client.request(method, url);
     if let Some(body) = body { builder = builder.body(body); }
     return builder;
@@ -492,7 +492,7 @@ pub fn discord_request(token: String, body: Option<Vec<u8>>, method: Method, url
     headers.insert("User-Agent", HeaderValue::from_str("Babblebot (https://gitlab.com/toovs/babblebot, 0.1").unwrap());
     headers.insert("Content-Type", HeaderValue::from_str("application/json").unwrap());
 
-    let client = Client::builder().default_headers(headers).build().unwrap();
+    let client = reqwest::r#async::Client::builder().default_headers(headers).build().unwrap();
     let mut builder = client.request(method, url);
     if let Some(body) = body { builder = builder.body(body); }
     return builder;
@@ -503,7 +503,7 @@ pub fn fortnite_request(token: String, url: &str) -> RequestBuilder {
     headers.insert("Accept", HeaderValue::from_str("application/vnd.api+json").unwrap());
     headers.insert("TRN-Api-Key", HeaderValue::from_str(&token).unwrap());
 
-    let client = Client::builder().default_headers(headers).build().unwrap();
+    let client = reqwest::r#async::Client::builder().default_headers(headers).build().unwrap();
     let builder = client.get(url);
     return builder;
 }
@@ -513,7 +513,7 @@ pub fn pubg_request(token: String, url: &str) -> RequestBuilder {
     headers.insert("Accept", HeaderValue::from_str("application/vnd.api+json").unwrap());
     headers.insert("Authorization", HeaderValue::from_str(&format!("Bearer {}", token)).unwrap());
 
-    let client = Client::builder().default_headers(headers).build().unwrap();
+    let client = reqwest::r#async::Client::builder().default_headers(headers).build().unwrap();
     let builder = client.get(url);
     return builder;
 }
