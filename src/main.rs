@@ -69,6 +69,7 @@ fn main() {
         start_rocket();
         new_channel_listener(db.clone());
         command_listeners(db.clone());
+        discord_handlers(db.clone());
         run_notices(db.clone());
         run_commercials(db.clone());
         update_live(db.clone());
@@ -100,9 +101,6 @@ fn main() {
                         ..Default::default()
                     };
                     bots.insert(bot.to_owned(), (channelH.clone(), config));
-                    for channel in channelH.iter() {
-                        discord_handler(channel.to_owned(), db.clone());
-                    }
                 }
             }
             run_reactor(bots, db.clone());
@@ -476,9 +474,6 @@ fn new_channel_listener(db: (Sender<Vec<String>>, Receiver<Result<Value, String>
                     ..Default::default()
                 };
                 bots.insert(bot.to_owned(), (channel_hash.clone(), config));
-                for channel in channel_hash.iter() {
-                    discord_handler(channel.to_owned(), db.clone());
-                }
                 thread::spawn(move || { run_reactor(bots, db); });
             }
         }
@@ -641,22 +636,26 @@ fn command_listeners(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>))
     }
 }
 
-fn discord_handler(channel: String, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
-    thread::spawn(move || {
-        loop {
-            let res: Result<Value,_> = redis_call(db.clone(), vec!["hget", &format!("channel:{}:settings", channel), "discord:token"]);
-            if let Ok(value) = res {
-                let token: String = from_redis_value(&value).unwrap();
-                let mut client = serenity::client::Client::new(&token, DiscordHandler { channel: channel.to_owned(), db: db.clone() }).unwrap();
-                client.with_framework(StandardFramework::new());
-                log_info(Some(Right(vec![&channel])), "discord_handler", "connecting to discord", db.clone());
-                if let Err(e) = client.start() {
-                    log_error(Some(Right(vec![&channel])), "discord_handler", &e.to_string(), db.clone())
+fn discord_handlers(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
+    let channels: HashSet<String> = from_redis_value(&redis_call(db.clone(), vec!["smembers", "channels"]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
+    for channel in channels {
+        let db = db.clone();
+        thread::spawn(move || {
+            loop {
+                let res: Result<Value,_> = redis_call(db.clone(), vec!["hget", &format!("channel:{}:settings", channel), "discord:token"]);
+                if let Ok(value) = res {
+                    let token: String = from_redis_value(&value).unwrap();
+                    let mut client = serenity::client::Client::new(&token, DiscordHandler { channel: channel.to_owned(), db: db.clone() }).unwrap();
+                    client.with_framework(StandardFramework::new());
+                    log_info(Some(Right(vec![&channel])), "discord_handler", "connecting to discord", db.clone());
+                    if let Err(e) = client.start() {
+                        log_error(Some(Right(vec![&channel])), "discord_handler", &e.to_string(), db.clone())
+                    }
                 }
+                thread::sleep(time::Duration::from_secs(60));
             }
-            thread::sleep(time::Duration::from_secs(10));
-        }
-    });
+        });
+    }
 }
 
 fn run_notices(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
