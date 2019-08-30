@@ -204,11 +204,10 @@ pub fn connect_and_send_privmsg(channel: String, message: String, db: (Sender<Ve
     });
 }
 
-pub fn connect_and_send_message(con: Arc<Connection>, channel: String, message: String, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
+pub fn connect_and_send_message(channel: String, message: String, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
     thread::spawn(move || {
-        let con = Arc::new(acquire_con());
-        let bot: String = con.get(&format!("channel:{}:bot", channel)).unwrap();
-        let passphrase: String = con.get(&format!("bot:{}:token", bot)).unwrap();
+        let bot: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:bot", channel)]).unwrap()).unwrap();
+        let passphrase: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("bot:{}:token", bot)]).unwrap()).unwrap();
         let config = Config {
             server: Some("irc.chat.twitch.tv".to_owned()),
             use_ssl: Some(true),
@@ -226,7 +225,7 @@ pub fn connect_and_send_message(con: Arc<Connection>, channel: String, message: 
                 let _ = client.identify();
                 let _ = client.send("CAP REQ :twitch.tv/tags");
                 let _ = client.send("CAP REQ :twitch.tv/commands");
-                send_parsed_message(con, client.clone(), channel, message, Vec::new(), None, db.clone());
+                send_parsed_message(client.clone(), channel, message, Vec::new(), None, db.clone());
                 thread::sleep(time::Duration::from_secs(10));
                 let _ = client.send_quit("");
             }
@@ -234,11 +233,10 @@ pub fn connect_and_send_message(con: Arc<Connection>, channel: String, message: 
     });
 }
 
-pub fn connect_and_run_command(cmd: fn(Arc<Connection>, Arc<IrcClient>, String, Vec<String>, Option<Message>, (Sender<Vec<String>>, Receiver<Result<Value, String>>)), channel: String, args: Vec<String>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
+pub fn connect_and_run_command(cmd: fn(Arc<IrcClient>, String, Vec<String>, Option<Message>, (Sender<Vec<String>>, Receiver<Result<Value, String>>)), channel: String, args: Vec<String>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
     thread::spawn(move || {
-        let con = Arc::new(acquire_con());
-        let bot: String = con.get(&format!("channel:{}:bot", channel)).unwrap();
-        let passphrase: String = con.get(&format!("bot:{}:token", bot)).unwrap();
+        let bot: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:bot", channel)]).unwrap()).unwrap();
+        let passphrase: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("bot:{}:token", bot)]).unwrap()).unwrap();
         let config = Config {
             server: Some("irc.chat.twitch.tv".to_owned()),
             use_ssl: Some(true),
@@ -256,7 +254,7 @@ pub fn connect_and_run_command(cmd: fn(Arc<Connection>, Arc<IrcClient>, String, 
                 let _ = client.identify();
                 let _ = client.send("CAP REQ :twitch.tv/tags");
                 let _ = client.send("CAP REQ :twitch.tv/commands");
-                (cmd)(con, client.clone(), channel, args, None, db);
+                (cmd)(client.clone(), channel, args, None, db);
                 thread::sleep(time::Duration::from_secs(10));
                 let _ = client.send_quit("");
             }
@@ -264,7 +262,7 @@ pub fn connect_and_run_command(cmd: fn(Arc<Connection>, Arc<IrcClient>, String, 
     });
 }
 
-pub fn send_message(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, mut message: String, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
+pub fn send_message(client: Arc<IrcClient>, channel: String, mut message: String, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
     thread::spawn(move || {
         let auth: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:auth", channel)]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
         if auth == "true" {
@@ -275,9 +273,8 @@ pub fn send_message(con: Arc<Connection>, client: Arc<IrcClient>, channel: Strin
     });
 }
 
-pub fn send_parsed_message(con: Arc<Connection>, client: Arc<IrcClient>, channel: String, mut message: String, args: Vec<String>, irc_message: Option<Message>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
+pub fn send_parsed_message(client: Arc<IrcClient>, channel: String, mut message: String, args: Vec<String>, irc_message: Option<Message>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
     thread::spawn(move || {
-        let con = Arc::new(acquire_con());
         let auth: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:auth", channel)]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
         if auth == "true" {
             if args.len() > 0 {
@@ -289,7 +286,7 @@ pub fn send_parsed_message(con: Arc<Connection>, client: Arc<IrcClient>, channel
             if me == "true" { message = format!("/me {}", message); }
 
             for var in command_vars.iter() {
-                message = parse_var(var, &message, con.clone(), Some(client.clone()), channel.clone(), irc_message.clone(), args.clone(), db.clone());
+                message = parse_var(var, &message, Some(client.clone()), channel.clone(), irc_message.clone(), args.clone(), db.clone());
             }
 
             let mut futures = Vec::new();
@@ -299,7 +296,7 @@ pub fn send_parsed_message(con: Arc<Connection>, client: Arc<IrcClient>, channel
                 for captures in rgx.captures_iter(&message) {
                     if let (Some(capture), Some(vargs)) = (captures.get(0), captures.get(1)) {
                         let vargs: Vec<String> = vargs.as_str().split_whitespace().map(|str| str.to_owned()).collect();
-                        if let Some((builder, func)) = (var.1)(con.clone(), Some(client.clone()), channel.clone(), irc_message.clone(), vargs.clone(), args.clone(), db.clone()) {
+                        if let Some((builder, func)) = (var.1)(Some(client.clone()), channel.clone(), irc_message.clone(), vargs.clone(), args.clone(), db.clone()) {
                             let db = db.clone();
                             let chan = channel.clone();
                             let future = builder.send().and_then(|mut res| { (Ok(chan), Ok(db), mem::replace(res.body_mut(), Decoder::empty()).concat2()) }).map_err(|e| println!("request error: {}", e)).map(func);
@@ -323,7 +320,7 @@ pub fn send_parsed_message(con: Arc<Connection>, client: Arc<IrcClient>, channel
     });
 }
 
-pub fn spawn_age_check(con: Arc<Connection>, client: Arc<IrcClient>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>), channel: String, nick: String, age: i64, display: String) {
+pub fn spawn_age_check(client: Arc<IrcClient>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>), channel: String, nick: String, age: i64, display: String) {
     let res: Result<Value,_> = redis_call(db.clone(), vec!["hget", "account:ages", &nick]);
     if let Ok(value) = res {
         let timestamp: String = from_redis_value(&value).unwrap();
@@ -332,7 +329,7 @@ pub fn spawn_age_check(con: Arc<Connection>, client: Arc<IrcClient>, db: (Sender
         if diff.num_minutes() < age {
             let length = age - diff.num_minutes();
             let _ = client.send_privmsg(format!("#{}", channel), format!("/timeout {} {}", nick, length * 60));
-            if display == "true" { send_message(con.clone(), client.clone(), channel.to_owned(), format!("@{} you've been timed out for not reaching the minimum account age", nick), db.clone()); }
+            if display == "true" { send_message(client.clone(), channel.to_owned(), format!("@{} you've been timed out for not reaching the minimum account age", nick), db.clone()); }
         }
     } else {
         let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).unwrap()).unwrap();
@@ -340,7 +337,6 @@ pub fn spawn_age_check(con: Arc<Connection>, client: Arc<IrcClient>, db: (Sender
             .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
             .map_err(|e| println!("request error: {}", e))
             .map(move |body| {
-                let con = Arc::new(acquire_con());
                 let body = std::str::from_utf8(&body).unwrap().to_string();
                 let json: Result<KrakenUsers,_> = serde_json::from_str(&body);
                 match json {
@@ -356,7 +352,7 @@ pub fn spawn_age_check(con: Arc<Connection>, client: Arc<IrcClient>, db: (Sender
                             if diff.num_minutes() < age {
                                 let length = age - diff.num_minutes();
                                 let _ = client.send_privmsg(format!("#{}", channel), format!("/timeout {} {}", nick, length * 60));
-                                if display == "true" { send_message(con.clone(), client.clone(), channel.to_owned(), format!("@{} you've been timed out for not reaching the minimum account age", nick), db.clone()); }
+                                if display == "true" { send_message(client.clone(), channel.to_owned(), format!("@{} you've been timed out for not reaching the minimum account age", nick), db.clone()); }
                             }
                         }
                     }
@@ -518,13 +514,13 @@ pub fn pubg_request(token: String, url: &str) -> RequestBuilder {
     return builder;
 }
 
-pub fn parse_var(var: &(&str, fn(Arc<Connection>, Option<Arc<IrcClient>>, String, Option<Message>, Vec<String>, Vec<String>, (Sender<Vec<String>>, Receiver<Result<Value, String>>)) -> String), message: &str, con: Arc<Connection>, client: Option<Arc<IrcClient>>, channel: String, irc_message: Option<Message>, cargs: Vec<String>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) -> String {
+pub fn parse_var(var: &(&str, fn(Option<Arc<IrcClient>>, String, Option<Message>, Vec<String>, Vec<String>, (Sender<Vec<String>>, Receiver<Result<Value, String>>)) -> String), message: &str, client: Option<Arc<IrcClient>>, channel: String, irc_message: Option<Message>, cargs: Vec<String>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) -> String {
     let rgx = Regex::new(&format!("\\({} ?((?:[\\w\\-\\?\\._:/&!= ]+)*)\\)", var.0)).unwrap();
     let mut msg: String = message.to_owned();
     for captures in rgx.captures_iter(message) {
         if let Some(capture) = captures.get(1) {
             let vargs: Vec<String> = capture.as_str().split_whitespace().map(|str| str.to_owned()).collect();
-            let res = (var.1)(con.clone(), client.clone(), channel.clone(), irc_message.clone(), vargs, cargs.clone(), db.clone());
+            let res = (var.1)(client.clone(), channel.clone(), irc_message.clone(), vargs, cargs.clone(), db.clone());
             msg = rgx.replace(&msg, |_: &Captures| { &res }).to_string();
         }
     }

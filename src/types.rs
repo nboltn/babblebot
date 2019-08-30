@@ -9,7 +9,7 @@ use serde::{Serialize, Deserialize};
 use serde_json::Value;
 use regex::{Regex,Captures,escape};
 use crossbeam_channel::{Sender,Receiver};
-use redis::Commands;
+use redis::{Commands,from_redis_value};
 use rocket_contrib::database;
 use rocket_contrib::databases::redis;
 use reqwest::r#async::Decoder;
@@ -24,22 +24,22 @@ pub struct DiscordHandler {
 impl EventHandler for DiscordHandler {
     fn message(&self, ctx: Context, msg: Message) {
         let db = self.db.clone();
-        let con = Arc::new(acquire_con());
-        let id: String = con.hget(format!("channel:{}:settings", self.channel), "discord:mod-channel").unwrap_or("".to_owned());
+        let id: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:settings", self.channel), "discord:mod-channel"]).unwrap_or(redis::Value::Data("".as_bytes().to_owned()))).unwrap();
         if msg.channel_id.as_u64().to_string() == id {
             let rgx = Regex::new("<:(\\w+):\\d+>").unwrap();
             let content = rgx.replace_all(&msg.content, |caps: &Captures| { if let Some(emote) = caps.get(1) { emote.as_str().to_owned() } else { "".to_owned() } }).to_string();
-            let _: () = con.publish(format!("channel:{}:signals:command", self.channel), content).unwrap();
+            redis_call(db.clone(), vec!["publish", &format!("channel:{}:signals:command", &self.channel), &content]);
         } else {
             let mut words = msg.content.split_whitespace();
             if let Some(word) = words.next() {
                 let word = word.to_lowercase();
                 let args: Vec<String> = words.map(|w| w.to_owned()).collect();
                 // TODO: expand aliases
-                let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", self.channel, word), "message");
-                if let Ok(mut message) = res {
+                let res: Result<redis::Value,_> = redis_call(db.clone(), vec!["hget", &format!("channel:{}:commands:{}", self.channel, word), "message"]);
+                if let Ok(value) = res {
+                    let mut message: String = from_redis_value(&value).unwrap();
                     for var in command_vars.iter() {
-                        message = parse_var(var, &message, con.clone(), None, self.channel.clone(), None, args.clone(), db.clone());
+                        message = parse_var(var, &message, None, self.channel.clone(), None, args.clone(), db.clone());
                     }
 
                     let mut futures = Vec::new();
@@ -49,7 +49,7 @@ impl EventHandler for DiscordHandler {
                         for captures in rgx.captures_iter(&message) {
                             if let (Some(capture), Some(vargs)) = (captures.get(0), captures.get(1)) {
                                 let vargs: Vec<String> = vargs.as_str().split_whitespace().map(|str| str.to_owned()).collect();
-                                if let Some((builder, func)) = (var.1)(con.clone(), None, self.channel.clone(), None, vargs.clone(), args.clone(), db.clone()) {
+                                if let Some((builder, func)) = (var.1)(None, self.channel.clone(), None, vargs.clone(), args.clone(), db.clone()) {
                                     let db = db.clone();
                                     let channel = self.channel.clone();
                                     let future = builder.send().and_then(|mut res| { (Ok(channel), Ok(db), mem::replace(res.body_mut(), Decoder::empty()).concat2()) }).map(func);

@@ -236,12 +236,12 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, db: (Sender<Vec
                         let age: Result<Value,_> = redis_call(db.clone(), vec!["get", &format!("channel:{}:moderation:age", channel)]);
                         if colors == "true" && msg.len() > 6 && msg.as_bytes()[0] == 1 && &msg[1..7] == "ACTION" {
                             let _ = client.send_privmsg(chan, format!("/timeout {} 1", nick));
-                            if display == "true" { send_message(con.clone(), client.clone(), channel.to_owned(), format!("@{} you've been timed out for posting colors", nick), db.clone()); }
+                            if display == "true" { send_message(client.clone(), channel.to_owned(), format!("@{} you've been timed out for posting colors", nick), db.clone()); }
                         }
                         if let Ok(value) = age {
                             let age: String = from_redis_value(&value).unwrap();
                             let res: Result<i64,_> = age.parse();
-                            if let Ok(age) = res { spawn_age_check(con.clone(), client.clone(), db.clone(), channel.to_string(), nick.clone(), age, display.to_string()); }
+                            if let Ok(age) = res { spawn_age_check(client.clone(), db.clone(), channel.to_string(), nick.clone(), age, display.to_string()); }
                         }
                         if caps == "true" {
                             let limit: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:moderation:caps:limit", channel)]).unwrap()).unwrap();
@@ -257,7 +257,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, db: (Sender<Vec
                                     if ratio >= (limit / 100.0) {
                                         if !subscriber || subscriber && subs != "true" {
                                             let _ = client.send_privmsg(chan, format!("/timeout {} 1", nick));
-                                            if display == "true" { send_message(con.clone(), client.clone(), channel.to_owned(), format!("@{} you've been timed out for posting too many caps", nick), db.clone()); }
+                                            if display == "true" { send_message(client.clone(), channel.to_owned(), format!("@{} you've been timed out for posting too many caps", nick), db.clone()); }
                                         }
                                     }
                                 }
@@ -294,7 +294,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, db: (Sender<Vec
                                                 }
                                                 if !whitelisted {
                                                     let _ = client.send_privmsg(chan, format!("/timeout {} 1", nick));
-                                                    if display == "true" { send_message(con.clone(), client.clone(), channel.to_owned(), format!("@{} you've been timed out for posting links", nick), db.clone()); }
+                                                    if display == "true" { send_message(client.clone(), channel.to_owned(), format!("@{} you've been timed out for posting links", nick), db.clone()); }
                                                 }
                                             }
                                         }
@@ -311,7 +311,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, db: (Sender<Vec
                                 Ok(rgx) => {
                                     if rgx.is_match(&msg) {
                                         let _ = client.send_privmsg(chan, format!("/timeout {} {}", nick, length));
-                                        if display == "true" { send_message(con.clone(), client.clone(), channel.to_owned(), format!("@{} you've been timed out for posting a blacklisted phrase", nick), db.clone()); }
+                                        if display == "true" { send_message(client.clone(), channel.to_owned(), format!("@{} you've been timed out for posting a blacklisted phrase", nick), db.clone()); }
                                         break;
                                     }
                                 }
@@ -337,9 +337,9 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, db: (Sender<Vec
                     for cmd in commands::native_commands.iter() {
                         if format!("{}{}", prefix, cmd.0) == word {
                             if args.len() == 0 {
-                                if !cmd.2 || auth { (cmd.1)(con.clone(), client.clone(), channel.to_owned(), args.clone(), Some(irc_message.clone()), db.clone()) }
+                                if !cmd.2 || auth { (cmd.1)(client.clone(), channel.to_owned(), args.clone(), Some(irc_message.clone()), db.clone()) }
                             } else {
-                                if !cmd.3 || auth { (cmd.1)(con.clone(), client.clone(), channel.to_owned(), args.clone(), Some(irc_message.clone()), db.clone()) }
+                                if !cmd.3 || auth { (cmd.1)(client.clone(), channel.to_owned(), args.clone(), Some(irc_message.clone()), db.clone()) }
                             }
                             break;
                         }
@@ -363,7 +363,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, db: (Sender<Vec
                             let protected: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:commands:{}", channel, word), &format!("{}_protected", protected)]).unwrap()).unwrap();
                             if protected == "false" || auth {
                                 redis_call(db.clone(), vec!["hset", &format!("channel:{}:commands:{}", channel, word), "lastrun", &Utc::now().to_rfc3339()]);
-                                send_parsed_message(con.clone(), client.clone(), channel.to_owned(), message.to_owned(), args.clone(), Some(irc_message.clone()), db.clone());
+                                send_parsed_message(client.clone(), channel.to_owned(), message.to_owned(), args.clone(), Some(irc_message.clone()), db.clone());
                             }
                         }
                     }
@@ -383,7 +383,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, db: (Sender<Vec
                                 let diff = Utc::now().signed_duration_since(timestamp);
                                 if diff.num_hours() < hours { break }
                             }
-                            send_parsed_message(con.clone(), client.clone(), channel.to_owned(), msg, Vec::new(), None, db.clone());
+                            send_parsed_message(client.clone(), channel.to_owned(), msg, Vec::new(), None, db.clone());
                             break;
                         }
                     }
@@ -415,7 +415,6 @@ fn redis_listener(receiver: Receiver<Vec<String>>, sender: Sender<Result<Value, 
     thread::spawn(move || {
         let con = Arc::new(acquire_con());
         loop {
-            let con = con.clone();
             let rsp = receiver.recv();
             match rsp {
                 Err(err) => { break }
@@ -625,7 +624,7 @@ fn command_listeners(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>))
                             let res: Result<Value,_> = redis_call(db.clone(), vec!["hget", &format!("channel:{}:commands:{}", channel, word), "message"]);
                             if let Ok(value) = res {
                                 let message: String = from_redis_value(&value).unwrap();
-                                connect_and_send_message(con.clone(), channel.clone(), message, db.clone());
+                                connect_and_send_message(channel.clone(), message, db.clone());
                             }
                         }
                     }
@@ -693,7 +692,7 @@ fn run_notices(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
                         let res: Result<Value,_> = redis_call(db.clone(), vec!["hget", &format!("channel:{}:commands:{}", channel, cmd), "message"]);
                         if let Ok(value) = res {
                             let message: String = from_redis_value(&value).unwrap();
-                            connect_and_send_message(con.clone(), channel.clone(), message, db.clone());
+                            connect_and_send_message(channel.clone(), message, db.clone());
                         }
                     }
                 }
@@ -770,11 +769,11 @@ fn run_commercials(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
                                 let res: Result<Value,_> = redis_call(db.clone(), vec!["hget", &format!("channel:{}:commands:{}", channel, notice), "message"]);
                                 if let Ok(value) = res {
                                     let message: String = from_redis_value(&value).unwrap();
-                                    connect_and_send_message(con.clone(), channel.clone(), message, db.clone());
+                                    connect_and_send_message(channel.clone(), message, db.clone());
                                 }
                             }
                             log_info(Some(Right(vec![&channel])), "run_commercials", &format!("{} commercials have been run", num), db.clone());
-                            connect_and_send_message(con.clone(), channel.clone(), format!("{} commercials have been run", num), db.clone());
+                            connect_and_send_message(channel.clone(), format!("{} commercials have been run", num), db.clone());
                             let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).unwrap()).unwrap();
                             let future = twitch_kraken_request(token, Some("application/json"), Some(format!("{{\"length\": {}}}", num * 30).as_bytes().to_owned()), Method::POST, &format!("https://api.twitch.tv/kraken/channels/{}/commercial", &id)).send().and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() }).map_err(|e| println!("request error: {}", e)).map(move |_body| {});
                             thread::spawn(move || { tokio::run(future) });
@@ -1398,7 +1397,7 @@ fn update_stats(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
         let db = dbF.clone();
         let con = Arc::new(acquire_con());
         loop {
-            let channels: HashSet<String> = from_redis_value(&redis_call(db.clone(), vec!["smembers", &"channels"]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
+            let channels: HashSet<String> = from_redis_value(&redis_call(db.clone(), vec!["smembers", "channels"]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
             for channel in channels {
                 let db = db.clone();
                 let reset: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:stats:fortnite", &channel), "reset"]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
@@ -1525,7 +1524,7 @@ fn update_stats(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
                         if hour == Utc::now().time().hour() && min == Utc::now().time().minute() {
                             let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", channel, cmd), "message");
                             if let Ok(message) = res {
-                                send_parsed_message(con.clone(), snotice_client.clone(), snotice_channel.clone(), message.to_owned(), Vec::new(), None, db.clone());
+                                send_parsed_message(snotice_client.clone(), snotice_channel.clone(), message.to_owned(), Vec::new(), None, db.clone());
                             }
                         }
                     }
@@ -1593,7 +1592,7 @@ fn update_stats(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
                                                                     message = replace_var("name", &json.streams[0].channel.display_name, &message);
                                                                     message = replace_var("game", &json.streams[0].channel.game, &message);
                                                                     message = replace_var("viewers", &json.streams[0].viewers.to_string(), &message);
-                                                                    send_message(con.clone(), client.clone(), channel.clone(), message, db.clone());
+                                                                    send_message(client.clone(), channel.clone(), message, db.clone());
                                                                 }
                                                             } else {
                                                                 if !autom.is_empty() {
@@ -1615,7 +1614,7 @@ fn update_stats(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
                                                                                     message = replace_var("url", &json.url, &message);
                                                                                     message = replace_var("name", &json.display_name, &message);
                                                                                     message = replace_var("game", &json.game, &message);
-                                                                                    send_message(con.clone(), client.clone(), channel.clone(), message, db.clone());
+                                                                                    send_message(client.clone(), channel.clone(), message, db.clone());
                                                                                 }
                                                                             }
                                                                         });
