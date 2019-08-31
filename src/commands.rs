@@ -18,11 +18,10 @@ use crossbeam_channel::{Sender,Receiver};
 use reqwest::Method;
 use reqwest::r#async::{RequestBuilder,Chunk,Decoder};
 use irc::client::prelude::*;
-use chrono::{Utc, DateTime, FixedOffset, Duration, TimeZone};
-use chrono_tz::{Tz};
+use chrono::{Utc, DateTime, FixedOffset, Duration};
 use humantime::format_duration;
 use itertools::Itertools;
-use redis::{self,Value,Commands,Connection,from_redis_value};
+use redis::{self,Value,from_redis_value};
 
 pub const native_commands: [(&str, fn(Arc<IrcClient>, String, Vec<String>, Option<Message>, (Sender<Vec<String>>, Receiver<Result<Value, String>>)), bool, bool); 15] = [("echo", echo_cmd, true, true), ("set", set_cmd, true, true), ("unset", unset_cmd, true, true), ("command", command_cmd, true, true), ("title", title_cmd, false, true), ("game", game_cmd, false, true), ("notices", notices_cmd, true, true), ("moderation", moderation_cmd, true, true), ("permit", permit_cmd, true, true), ("multi", multi_cmd, false, true), ("clip", clip_cmd, true, true), ("counters", counters_cmd, true, true), ("phrases", phrases_cmd, true, true), ("commercials", commercials_cmd, true, true), ("songreq", songreq_cmd, true, false)];
 
@@ -84,7 +83,6 @@ fn uptime_var(_client: Option<Arc<IrcClient>>, channel: String, _message: Option
     let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).unwrap()).unwrap();
     let builder = twitch_kraken_request(token, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/streams?channel={}", &id));
     let func = move |(channel, db, body): (String, (Sender<Vec<String>>, Receiver<Result<Value, String>>), Chunk)| -> String {
-        let id: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:id", channel)]).unwrap()).unwrap();
         let body = std::str::from_utf8(&body).unwrap().to_string();
         let json: Result<KrakenStreams,_> = serde_json::from_str(&body);
         match json {

@@ -8,14 +8,13 @@ use base64;
 use config;
 use chrono::{Utc, DateTime};
 use http::header::{self,HeaderValue};
-use crossbeam_channel::{Sender,Receiver,RecvTimeoutError};
+use crossbeam_channel::{Sender,Receiver};
 use reqwest::Method;
 use reqwest::r#async::{RequestBuilder,Decoder};
 use futures::future::{Future,join_all};
 use irc::client::prelude::*;
 use regex::{Regex,RegexBuilder,Captures,escape};
-use redis::Value::Data;
-use redis::{self,Value,Commands,Connection,from_redis_value};
+use redis::{self,Value,Commands,from_redis_value};
 
 pub fn log_info(id: Option<Either<&str, Vec<&str>>>, descriptor: &str, content: &str, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
     let timestamp = Utc::now().format("%Y-%m-%dT%H:%M:%S%z");
@@ -156,7 +155,7 @@ pub fn acquire_con() -> redis::Connection {
 
 pub fn redis_call(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>), args: Vec<&str>) -> Result<Value, String> {
     (db.0).send(args.iter().map(|a| a.to_string()).collect());
-    let rsp = (db.1).recv_timeout(time::Duration::from_secs(10));
+    let rsp = (db.1).recv();
     match rsp {
         Ok(res) => {
             match res {
@@ -164,12 +163,7 @@ pub fn redis_call(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>), ar
                 _ => { return res }
             }
         }
-        Err(err) => {
-            match err {
-                RecvTimeoutError::Disconnected => { Err("disconnected".to_string()) }
-                RecvTimeoutError::Timeout => { Err("timeout".to_string()) }
-            }
-        }
+        Err(e) => { Err("recv error".to_string()) }
     }
 }
 

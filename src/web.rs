@@ -1,8 +1,7 @@
 extern crate jsonwebtoken as jwt;
 
 use crate::types::*;
-use crate::util::*;
-use std::collections::{HashMap,HashSet};
+use std::collections::HashMap;
 use std::time::{SystemTime};
 use either::Either::{Left, Right};
 use bcrypt::{DEFAULT_COST, hash, verify};
@@ -208,7 +207,9 @@ pub fn twitch_cb(con: RedisConnection, code: String, state: String) -> Template 
                                                     redis::cmd("set").arg(format!("channel:{}:refresh", &channel)).arg(&json.refresh_token).execute(&*con);
                                                 }
                                             } else {
-                                                redis::cmd("publish").arg(format!("channel:{}:signals:rename", &channel)).arg(format!("{} {}", &json.access_token, &json.refresh_token)).execute(&*con);
+                                                if json2.name != channel {
+                                                    redis::cmd("publish").arg(format!("channel:{}:signals:rename", &channel)).arg(format!("{} {}", &json.access_token, &json.refresh_token)).execute(&*con);
+                                                }
                                             }
                                             let context: HashMap<&str, String> = HashMap::new();
                                             return Template::render("dashboard", &context);

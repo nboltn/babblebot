@@ -27,17 +27,15 @@ use regex::RegexBuilder;
 use serde_json::value::Value::Number;
 use chrono::{Utc, DateTime, Timelike};
 use http::header::{self,HeaderValue};
-use futures::Async;
-use futures::future::{join_all,lazy};
+use futures::future::join_all;
 use reqwest::Method;
 use reqwest::r#async::Decoder;
 use serenity;
 use serenity::framework::standard::StandardFramework;
 use rocket::routes;
-use rocket::fairing::AdHoc;
 use rocket_contrib::templates::Template;
 use rocket_contrib::serve::StaticFiles;
-use redis::{self,Value,Commands,from_redis_value};
+use redis::{self,Value,from_redis_value};
 
 fn main() {
     let yaml = load_yaml!("../cli.yml");
