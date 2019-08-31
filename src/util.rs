@@ -1,6 +1,6 @@
 use crate::types::*;
 use crate::commands::*;
-use std::collections::{HashMap,HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::{thread,mem,time};
 use either::Either::{self, Left, Right};

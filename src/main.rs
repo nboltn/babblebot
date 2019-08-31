@@ -25,7 +25,7 @@ use irc::client::prelude::*;
 use url::Url;
 use regex::RegexBuilder;
 use serde_json::value::Value::Number;
-use chrono::{Utc, DateTime, Timelike};
+use chrono::{Utc, DateTime, NaiveTime, Timelike};
 use http::header::{self,HeaderValue};
 use futures::future::join_all;
 use reqwest::Method;
@@ -68,6 +68,7 @@ fn main() {
         command_listeners(db.clone());
         discord_handlers(db.clone());
         run_notices(db.clone());
+        run_scheduled_notices(db.clone());
         run_commercials(db.clone());
         update_live(db.clone());
         update_stats(db.clone());
@@ -657,7 +658,7 @@ fn run_notices(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
         loop {
             let channels: HashSet<String> = from_redis_value(&redis_call(db.clone(), vec!["smembers", "channels"]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
             for channel in channels {
-                let live: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:live", channel)]).unwrap()).unwrap();
+                let live: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:live", channel)]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
                 if live == "true" {
                     let keys: Vec<String> = from_redis_value(&redis_call(db.clone(), vec!["keys", &format!("channel:{}:notices:*:commands", channel.clone())]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
                     let ints: Vec<&str> = keys.iter().map(|str| {
@@ -697,12 +698,166 @@ fn run_notices(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
     });
 }
 
+fn run_scheduled_notices(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
+    thread::spawn(move || {
+        loop {
+            let channels: HashSet<String> = from_redis_value(&redis_call(db.clone(), vec!["smembers", "channels"]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
+            for channel in channels {
+                let live: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:live", channel)]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
+                if live == "true" {
+                    let keys: Vec<String> = from_redis_value(&redis_call(db.clone(), vec!["keys", &format!("channel:{}:snotices:*", channel)]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
+                    keys.iter().for_each(|key| {
+                        let time: String = from_redis_value(&redis_call(db.clone(), vec!["hget", key, "time"]).unwrap()).unwrap();
+                        let cmd: String = from_redis_value(&redis_call(db.clone(), vec!["hget", key, "cmd"]).unwrap()).unwrap();
+                        let res = NaiveTime::parse_from_str(&time, "%H:%M%z");
+                        if let Ok(time) = res {
+                            let hour = time.hour();
+                            let min = time.minute();
+                            if hour == Utc::now().time().hour() && min == Utc::now().time().minute() {
+                                let res: Result<Value,_> = redis_call(db.clone(), vec!["hget", &format!("channel:{}:commands:{}", channel, cmd), "message"]);
+                                if let Ok(value) = res {
+                                    let message: String = from_redis_value(&value).unwrap();
+                                    connect_and_send_message(channel.clone(), message, db.clone());
+                                }
+                            }
+                        }
+                    });
+                }
+            }
+        }
+    });
+}
+
+// TODO: reimplement shoutouts
+/*
+fn run_shoutouts(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
+    thread::spawn(move || {
+        loop {
+            let channels: HashSet<String> = from_redis_value(&redis_call(db.clone(), vec!["smembers", "channels"]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
+            for channel in channels {
+                let channelC = channel.clone();
+                let live: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:live", channel)]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
+                let hostm: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:live", channel)]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
+                let autom: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:live", channel)]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
+                let hostm: String = con.hget(format!("channel:{}:settings", &so_channel), "channel:host-message").unwrap_or("".to_owned());
+                let autom: String = con.hget(format!("channel:{}:settings", &so_channel), "channel:autohost-message").unwrap_or("".to_owned());
+                if live == "true" && (!hostm.is_empty() || !autom.is_empty()) {
+                    let id: String = con.get(format!("channel:{}:id", &so_channel)).unwrap();
+                    let recent: Vec<String> = con.smembers(format!("channel:{}:hosts:recent", &so_channel)).unwrap_or(Vec::new());
+                    let token: String = redis_string_async(vec!["get", &format!("channel:{}:token", &so_channel)]).wait().unwrap().unwrap();
+                    let future = twitch_kraken_request(token, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/channels/{}/hosts", &id)).send()
+                        .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
+                        .map_err(|e| println!("request error: {}", e))
+                        .map(move |body| {
+                            let con = Arc::new(acquire_con());
+                            let body = std::str::from_utf8(&body).unwrap();
+                            let json: Result<KrakenHosts,_> = serde_json::from_str(&body);
+                            match json {
+                                Err(e) => {
+                                    log_error(Some(Right(vec![&channelC])), "auto_shoutouts", &e.to_string(), db.clone());
+                                    log_error(Some(Right(vec![&channelC])), "request_body", &body, db.clone());
+                                }
+                                Ok(json) => {
+                                    let list: String = con.hget(format!("channel:{}:settings", &channelC), "autohost:blacklist").unwrap_or("".to_owned()); // UNDOCUMENTED
+                                    let mut blacklist: Vec<String> = Vec::new();
+                                    for nick in list.split_whitespace() { blacklist.push(nick.to_string()) }
+                                    for host in json.hosts {
+                                        let client = clientC.clone();
+                                        let channel = channelC.clone();
+                                        let blacklist = blacklist.clone();
+                                        let hostm = hostm.clone();
+                                        let autom = autom.clone();
+                                        if !recent.contains(&host.host_id) {
+                                            let _: () = con.sadd(format!("channel:{}:hosts:recent", &channel), &host.host_id).unwrap();
+                                            let token: String = redis_string_async(vec!["get", &format!("channel:{}:token", &channel)]).wait().unwrap().unwrap();
+                                            let future = twitch_kraken_request(token, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/streams?channel={}", &host.host_id)).send()
+                                                .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
+                                                .map_err(|e| println!("request error: {}", e))
+                                                .map(move |body| {
+                                                    let con = Arc::new(acquire_con());
+                                                    let body = std::str::from_utf8(&body).unwrap();
+                                                    let json: Result<KrakenStreams,_> = serde_json::from_str(&body);
+                                                    match json {
+                                                        Err(e) => {
+                                                            log_error(Some(Right(vec![&channel])), "auto_shoutouts", &e.to_string(), db.clone());
+                                                            log_error(Some(Right(vec![&channel])), "request_body", &body, db.clone());
+                                                        }
+                                                        Ok(json) => {
+                                                            if !blacklist.contains(&host.host_id) {
+                                                                if json.total > 0 {
+                                                                    if !hostm.is_empty() {
+                                                                        let mut message: String = hostm.to_owned();
+                                                                        message = replace_var("url", &json.streams[0].channel.url, &message);
+                                                                        message = replace_var("name", &json.streams[0].channel.display_name, &message);
+                                                                        message = replace_var("game", &json.streams[0].channel.game, &message);
+                                                                        message = replace_var("viewers", &json.streams[0].viewers.to_string(), &message);
+                                                                        send_message(client.clone(), channel.clone(), message, db.clone());
+                                                                    }
+                                                                } else {
+                                                                    if !autom.is_empty() {
+                                                                        let token: String = redis_string_async(vec!["get", &format!("channel:{}:token", &channel)]).wait().unwrap().unwrap();
+                                                                        let future = twitch_kraken_request(token, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/channels/{}", &host.host_id)).send()
+                                                                            .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
+                                                                            .map_err(|e| println!("request error: {}", e))
+                                                                            .map(move |body| {
+                                                                                let con = Arc::new(acquire_con());
+                                                                                let body = std::str::from_utf8(&body).unwrap();
+                                                                                let json: Result<KrakenChannel,_> = serde_json::from_str(&body);
+                                                                                match json {
+                                                                                    Err(e) => {
+                                                                                        log_error(Some(Right(vec![&channel])), "auto_shoutouts", &e.to_string(), db.clone());
+                                                                                        log_error(Some(Right(vec![&channel])), "request_body", &body, db.clone());
+                                                                                    }
+                                                                                    Ok(json) => {
+                                                                                        let mut message: String = autom.to_owned();
+                                                                                        message = replace_var("url", &json.url, &message);
+                                                                                        message = replace_var("name", &json.display_name, &message);
+                                                                                        message = replace_var("game", &json.game, &message);
+                                                                                        send_message(client.clone(), channel.clone(), message, db.clone());
+                                                                                    }
+                                                                                }
+                                                                            });
+                                                                        thread::spawn(move || { tokio::run(future) });
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                });
+                                            thread::spawn(move || { tokio::run(future) });
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                    thread::spawn(move || { tokio::run(future) });
+                }
+                let rsp = so_receiver.recv_timeout(time::Duration::from_secs(60));
+                match rsp {
+                    Ok(action) => {
+                        match action {
+                            ThreadAction::Kill => break,
+                            ThreadAction::Part(_) => {}
+                        }
+                    }
+                    Err(err) => {
+                        match err {
+                            RecvTimeoutError::Disconnected => break,
+                            RecvTimeoutError::Timeout => {}
+                        }
+                    }
+                }
+            }
+        }
+    });
+}*/
+
 fn run_commercials(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
     thread::spawn(move || {
         loop {
             let channels: HashSet<String> = from_redis_value(&redis_call(db.clone(), vec!["smembers", "channels"]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
             for channel in channels {
-                let live: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:live", channel)]).unwrap()).unwrap();
+                let live: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:live", channel)]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
                 if live == "true" {
                     let hourly: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:commercials:hourly", channel)]).unwrap_or(Value::Data("0".as_bytes().to_owned()))).unwrap();
                     let hourly: u64 = hourly.parse().unwrap();
@@ -728,7 +883,7 @@ fn run_commercials(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
                     });
 
                     if num > 0 {
-                        let live: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:live", channel)]).unwrap()).unwrap();
+                        let live: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:live", channel)]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
                         let mut within8 = false;
                         let res: Result<Value,_> = redis_call(db.clone(), vec!["lindex", &format!("channel:{}:commercials:recent", channel), "0"]);
                         if let Ok(value) = res {
@@ -1173,7 +1328,7 @@ fn update_live(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
                             Ok(json) => {
                                 let live_channels: Vec<String> = json.streams.iter().map(|stream| stream.channel.name.to_owned()).collect();
                                 for channel in channels {
-                                    let live: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:live", channel)]).unwrap()).unwrap();
+                                    let live: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:live", channel)]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
                                     if live_channels.contains(&channel) {
                                         let stream = json.streams.iter().find(|stream| { return stream.channel.name == channel }).unwrap();
                                         if live == "false" {
@@ -1442,185 +1597,6 @@ fn update_stats(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
         }
     });
 }
-
-/*fn spawn_timers(client: Arc<IrcClient>, channel: String, receivers: Vec<Receiver<ThreadAction>>) {
-    let notice_con = acquire_con();
-    let snotice_con = acquire_con();
-    let so_con = acquire_con();
-    let comm_con = acquire_con();
-    let notice_client = client.clone();
-    let snotice_client = client.clone();
-    let so_client = client.clone();
-    let comm_client = client.clone();
-    let notice_channel = channel.clone();
-    let snotice_channel = channel.clone();
-    let so_channel = channel.clone();
-    let comm_channel = channel.clone();
-    let notice_receiver = receivers[0].clone();
-    let snotice_receiver = receivers[1].clone();
-    let so_receiver = receivers[2].clone();
-    let comm_receiver = receivers[3].clone();
-
-    // TODO: scheduled notices
-    thread::spawn(move || {
-        let con = Arc::new(snotice_con);
-        loop {
-            let rsp = snotice_receiver.recv_timeout(time::Duration::from_secs(60));
-            match rsp {
-                Ok(action) => {
-                    match action {
-                        ThreadAction::Kill => break,
-                        ThreadAction::Part(_) => {}
-                    }
-                }
-                Err(err) => {
-                    match err {
-                        RecvTimeoutError::Disconnected => break,
-                        RecvTimeoutError::Timeout => {}
-                    }
-                }
-            }
-
-            let live: String = con.get(format!("channel:{}:live", snotice_channel)).expect("get:live");
-            if live == "true" {
-                let keys: Vec<String> = con.keys(format!("channel:{}:snotices:*", snotice_channel)).unwrap();
-                keys.iter().for_each(|key| {
-                    let time: String = con.hget(key, "time").expect("hget:time");
-                    let cmd: String = con.hget(key, "cmd").expect("hget:cmd");
-                    let res = DateTime::parse_from_str(&format!("2000-01-01T{}", time), "%Y-%m-%dT%H:%M%z");
-                    if let Ok(dt) = res {
-                        let hour = dt.naive_utc().hour();
-                        let min = dt.naive_utc().minute();
-                        if hour == Utc::now().time().hour() && min == Utc::now().time().minute() {
-                            let res: Result<String,_> = con.hget(format!("channel:{}:commands:{}", channel, cmd), "message");
-                            if let Ok(message) = res {
-                                send_parsed_message(snotice_client.clone(), snotice_channel.clone(), message.to_owned(), Vec::new(), None, db.clone());
-                            }
-                        }
-                    }
-                });
-            }
-        }
-    });
-
-    // TODO: shoutouts
-    thread::spawn(move || {
-        let con = Arc::new(so_con);
-        loop {
-            let clientC = so_client.clone();
-            let channelC = so_channel.clone();
-            let live: String = con.get(format!("channel:{}:live", &so_channel)).unwrap_or("false".to_owned());
-            let hostm: String = con.hget(format!("channel:{}:settings", &so_channel), "channel:host-message").unwrap_or("".to_owned());
-            let autom: String = con.hget(format!("channel:{}:settings", &so_channel), "channel:autohost-message").unwrap_or("".to_owned());
-            if live == "true" && (!hostm.is_empty() || !autom.is_empty()) {
-                let id: String = con.get(format!("channel:{}:id", &so_channel)).unwrap();
-                let recent: Vec<String> = con.smembers(format!("channel:{}:hosts:recent", &so_channel)).unwrap_or(Vec::new());
-                let token: String = redis_string_async(vec!["get", &format!("channel:{}:token", &so_channel)]).wait().unwrap().unwrap();
-                let future = twitch_kraken_request(token, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/channels/{}/hosts", &id)).send()
-                    .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
-                    .map_err(|e| println!("request error: {}", e))
-                    .map(move |body| {
-                        let con = Arc::new(acquire_con());
-                        let body = std::str::from_utf8(&body).unwrap();
-                        let json: Result<KrakenHosts,_> = serde_json::from_str(&body);
-                        match json {
-                            Err(e) => {
-                                log_error(Some(Right(vec![&channelC])), "auto_shoutouts", &e.to_string(), db.clone());
-                                log_error(Some(Right(vec![&channelC])), "request_body", &body, db.clone());
-                            }
-                            Ok(json) => {
-                                let list: String = con.hget(format!("channel:{}:settings", &channelC), "autohost:blacklist").unwrap_or("".to_owned()); // UNDOCUMENTED
-                                let mut blacklist: Vec<String> = Vec::new();
-                                for nick in list.split_whitespace() { blacklist.push(nick.to_string()) }
-                                for host in json.hosts {
-                                    let client = clientC.clone();
-                                    let channel = channelC.clone();
-                                    let blacklist = blacklist.clone();
-                                    let hostm = hostm.clone();
-                                    let autom = autom.clone();
-                                    if !recent.contains(&host.host_id) {
-                                        let _: () = con.sadd(format!("channel:{}:hosts:recent", &channel), &host.host_id).unwrap();
-                                        let token: String = redis_string_async(vec!["get", &format!("channel:{}:token", &channel)]).wait().unwrap().unwrap();
-                                        let future = twitch_kraken_request(token, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/streams?channel={}", &host.host_id)).send()
-                                            .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
-                                            .map_err(|e| println!("request error: {}", e))
-                                            .map(move |body| {
-                                                let con = Arc::new(acquire_con());
-                                                let body = std::str::from_utf8(&body).unwrap();
-                                                let json: Result<KrakenStreams,_> = serde_json::from_str(&body);
-                                                match json {
-                                                    Err(e) => {
-                                                        log_error(Some(Right(vec![&channel])), "auto_shoutouts", &e.to_string(), db.clone());
-                                                        log_error(Some(Right(vec![&channel])), "request_body", &body, db.clone());
-                                                    }
-                                                    Ok(json) => {
-                                                        if !blacklist.contains(&host.host_id) {
-                                                            if json.total > 0 {
-                                                                if !hostm.is_empty() {
-                                                                    let mut message: String = hostm.to_owned();
-                                                                    message = replace_var("url", &json.streams[0].channel.url, &message);
-                                                                    message = replace_var("name", &json.streams[0].channel.display_name, &message);
-                                                                    message = replace_var("game", &json.streams[0].channel.game, &message);
-                                                                    message = replace_var("viewers", &json.streams[0].viewers.to_string(), &message);
-                                                                    send_message(client.clone(), channel.clone(), message, db.clone());
-                                                                }
-                                                            } else {
-                                                                if !autom.is_empty() {
-                                                                    let token: String = redis_string_async(vec!["get", &format!("channel:{}:token", &channel)]).wait().unwrap().unwrap();
-                                                                    let future = twitch_kraken_request(token, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/channels/{}", &host.host_id)).send()
-                                                                        .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
-                                                                        .map_err(|e| println!("request error: {}", e))
-                                                                        .map(move |body| {
-                                                                            let con = Arc::new(acquire_con());
-                                                                            let body = std::str::from_utf8(&body).unwrap();
-                                                                            let json: Result<KrakenChannel,_> = serde_json::from_str(&body);
-                                                                            match json {
-                                                                                Err(e) => {
-                                                                                    log_error(Some(Right(vec![&channel])), "auto_shoutouts", &e.to_string(), db.clone());
-                                                                                    log_error(Some(Right(vec![&channel])), "request_body", &body, db.clone());
-                                                                                }
-                                                                                Ok(json) => {
-                                                                                    let mut message: String = autom.to_owned();
-                                                                                    message = replace_var("url", &json.url, &message);
-                                                                                    message = replace_var("name", &json.display_name, &message);
-                                                                                    message = replace_var("game", &json.game, &message);
-                                                                                    send_message(client.clone(), channel.clone(), message, db.clone());
-                                                                                }
-                                                                            }
-                                                                        });
-                                                                    thread::spawn(move || { tokio::run(future) });
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            });
-                                        thread::spawn(move || { tokio::run(future) });
-                                    }
-                                }
-                            }
-                        }
-                    });
-                thread::spawn(move || { tokio::run(future) });
-            }
-            let rsp = so_receiver.recv_timeout(time::Duration::from_secs(60));
-            match rsp {
-                Ok(action) => {
-                    match action {
-                        ThreadAction::Kill => break,
-                        ThreadAction::Part(_) => {}
-                    }
-                }
-                Err(err) => {
-                    match err {
-                        RecvTimeoutError::Disconnected => break,
-                        RecvTimeoutError::Timeout => {}
-                    }
-                }
-            }
-        }
-    });
-}*/
 
 fn run_command(matches: &ArgMatches, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
     let channel: String = matches.value_of("channel").unwrap().to_owned();
