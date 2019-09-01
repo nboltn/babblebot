@@ -72,7 +72,7 @@ fn main() {
                                             match action.name.as_ref() {
                                                 "MOUSE" => {
                                                     press_mouse(MOUSEEVENTF_LEFTDOWN);
-                                                    thread::sleep(time::Duration::from_millis(100 * action.hold));
+                                                    thread::sleep(time::Duration::from_millis(100 * (action.hold as u64)));
                                                     press_mouse(MOUSEEVENTF_LEFTUP);
                                                 }
                                                 "KEYBD" => {
@@ -89,7 +89,7 @@ fn main() {
                                                 _ => {}
                                             }
 
-                                            thread::sleep(time::Duration::from_millis(100 * action.delay));
+                                            thread::sleep(time::Duration::from_millis(100 * (action.delay as u64)));
                                         }
                                     } else {
                                         if let Some(msg) = json.error_message {
@@ -143,7 +143,7 @@ fn press_key(key: u8, flag: u32) {
     let mut input_u: INPUT_u = unsafe { std::mem::zeroed() };
     unsafe {
         *input_u.ki_mut() = KEYBDINPUT {
-            wScan: key,
+            wScan: key as u16,
             dwFlags: KEYEVENTF_SCANCODE,
             dwExtraInfo: 0,
             wVk: 0,
