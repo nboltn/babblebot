@@ -1,4 +1,4 @@
-#[cfg(windows)] use winapi::um::winuser::{INPUT_u, INPUT, INPUT_MOUSE, INPUT_KEYBOARD, KEYEVENTF_KEYUP, KEYEVENTF_SCANCODE, KEYBDINPUT, SendInput};
+#[cfg(windows)] use winapi::um::winuser::{INPUT_u, INPUT, INPUT_MOUSE, INPUT_KEYBOARD, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, KEYEVENTF_KEYUP, KEYEVENTF_SCANCODE, KEYBDINPUT, SendInput};
 use std::{thread,time,io};
 use config;
 use semver::Version;
