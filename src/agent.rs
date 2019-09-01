@@ -7,19 +7,23 @@ use http::header::{self,HeaderValue};
 use reqwest::Client;
 use serde::Deserialize;
 
-const VERSION: &str = "0.1.0";
-const KEYUP: u32 = 0x0002;
+const VERSION: &str = "1.0.0";
 
 #[derive(Deserialize)]
 pub struct AgentRsp {
     pub version: String,
     pub success: bool,
+    pub actions: Vec<AgentAction>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub error_message: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub action: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub args: Option<Vec<String>>
+    pub error_message: Option<String>
+}
+
+#[derive(Deserialize)]
+pub struct AgentAction {
+    pub name: String,
+    pub keys: Vec<u8>,
+    pub hold: u8,
+    pub delay: u8
 }
 
 #[cfg(not(windows))]
@@ -63,107 +67,29 @@ fn main() {
                                     break;
                                 } else {
                                     if json.success {
-                                        if let (Some(action), Some(args)) = (json.action, json.args) {
-                                            println!("received action: {}", action);
-                                            match action.as_ref() {
+                                        for action in json.actions {
+                                            println!("received action: {}", action.name);
+                                            match action.name.as_ref() {
                                                 "MOUSE" => {
-                                                    let mut input_u: INPUT_u = unsafe { std::mem::zeroed() };
-                                                    unsafe {
-                                                        *input_u.mi_mut() = MOUSEINPUT {
-                                                            dwFlags: MOUSEEVENTF_LEFTDOWN,
-                                                            dx: 0,
-                                                            dy: 0,
-                                                            time: 0,
-                                                            mouseData: 0,
-                                                            dwExtraInfo: 0
-                                                        }
-                                                    }
-                                                    let mut input = INPUT {
-                                                        type_: INPUT_MOUSE,
-                                                        u: input_u
-                                                    };
-                                                    let ipsize = std::mem::size_of::<INPUT>() as i32;
-                                                    unsafe {
-                                                        SendInput(1, &mut input, ipsize);
-                                                    };
-
-                                                    thread::sleep(time::Duration::from_millis(100));
-
-                                                    let mut input_u: INPUT_u = unsafe { std::mem::zeroed() };
-                                                    unsafe {
-                                                        *input_u.mi_mut() = MOUSEINPUT {
-                                                            dwFlags: MOUSEEVENTF_LEFTUP,
-                                                            dx: 0,
-                                                            dy: 0,
-                                                            time: 0,
-                                                            mouseData: 0,
-                                                            dwExtraInfo: 0
-                                                        }
-                                                    }
-                                                    let mut input = INPUT {
-                                                        type_: INPUT_MOUSE,
-                                                        u: input_u
-                                                    };
-                                                    let ipsize = std::mem::size_of::<INPUT>() as i32;
-                                                    unsafe {
-                                                        SendInput(1, &mut input, ipsize);
-                                                    };
+                                                    press_mouse(MOUSEEVENTF_LEFTDOWN);
+                                                    thread::sleep(time::Duration::from_millis(100 * action.hold));
+                                                    press_mouse(MOUSEEVENTF_LEFTUP);
                                                 }
                                                 "KEYBD" => {
-                                                    for arg in args.clone() {
-                                                        let res: Result<u16,_> = arg.parse();
-                                                        if let Ok(num) = res {
-                                                            let mut input_u: INPUT_u = unsafe { std::mem::zeroed() };
-                                                            unsafe {
-                                                                *input_u.ki_mut() = KEYBDINPUT {
-                                                                    wScan: num,
-                                                                    dwFlags: KEYEVENTF_SCANCODE,
-                                                                    dwExtraInfo: 0,
-                                                                    wVk: 0,
-                                                                    time: 0
-                                                                }
-                                                            }
-
-                                                            let mut input = INPUT {
-                                                                type_: INPUT_KEYBOARD,
-                                                                u: input_u
-                                                            };
-                                                            let ipsize = std::mem::size_of::<INPUT>() as i32;
-
-                                                            unsafe {
-                                                                SendInput(1, &mut input, ipsize);
-                                                            };
-                                                        }
+                                                    for key in action.keys.iter() {
+                                                        press_key(key, KEYEVENTF_SCANCODE);
                                                     }
+
                                                     thread::sleep(time::Duration::from_millis(100));
-                                                    for arg in args.clone() {
-                                                        let res: Result<u16,_> = arg.parse();
-                                                        if let Ok(num) = res {
-                                                            let mut input_u: INPUT_u = unsafe { std::mem::zeroed() };
-                                                            unsafe {
-                                                                *input_u.ki_mut() = KEYBDINPUT {
-                                                                    wScan: num,
-                                                                    dwFlags: KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP,
-                                                                    dwExtraInfo: 0,
-                                                                    wVk: 0,
-                                                                    time: 0
-                                                                }
-                                                            }
 
-                                                            let mut input = INPUT {
-                                                                type_: INPUT_KEYBOARD,
-                                                                u: input_u
-                                                            };
-                                                            let ipsize = std::mem::size_of::<INPUT>() as i32;
-
-                                                            unsafe {
-                                                                SendInput(1, &mut input, ipsize);
-                                                            };
-                                                        }
+                                                    for key in action.keys.iter() {
+                                                        press_key(key, KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP);
                                                     }
                                                 }
                                                 _ => {}
                                             }
+
+                                            thread::sleep(time::Duration::from_millis(100 * action.delay));
                                         }
                                     } else {
                                         if let Some(msg) = json.error_message {
@@ -188,3 +114,56 @@ fn main() {
     let mut input = String::new();
     io::stdin().read_line(&mut input);
 }
+
+#[cfg(windows)]
+fn press_mouse(flag: u32) {
+    let mut input_u: INPUT_u = unsafe { std::mem::zeroed() };
+    unsafe {
+        *input_u.mi_mut() = MOUSEINPUT {
+            dwFlags: flag,
+            dx: 0,
+            dy: 0,
+            time: 0,
+            mouseData: 0,
+            dwExtraInfo: 0
+        }
+    }
+    let mut input = INPUT {
+        type_: INPUT_MOUSE,
+        u: input_u
+    };
+    let ipsize = std::mem::size_of::<INPUT>() as i32;
+    unsafe {
+        SendInput(1, &mut input, ipsize);
+    };
+}
+
+#[cfg(windows)]
+fn press_key(key: u8, flag: u32) {
+    let mut input_u: INPUT_u = unsafe { std::mem::zeroed() };
+    unsafe {
+        *input_u.ki_mut() = KEYBDINPUT {
+            wScan: key,
+            dwFlags: KEYEVENTF_SCANCODE,
+            dwExtraInfo: 0,
+            wVk: 0,
+            time: 0
+        }
+    }
+
+    let mut input = INPUT {
+        type_: INPUT_KEYBOARD,
+        u: input_u
+    };
+    let ipsize = std::mem::size_of::<INPUT>() as i32;
+
+    unsafe {
+        SendInput(1, &mut input, ipsize);
+    };
+}
+
+#[cfg(not(windows))]
+fn press_mouse() {}
+
+#[cfg(not(windows))]
+fn press_key() {}

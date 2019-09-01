@@ -18,7 +18,7 @@ use rocket_contrib::json::Json;
 use rocket_contrib::templates::Template;
 use jwt::{encode, decode, Header, Validation};
 
-const AGENT_VERSION: &str = "0.1.0";
+const AGENT_VERSION: &str = "1.0.0";
 
 impl<'a, 'r> FromRequest<'a, 'r> for Auth {
     type Error = AuthError;
@@ -552,26 +552,34 @@ pub fn agent(con: RedisConnection, data: Form<ApiAgentReq>, cookies: Cookies) ->
 
     let exists: bool = redis::cmd("SISMEMBER").arg("channels").arg(data.channel.to_lowercase()).query(&*con).unwrap();
     if exists {
-        let key: String = redis::cmd("GET").arg(format!("channel:{}:agent:key", data.channel.to_lowercase())).query(&*con).unwrap();
+        let key: String = redis::cmd("get").arg(format!("channel:{}:agent:key", data.channel.to_lowercase())).query(&*con).unwrap();
         if key == data.key {
             let len: u8 = redis::cmd("llen").arg(format!("channel:{}:agent:actions", data.channel.to_lowercase())).query(&*con).unwrap_or(0);
             if len > 0 {
-                let res: String = redis::cmd("lpop").arg(format!("channel:{}:agent:actions", data.channel.to_lowercase())).query(&*con).expect("lpop:actions");
-                let mut words = res.split_whitespace();
-                let action = words.next().expect("words:next");
-                let args: Vec<String> = words.map(|w| w.to_owned()).collect();
-                let json = AgentRsp { version: AGENT_VERSION.to_string(), success: true, action: Some(action.to_string()), args: Some(args), error_message: None };
+                let mut actions = Vec::new();
+                let ids: String = redis::cmd("lpop").arg(format!("channel:{}:agent:actions", data.channel.to_lowercase())).query(&*con).expect("lpop:actions");
+                let ids: Vec<String> = ids.split_whitespace().map(|id| id.to_string()).collect();
+                for id in ids.iter() {
+                    let atype: String = redis::cmd("hget").arg(format!("channel:{}:agent:actions:{}", data.channel.to_lowercase(), id)).arg("type").query(&*con).unwrap();
+                    let delay: String = redis::cmd("hget").arg(format!("channel:{}:agent:actions:{}", data.channel.to_lowercase(), id)).arg("delay").query(&*con).unwrap_or("1".to_owned());
+                    let hold: String = redis::cmd("hget").arg(format!("channel:{}:agent:actions:{}", data.channel.to_lowercase(), id)).arg("hold").query(&*con).unwrap_or("1".to_owned());
+                    let keys: Vec<String> = redis::cmd("hget").arg(format!("channel:{}:agent:actions:{}", data.channel.to_lowercase(), id)).arg("keys").query(&*con).unwrap_or(Vec::new());
+                    let keys: Vec<u8> = keys.iter().map(|key| key.parse().unwrap()).collect();
+                    let action = AgentAction { name: atype, delay: delay.parse().unwrap(), hold: hold.parse().unwrap(), keys: keys };
+                    actions.push(action);
+                }
+                let json = AgentRsp { version: AGENT_VERSION.to_string(), success: true, error_message: None, actions: actions };
                 return Json(json);
             } else {
-                let json = AgentRsp { version: AGENT_VERSION.to_string(), success: true, action: None, args: None, error_message: None };
+                let json = AgentRsp { version: AGENT_VERSION.to_string(), success: true, error_message: None, actions: Vec::new() };
                 return Json(json);
             }
         } else {
-            let json = AgentRsp { version: AGENT_VERSION.to_string(), success: false, action: None, args: None, error_message: Some("invalid key".to_owned()) };
+            let json = AgentRsp { version: AGENT_VERSION.to_string(), success: false, error_message: Some("invalid key".to_owned()), actions: Vec::new() };
             return Json(json);
         }
     } else {
-        let json = AgentRsp { version: AGENT_VERSION.to_string(), success: false, action: None, args: None, error_message: Some("channel doesn't exist".to_owned()) };
+        let json = AgentRsp { version: AGENT_VERSION.to_string(), success: false, error_message: Some("channel doesn't exist".to_owned()), actions: Vec::new() };
         return Json(json);
     }
 }

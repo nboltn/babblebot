@@ -479,16 +479,21 @@ pub struct ApiRsp {
     pub error_message: Option<String>
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct AgentRsp {
     pub version: String,
     pub success: bool,
+    pub actions: Vec<AgentAction>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub error_message: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub action: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub args: Option<Vec<String>>
+    pub error_message: Option<String>
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct AgentAction {
+    pub name: String,
+    pub keys: Vec<u8>,
+    pub hold: u8,
+    pub delay: u8
 }
 
 #[derive(Serialize, FromForm)]

@@ -212,11 +212,11 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, db: (Sender<Vec
                             }
                         }
                         if bits > 0 {
-                            let type_: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:events:bits:{}", channel, bits), "type"]).unwrap()).unwrap();
-                            match type_.as_ref() {
+                            let etype: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:events:bits:{}", channel, bits), "type"]).unwrap()).unwrap();
+                            match etype.as_ref() {
                                 "agent" => {
-                                    let action: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:events:bits:{}", channel, bits), "action"]).unwrap()).unwrap();
-                                    redis_call(db.clone(), vec!["lpush", &format!("channel:{}:agent:actions", channel), &action]);
+                                    let ids: Vec<String> = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:events:bits:{}", channel, bits), "actions"]).unwrap()).unwrap();
+                                    redis_call(db.clone(), vec!["lpush", &format!("channel:{}:agent:actions", channel), &ids.join(" ")]);
                                 }
                                 _ => {}
                             }
