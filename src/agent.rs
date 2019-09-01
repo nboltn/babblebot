@@ -69,7 +69,7 @@ fn main() {
                                                 "MOUSE" => {
                                                     let mut input_u: INPUT_u = unsafe { std::mem::zeroed() };
                                                     unsafe {
-                                                        *input_u.ki_mut() = MOUSEINPUT {
+                                                        *input_u.mi_mut() = MOUSEINPUT {
                                                             dwFlags: MOUSEEVENTF_LEFTDOWN,
                                                             dx: 0,
                                                             dy: 0,
@@ -91,7 +91,7 @@ fn main() {
 
                                                     let mut input_u: INPUT_u = unsafe { std::mem::zeroed() };
                                                     unsafe {
-                                                        *input_u.ki_mut() = MOUSEINPUT {
+                                                        *input_u.mi_mut() = MOUSEINPUT {
                                                             dwFlags: MOUSEEVENTF_LEFTUP,
                                                             dx: 0,
                                                             dy: 0,
