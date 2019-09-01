@@ -5,10 +5,10 @@
 <div id='app'>
   <div id='navbar'>
     <div class='pane active' v-on:click='pane("dashboard", $event)'>Dashboard</div>
+    <div class='pane' v-on:click='pane("settings", $event)'>Settings</div>
     <div class='pane' v-on:click='pane("commands", $event)'>Commands</div>
     <div class='pane' v-on:click='pane("notices", $event)'>Notices</div>
     <div class='pane' v-on:click='pane("moderation", $event)'>Moderation</div>
-    <div class='pane' v-on:click='pane("settings", $event)'>Settings</div>
     <div class='pane' v-on:click='pane("songrequests", $event)'>Song Requests</div>
     <div class='pane' v-on:click='pane("integrations", $event)'>Integrations</div>
     <div class='pane' v-on:click='pane("logs", $event)'>Logs</div>

@@ -1,6 +1,8 @@
 moderation
 ----------
 
+The moderation blacklist is managed via the web control panel. Supported regex syntax can be found here: https://docs.rs/regex/1.2.1/regex/#syntax
+
 .. rubric:: Links
 
 add a domain to the whitelist::
