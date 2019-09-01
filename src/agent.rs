@@ -79,7 +79,7 @@ fn main() {
                                                         }
                                                     }
                                                     let mut input = INPUT {
-                                                        type_: INPUT_KEYBOARD,
+                                                        type_: INPUT_MOUSE,
                                                         u: input_u
                                                     };
                                                     let ipsize = std::mem::size_of::<INPUT>() as i32;
@@ -101,7 +101,7 @@ fn main() {
                                                         }
                                                     }
                                                     let mut input = INPUT {
-                                                        type_: INPUT_KEYBOARD,
+                                                        type_: INPUT_MOUSE,
                                                         u: input_u
                                                     };
                                                     let ipsize = std::mem::size_of::<INPUT>() as i32;
