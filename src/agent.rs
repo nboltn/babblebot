@@ -1,4 +1,4 @@
-#[cfg(windows)] use winapi::um::winuser::{INPUT_u, INPUT, INPUT_KEYBOARD, KEYEVENTF_KEYUP, KEYEVENTF_SCANCODE, KEYBDINPUT, SendInput};
+#[cfg(windows)] use winapi::um::winuser::{INPUT_u, INPUT, INPUT_MOUSE, INPUT_KEYBOARD, KEYEVENTF_KEYUP, KEYEVENTF_SCANCODE, KEYBDINPUT, SendInput};
 use std::{thread,time,io};
 use config;
 use semver::Version;
@@ -66,7 +66,50 @@ fn main() {
                                         if let (Some(action), Some(args)) = (json.action, json.args) {
                                             println!("received action: {}", action);
                                             match action.as_ref() {
-                                                "INPUT" => {
+                                                "MOUSE" => {
+                                                    let mut input_u: INPUT_u = unsafe { std::mem::zeroed() };
+                                                    unsafe {
+                                                        *input_u.ki_mut() = MOUSEINPUT {
+                                                            dwFlags: MOUSEEVENTF_LEFTDOWN,
+                                                            dx: 0,
+                                                            dy: 0,
+                                                            time: 0,
+                                                            mouseData: 0,
+                                                            dwExtraInfo: 0
+                                                        }
+                                                    }
+                                                    let mut input = INPUT {
+                                                        type_: INPUT_KEYBOARD,
+                                                        u: input_u
+                                                    };
+                                                    let ipsize = std::mem::size_of::<INPUT>() as i32;
+                                                    unsafe {
+                                                        SendInput(1, &mut input, ipsize);
+                                                    };
+
+                                                    thread::sleep(time::Duration::from_millis(100));
+
+                                                    let mut input_u: INPUT_u = unsafe { std::mem::zeroed() };
+                                                    unsafe {
+                                                        *input_u.ki_mut() = MOUSEINPUT {
+                                                            dwFlags: MOUSEEVENTF_LEFTUP,
+                                                            dx: 0,
+                                                            dy: 0,
+                                                            time: 0,
+                                                            mouseData: 0,
+                                                            dwExtraInfo: 0
+                                                        }
+                                                    }
+                                                    let mut input = INPUT {
+                                                        type_: INPUT_KEYBOARD,
+                                                        u: input_u
+                                                    };
+                                                    let ipsize = std::mem::size_of::<INPUT>() as i32;
+                                                    unsafe {
+                                                        SendInput(1, &mut input, ipsize);
+                                                    };
+                                                }
+                                                "KEYBD" => {
                                                     for arg in args.clone() {
                                                         let res: Result<u16,_> = arg.parse();
                                                         if let Ok(num) = res {
