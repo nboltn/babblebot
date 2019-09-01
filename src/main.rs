@@ -724,6 +724,7 @@ fn run_scheduled_notices(db: (Sender<Vec<String>>, Receiver<Result<Value, String
                     });
                 }
             }
+            thread::sleep(time::Duration::from_secs(60));
         }
     });
 }
