@@ -77,13 +77,13 @@ fn main() {
                                                 }
                                                 "KEYBD" => {
                                                     for key in action.keys.iter() {
-                                                        press_key(key, KEYEVENTF_SCANCODE);
+                                                        press_key(*key, KEYEVENTF_SCANCODE);
                                                     }
 
                                                     thread::sleep(time::Duration::from_millis(100));
 
                                                     for key in action.keys.iter() {
-                                                        press_key(key, KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP);
+                                                        press_key(*key, KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP);
                                                     }
                                                 }
                                                 _ => {}
