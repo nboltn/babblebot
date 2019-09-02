@@ -116,11 +116,11 @@ fn main() {
 }
 
 #[cfg(windows)]
-fn press_mouse(flag: u32) {
+fn press_mouse(flags: u32) {
     let mut input_u: INPUT_u = unsafe { std::mem::zeroed() };
     unsafe {
         *input_u.mi_mut() = MOUSEINPUT {
-            dwFlags: flag,
+            dwFlags: flags,
             dx: 0,
             dy: 0,
             time: 0,
@@ -144,7 +144,7 @@ fn press_key(key: u8, flag: u32) {
     unsafe {
         *input_u.ki_mut() = KEYBDINPUT {
             wScan: key as u16,
-            dwFlags: KEYEVENTF_SCANCODE,
+            dwFlags: flags,
             dwExtraInfo: 0,
             wVk: 0,
             time: 0
