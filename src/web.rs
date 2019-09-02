@@ -564,7 +564,7 @@ pub fn agent(con: RedisConnection, data: Form<ApiAgentReq>, cookies: Cookies) ->
                     let delay: String = redis::cmd("hget").arg(format!("channel:{}:agent:actions:{}", data.channel.to_lowercase(), id)).arg("delay").query(&*con).unwrap_or("1".to_owned());
                     let hold: String = redis::cmd("hget").arg(format!("channel:{}:agent:actions:{}", data.channel.to_lowercase(), id)).arg("hold").query(&*con).unwrap_or("1".to_owned());
                     let keys: Vec<String> = redis::cmd("hget").arg(format!("channel:{}:agent:actions:{}", data.channel.to_lowercase(), id)).arg("keys").query(&*con).unwrap_or(Vec::new());
-                    let keys: Vec<u8> = keys.iter().map(|key| key.parse().unwrap()).collect();
+                    let keys: Vec<u16> = keys.iter().map(|key| key.parse().unwrap()).collect();
                     let action = AgentAction { name: atype, delay: delay.parse().unwrap(), hold: hold.parse().unwrap(), keys: keys };
                     actions.push(action);
                 }
