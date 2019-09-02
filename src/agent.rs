@@ -139,7 +139,7 @@ fn press_mouse(flags: u32) {
 }
 
 #[cfg(windows)]
-fn press_key(key: u8, flag: u32) {
+fn press_key(key: u8, flags: u32) {
     let mut input_u: INPUT_u = unsafe { std::mem::zeroed() };
     unsafe {
         *input_u.ki_mut() = KEYBDINPUT {
