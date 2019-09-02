@@ -491,9 +491,9 @@ pub struct AgentRsp {
 #[derive(Serialize, Deserialize)]
 pub struct AgentAction {
     pub name: String,
-    pub keys: Vec<u8>,
-    pub hold: u8,
-    pub delay: u8
+    pub keys: Vec<u16>,
+    pub hold: u64,
+    pub delay: u64
 }
 
 #[derive(Serialize, FromForm)]

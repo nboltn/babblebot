@@ -21,9 +21,9 @@ pub struct AgentRsp {
 #[derive(Deserialize)]
 pub struct AgentAction {
     pub name: String,
-    pub keys: Vec<u8>,
-    pub hold: u8,
-    pub delay: u8
+    pub keys: Vec<u16>,
+    pub hold: u64,
+    pub delay: u64
 }
 
 #[cfg(not(windows))]
@@ -72,7 +72,7 @@ fn main() {
                                             match action.name.as_ref() {
                                                 "MOUSE" => {
                                                     press_mouse(MOUSEEVENTF_LEFTDOWN);
-                                                    thread::sleep(time::Duration::from_millis(100 * (action.hold as u64)));
+                                                    thread::sleep(time::Duration::from_millis(100 * action.hold));
                                                     press_mouse(MOUSEEVENTF_LEFTUP);
                                                 }
                                                 "KEYBD" => {
@@ -89,7 +89,7 @@ fn main() {
                                                 _ => {}
                                             }
 
-                                            thread::sleep(time::Duration::from_millis(100 * (action.delay as u64)));
+                                            thread::sleep(time::Duration::from_millis(100 * action.delay));
                                         }
                                     } else {
                                         if let Some(msg) = json.error_message {
@@ -139,11 +139,11 @@ fn press_mouse(flags: u32) {
 }
 
 #[cfg(windows)]
-fn press_key(key: u8, flags: u32) {
+fn press_key(key: u16, flags: u32) {
     let mut input_u: INPUT_u = unsafe { std::mem::zeroed() };
     unsafe {
         *input_u.ki_mut() = KEYBDINPUT {
-            wScan: key as u16,
+            wScan: key,
             dwFlags: flags,
             dwExtraInfo: 0,
             wVk: 0,
