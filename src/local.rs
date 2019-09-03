@@ -10,16 +10,16 @@ use serde::Deserialize;
 const VERSION: &str = "1.0.0";
 
 #[derive(Deserialize)]
-pub struct AgentRsp {
+pub struct LocalRsp {
     pub version: String,
     pub success: bool,
-    pub actions: Vec<AgentAction>,
+    pub actions: Vec<LocalAction>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_message: Option<String>
 }
 
 #[derive(Deserialize)]
-pub struct AgentAction {
+pub struct LocalAction {
     pub name: String,
     pub keys: Vec<u16>,
     pub hold: u64,
@@ -48,12 +48,12 @@ fn main() {
             let mut headers = header::HeaderMap::new();
             headers.insert("Content-Type", HeaderValue::from_str("application/x-www-form-urlencoded").unwrap());
             let client = Client::builder().default_headers(headers).build().unwrap();
-            let rsp = client.post(&format!("{}/api/agent", base_url)).body(format!("channel={}&key={}", &channel, &key).as_bytes().to_owned()).send();
+            let rsp = client.post(&format!("{}/api/local", base_url)).body(format!("channel={}&key={}", &channel, &key).as_bytes().to_owned()).send();
             match rsp {
                 Err(e) => { println!("response error: {}", &e.to_string()); }
                 Ok(mut rsp) => {
                     let text = rsp.text().unwrap();
-                    let json: Result<AgentRsp,_> = serde_json::from_str(&text);
+                    let json: Result<LocalRsp,_> = serde_json::from_str(&text);
                     match json {
                         Err(e) => {
                             println!("response error: {}", &e.to_string());

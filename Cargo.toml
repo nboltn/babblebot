@@ -38,5 +38,5 @@ futures = "0.1"
 winapi = { version = "0.3", features = ["winuser"] }
 
 [[bin]]
-name = "agent"
-path = "src/agent.rs"
+name = "babblebot-local-integration"
+path = "src/local.rs"

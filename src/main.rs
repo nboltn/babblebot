@@ -214,9 +214,9 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, db: (Sender<Vec
                         if bits > 0 {
                             let etype: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:events:bits:{}", channel, bits), "type"]).unwrap()).unwrap();
                             match etype.as_ref() {
-                                "agent" => {
+                                "local" => {
                                     let ids: Vec<String> = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:events:bits:{}", channel, bits), "actions"]).unwrap()).unwrap();
-                                    redis_call(db.clone(), vec!["lpush", &format!("channel:{}:agent:actions", channel), &ids.join(" ")]);
+                                    redis_call(db.clone(), vec!["lpush", &format!("channel:{}:local:actions", channel), &ids.join(" ")]);
                                 }
                                 _ => {}
                             }
@@ -401,7 +401,7 @@ fn start_rocket() {
     thread::spawn(move || {
         rocket::ignite()
           .mount("/assets", StaticFiles::from("assets"))
-          .mount("/", routes![web::index, web::dashboard, web::commands, web::patreon_cb, web::patreon_refresh, web::spotify_cb, web::twitch_cb, web::public_data, web::data, web::logs, web::agent, web::login, web::logout, web::signup, web::password, web::title, web::game, web::new_command, web::save_command, web::trash_command, web::new_notice, web::trash_notice, web::save_setting, web::trash_setting, web::new_blacklist, web::save_blacklist, web::trash_blacklist, web::trash_song])
+          .mount("/", routes![web::index, web::dashboard, web::commands, web::patreon_cb, web::patreon_refresh, web::spotify_cb, web::twitch_cb, web::public_data, web::data, web::logs, web::local, web::login, web::logout, web::signup, web::password, web::title, web::game, web::new_command, web::save_command, web::trash_command, web::new_notice, web::trash_notice, web::save_setting, web::trash_setting, web::new_blacklist, web::save_blacklist, web::trash_blacklist, web::trash_song])
           .register(catchers![web::internal_error, web::not_found])
           .attach(Template::fairing())
           .attach(RedisConnection::fairing())

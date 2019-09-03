@@ -544,42 +544,42 @@ pub fn public_data(con: RedisConnection, channel: String) -> Json<ApiData> {
     }
 }
 
-#[post("/api/agent", data="<data>")]
-pub fn agent(con: RedisConnection, data: Form<ApiAgentReq>, cookies: Cookies) -> Json<AgentRsp> {
+#[post("/api/local", data="<data>")]
+pub fn local(con: RedisConnection, data: Form<ApiLocalReq>, cookies: Cookies) -> Json<LocalRsp> {
     let mut settings = config::Config::default();
     settings.merge(config::File::with_name("Settings")).unwrap();
     settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
 
     let exists: bool = redis::cmd("SISMEMBER").arg("channels").arg(data.channel.to_lowercase()).query(&*con).unwrap();
     if exists {
-        let key: String = redis::cmd("get").arg(format!("channel:{}:agent:key", data.channel.to_lowercase())).query(&*con).unwrap();
+        let key: String = redis::cmd("get").arg(format!("channel:{}:local:key", data.channel.to_lowercase())).query(&*con).unwrap();
         if key == data.key {
-            let len: u8 = redis::cmd("llen").arg(format!("channel:{}:agent:actions", data.channel.to_lowercase())).query(&*con).unwrap_or(0);
+            let len: u8 = redis::cmd("llen").arg(format!("channel:{}:local:actions", data.channel.to_lowercase())).query(&*con).unwrap_or(0);
             if len > 0 {
                 let mut actions = Vec::new();
-                let ids: String = redis::cmd("lpop").arg(format!("channel:{}:agent:actions", data.channel.to_lowercase())).query(&*con).expect("lpop:actions");
+                let ids: String = redis::cmd("lpop").arg(format!("channel:{}:local:actions", data.channel.to_lowercase())).query(&*con).expect("lpop:actions");
                 let ids: Vec<String> = ids.split_whitespace().map(|id| id.to_string()).collect();
                 for id in ids.iter() {
-                    let atype: String = redis::cmd("hget").arg(format!("channel:{}:agent:actions:{}", data.channel.to_lowercase(), id)).arg("type").query(&*con).unwrap();
-                    let delay: String = redis::cmd("hget").arg(format!("channel:{}:agent:actions:{}", data.channel.to_lowercase(), id)).arg("delay").query(&*con).unwrap_or("1".to_owned());
-                    let hold: String = redis::cmd("hget").arg(format!("channel:{}:agent:actions:{}", data.channel.to_lowercase(), id)).arg("hold").query(&*con).unwrap_or("1".to_owned());
-                    let keys: String = redis::cmd("hget").arg(format!("channel:{}:agent:actions:{}", data.channel.to_lowercase(), id)).arg("keys").query(&*con).unwrap_or("".to_owned());
+                    let atype: String = redis::cmd("hget").arg(format!("channel:{}:local:actions:{}", data.channel.to_lowercase(), id)).arg("type").query(&*con).unwrap();
+                    let delay: String = redis::cmd("hget").arg(format!("channel:{}:local:actions:{}", data.channel.to_lowercase(), id)).arg("delay").query(&*con).unwrap_or("1".to_owned());
+                    let hold: String = redis::cmd("hget").arg(format!("channel:{}:local:actions:{}", data.channel.to_lowercase(), id)).arg("hold").query(&*con).unwrap_or("1".to_owned());
+                    let keys: String = redis::cmd("hget").arg(format!("channel:{}:local:actions:{}", data.channel.to_lowercase(), id)).arg("keys").query(&*con).unwrap_or("".to_owned());
                     let keys: Vec<u16> = keys.split_whitespace().map(|key| key.parse().unwrap()).collect();
-                    let action = AgentAction { name: atype, delay: delay.parse().unwrap(), hold: hold.parse().unwrap(), keys: keys };
+                    let action = LocalAction { name: atype, delay: delay.parse().unwrap(), hold: hold.parse().unwrap(), keys: keys };
                     actions.push(action);
                 }
-                let json = AgentRsp { version: AGENT_VERSION.to_string(), success: true, error_message: None, actions: actions };
+                let json = LocalRsp { version: AGENT_VERSION.to_string(), success: true, error_message: None, actions: actions };
                 return Json(json);
             } else {
-                let json = AgentRsp { version: AGENT_VERSION.to_string(), success: true, error_message: None, actions: Vec::new() };
+                let json = LocalRsp { version: AGENT_VERSION.to_string(), success: true, error_message: None, actions: Vec::new() };
                 return Json(json);
             }
         } else {
-            let json = AgentRsp { version: AGENT_VERSION.to_string(), success: false, error_message: Some("invalid key".to_owned()), actions: Vec::new() };
+            let json = LocalRsp { version: AGENT_VERSION.to_string(), success: false, error_message: Some("invalid key".to_owned()), actions: Vec::new() };
             return Json(json);
         }
     } else {
-        let json = AgentRsp { version: AGENT_VERSION.to_string(), success: false, error_message: Some("channel doesn't exist".to_owned()), actions: Vec::new() };
+        let json = LocalRsp { version: AGENT_VERSION.to_string(), success: false, error_message: Some("channel doesn't exist".to_owned()), actions: Vec::new() };
         return Json(json);
     }
 }
@@ -651,7 +651,7 @@ pub fn signup(con: RedisConnection, mut cookies: Cookies, data: Form<ApiSignupRe
                     } else {
                         let bot_name  = settings.get_str("bot_name").unwrap();
                         let bot_token = settings.get_str("bot_token").unwrap();
-                        let agent_key: String = rand::thread_rng().sample_iter(&Alphanumeric).take(12).collect::<String>();
+                        let local_key: String = rand::thread_rng().sample_iter(&Alphanumeric).take(12).collect::<String>();
 
                         redis::cmd("SADD").arg("bots").arg(&bot_name).execute(&*con);
                         redis::cmd("SADD").arg("channels").arg(&json.data[0].login).execute(&*con);
@@ -661,7 +661,7 @@ pub fn signup(con: RedisConnection, mut cookies: Cookies, data: Form<ApiSignupRe
                         redis::cmd("SET").arg(format!("channel:{}:token", &json.data[0].login)).arg(&data.token).execute(&*con);
                         redis::cmd("SET").arg(format!("channel:{}:refresh", &json.data[0].login)).arg(&data.refresh).execute(&*con);
                         redis::cmd("SET").arg(format!("channel:{}:password", &json.data[0].login)).arg(hash(&data.password, DEFAULT_COST).unwrap()).execute(&*con);
-                        redis::cmd("SET").arg(format!("channel:{}:agent:key", &json.data[0].login)).arg(agent_key).execute(&*con);
+                        redis::cmd("SET").arg(format!("channel:{}:local:key", &json.data[0].login)).arg(local_key).execute(&*con);
                         redis::cmd("SET").arg(format!("channel:{}:live", &json.data[0].login)).arg(false).execute(&*con);
                         redis::cmd("SET").arg(format!("channel:{}:id", &json.data[0].login)).arg(&json.data[0].id).execute(&*con);
                         redis::cmd("SET").arg(format!("channel:{}:display-name", &json.data[0].login)).arg(&json.data[0].display_name).execute(&*con);

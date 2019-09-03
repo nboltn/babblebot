@@ -480,16 +480,16 @@ pub struct ApiRsp {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct AgentRsp {
+pub struct LocalRsp {
     pub version: String,
     pub success: bool,
-    pub actions: Vec<AgentAction>,
+    pub actions: Vec<LocalAction>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_message: Option<String>
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct AgentAction {
+pub struct LocalAction {
     pub name: String,
     pub keys: Vec<u16>,
     pub hold: u64,
@@ -497,7 +497,7 @@ pub struct AgentAction {
 }
 
 #[derive(Serialize, FromForm)]
-pub struct ApiAgentReq {
+pub struct ApiLocalReq {
     pub channel: String,
     pub key: String
 }
