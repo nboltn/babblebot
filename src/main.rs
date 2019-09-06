@@ -1260,7 +1260,7 @@ fn update_watchtime(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) 
             for channel in channels {
                 let db = db.clone();
                 let live: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:live", &channel)]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
-                let enabled: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:settings", &channel), "viewerstats"]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
+                let enabled: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:settings", &channel), "channel:viewerstats"]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
                 if live == "true" && enabled == "true" {
                     let future = request(Method::GET, None, &format!("http://tmi.twitch.tv/group/user/{}/chatters", &channel)).send()
                         .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
