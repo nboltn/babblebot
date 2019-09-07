@@ -200,7 +200,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, db: (Sender<Vec
                     if let Some(donated) = get_bits(&irc_message) {
                         // TODO: queue agent actions
                         let mut bits: u16 = 0;
-                        let keys: Vec<String> = from_redis_value(&redis_call(db.clone(), vec!["keys", &format!("channel:{}:events:bits:*", channel)]).unwrap()).unwrap();
+                        let keys: Vec<String> = from_redis_value(&redis_call(db.clone(), vec!["keys", &format!("channel:{}:events:bits:*", channel)]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
                         for key in keys {
                             let key: Vec<&str> = key.split(":").collect();
                             let r1: Result<u16,_> = donated.parse();
@@ -215,7 +215,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, db: (Sender<Vec
                             let etype: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:events:bits:{}", channel, bits), "type"]).unwrap()).unwrap();
                             match etype.as_ref() {
                                 "local" => {
-                                    let ids: Vec<String> = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:events:bits:{}", channel, bits), "actions"]).unwrap()).unwrap();
+                                    let ids: Vec<String> = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:events:bits:{}", channel, bits), "actions"]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
                                     redis_call(db.clone(), vec!["lpush", &format!("channel:{}:local:actions", channel), &ids.join(" ")]);
                                 }
                                 _ => {}
