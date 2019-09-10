@@ -1344,8 +1344,9 @@ fn update_live(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
                                             // send discord announcements
                                             let tres: Result<Value,_> = redis_call(db.clone(), vec!["hget", &format!("channel:{}:settings", channel), "discord:token"]);
                                             let ires: Result<Value,_> = redis_call(db.clone(), vec!["hget",&format!("channel:{}:settings", channel), "discord:channel-id"]);
-                                            if let (Ok(token), Ok(value)) = (tres, ires) {
-                                                let id: String = from_redis_value(&value).unwrap();
+                                            if let (Ok(tvalue), Ok(ivalue)) = (tres, ires) {
+                                                let id: String = from_redis_value(&ivalue).unwrap();
+                                                let token: String = from_redis_value(&tvalue).unwrap();
                                                 let message: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:settings", channel), "discord:live-message"]).unwrap_or(Value::Data("".as_bytes().to_owned()))).unwrap();
                                                 let display: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:display-name", channel)]).expect(&format!("channel:{}:display-name", channel))).unwrap();
                                                 let body = format!("{{ \"content\": \"{}\", \"embed\": {{ \"author\": {{ \"name\": \"{}\" }}, \"title\": \"{}\", \"url\": \"http://twitch.tv/{}\", \"thumbnail\": {{ \"url\": \"{}\" }}, \"fields\": [{{ \"name\": \"Now Playing\", \"value\": \"{}\" }}] }} }}", &message, &display, stream.channel.status, channel, stream.channel.logo, stream.channel.game);
