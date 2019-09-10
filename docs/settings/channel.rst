@@ -1,6 +1,14 @@
 channel
 -------
 
+.. rubric:: channel:viewerstats
+
+.. code-block:: text
+
+    !set channel:viewerstats true
+
+Enables the ``(watchtime)`` and ``(watchrank)`` command variables.
+
 .. rubric:: channel:host-message
 
 .. code-block:: text
