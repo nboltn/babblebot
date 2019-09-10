@@ -399,7 +399,7 @@ fn register_handler(bot: String, client: IrcClient, reactor: &mut IrcReactor, db
                                     let res: Result<Value,_> = redis_call(db.clone(), vec!["hget", &format!("channel:{}:commands:{}", channel, cmd), "message"]);
                                     if let Ok(value) = res {
                                         let message: String = from_redis_value(&value).unwrap();
-                                        connect_and_send_message(channel.to_string(), message, db.clone());
+                                        send_parsed_message(client.clone(), channel.to_owned(), message, Vec::new(), None, db.clone());
                                     }
                                     break;
                                 }
