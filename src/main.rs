@@ -562,12 +562,12 @@ fn rename_channel_listener(channel: String, client: Arc<IrcClient>, receiver: Re
                                         };
                                         bots.insert(bot.to_owned(), (channel_hash.clone(), config));
                                         thread::spawn(move || { run_reactor(bots, db); });
+                                        break;
                                     }
                                 }
                             }
                         }
                     }
-                    break;
                 }
             }
         }

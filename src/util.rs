@@ -2,7 +2,7 @@ use crate::types::*;
 use crate::commands::*;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::{thread,mem,time};
+use std::{thread,mem,time,panic};
 use either::Either::{self, Left, Right};
 use base64;
 use config;
@@ -181,22 +181,23 @@ pub fn connect_and_send_privmsg(channel: String, message: String, db: (Sender<Ve
             ..Default::default()
         };
 
-        let mut reactor = IrcReactor::new().unwrap();
-        let res = reactor.prepare_client_and_connect(&config);
-        match res {
-            Err(e) => { log_error(Some(Right(vec![&channel])), "connect_and_send_privmsg", &e.to_string(), db.clone()) }
-            Ok(client) => {
-                let auth: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:auth", channel)]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
-                if auth == "true" {
-                    let _ = client.identify();
-                    let _ = client.send("CAP REQ :twitch.tv/tags");
-                    let _ = client.send("CAP REQ :twitch.tv/commands");
-                    let _ = client.send_privmsg(format!("#{}", channel), message);
+        let res = panic::catch_unwind(|| {
+            match IrcClient::from_config(config) {
+                Err(e) => { log_error(Some(Right(vec![&channel])), "connect_and_send_privmsg", &e.to_string(), db.clone()) }
+                Ok(client) => {
+                    let auth: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:auth", channel)]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
+                    if auth == "true" {
+                        let _ = client.identify();
+                        let _ = client.send("CAP REQ :twitch.tv/tags");
+                        let _ = client.send("CAP REQ :twitch.tv/commands");
+                        let _ = client.send_privmsg(format!("#{}", channel), message);
+                    }
+                    thread::sleep(time::Duration::from_secs(10));
+                    let _ = client.send_quit("");
                 }
-                thread::sleep(time::Duration::from_secs(10));
-                let _ = client.send_quit("");
             }
-        }
+        });
+        if res.is_err() { log_error(Some(Right(vec![&channel])), "connect_and_run_command", "irc panic", db.clone()) }
     });
 }
 
@@ -214,23 +215,21 @@ pub fn connect_and_send_message(channel: String, message: String, db: (Sender<Ve
             ..Default::default()
         };
 
-        let mut reactor = IrcReactor::new().unwrap();
-        let res = reactor.prepare_client_and_connect(&config);
-        match res {
-            Err(e) => { log_error(Some(Right(vec![&channel])), "connect_and_send_privmsg", &e.to_string(), db.clone()) }
-            Ok(client) => {
-                let client = Arc::new(client);
-                let auth: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:auth", channel)]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
-                if auth == "true" {
+        let res = panic::catch_unwind(|| {
+            match IrcClient::from_config(config) {
+                Err(e) => { log_error(Some(Right(vec![&channel])), "connect_and_send_message", &e.to_string(), db.clone()) }
+                Ok(client) => {
+                    let client = Arc::new(client);
                     let _ = client.identify();
                     let _ = client.send("CAP REQ :twitch.tv/tags");
                     let _ = client.send("CAP REQ :twitch.tv/commands");
-                    send_parsed_message(client.clone(), channel, message, Vec::new(), None, db.clone());
+                    send_parsed_message(client.clone(), channel.clone(), message, Vec::new(), None, db.clone());
+                    thread::sleep(time::Duration::from_secs(10));
+                    let _ = client.send_quit("");
                 }
-                thread::sleep(time::Duration::from_secs(10));
-                let _ = client.send_quit("");
             }
-        }
+        });
+        if res.is_err() { log_error(Some(Right(vec![&channel])), "connect_and_run_command", "irc panic", db.clone()) }
     });
 }
 
@@ -248,23 +247,21 @@ pub fn connect_and_run_command(cmd: fn(Arc<IrcClient>, String, Vec<String>, Opti
             ..Default::default()
         };
 
-        let mut reactor = IrcReactor::new().unwrap();
-        let res = reactor.prepare_client_and_connect(&config);
-        match res {
-            Err(e) => { log_error(Some(Right(vec![&channel])), "connect_and_send_privmsg", &e.to_string(), db.clone()) }
-            Ok(client) => {
-                let client = Arc::new(client);
-                let auth: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:auth", channel)]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
-                if auth == "true" {
+        let res = panic::catch_unwind(|| {
+            match IrcClient::from_config(config) {
+                Err(e) => { log_error(Some(Right(vec![&channel])), "connect_and_run_command", &e.to_string(), db.clone()) }
+                Ok(client) => {
+                    let client = Arc::new(client);
                     let _ = client.identify();
                     let _ = client.send("CAP REQ :twitch.tv/tags");
                     let _ = client.send("CAP REQ :twitch.tv/commands");
-                    (cmd)(client.clone(), channel, args, None, db);
+                    (cmd)(client.clone(), channel.clone(), args, None, db.clone());
+                    thread::sleep(time::Duration::from_secs(10));
+                    let _ = client.send_quit("");
                 }
-                thread::sleep(time::Duration::from_secs(10));
-                let _ = client.send_quit("");
             }
-        }
+        });
+        if res.is_err() { log_error(Some(Right(vec![&channel])), "connect_and_run_command", "irc panic", db.clone()) }
     });
 }
 
