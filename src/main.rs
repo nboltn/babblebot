@@ -127,7 +127,7 @@ fn run_reactor(bots: HashMap<String, (HashSet<String>, Config)>, db: (Sender<Vec
                 let _ = client.identify();
                 let _ = client.send("CAP REQ :twitch.tv/tags");
                 let _ = client.send("CAP REQ :twitch.tv/commands");
-                register_handler((*client).clone(), &mut reactor, db.clone());
+                register_handler(bot.clone(), (*client).clone(), &mut reactor, db.clone());
                 for channel in channels.0.iter() {
                     let (sender, receiver) = unbounded();
                     senders.insert(channel.to_owned(), [sender].to_vec());
@@ -153,7 +153,7 @@ fn run_reactor(bots: HashMap<String, (HashSet<String>, Config)>, db: (Sender<Vec
     });
 }
 
-fn register_handler(client: IrcClient, reactor: &mut IrcReactor, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
+fn register_handler(bot: String, client: IrcClient, reactor: &mut IrcReactor, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
     let clientC = Arc::new(client.clone());
     let msg_handler = move |client: &IrcClient, irc_message: Message| -> irc::error::Result<()> {
         match &irc_message.command {
@@ -178,215 +178,217 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, db: (Sender<Vec
                 }
             }
             Command::PRIVMSG(chan, msg) => {
-                let client = clientC.clone();
-                let channel = &chan[1..];
                 let nick = get_nick(&irc_message);
-                let prefix: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:settings", channel), "command:prefix"]).unwrap_or(Value::Data("!".as_bytes().to_owned()))).unwrap();
-                let mut words = msg.split_whitespace();
+                if nick != bot {
+                    let client = clientC.clone();
+                    let channel = &chan[1..];
+                    let prefix: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:settings", channel), "command:prefix"]).unwrap_or(Value::Data("!".as_bytes().to_owned()))).unwrap();
+                    let mut words = msg.split_whitespace();
 
-                // parse ircV3 badges
-                if let Some(word) = words.next() {
-                    let mut word = word.to_lowercase();
-                    let mut args: Vec<String> = words.map(|w| w.to_owned()).collect();
-                    let badges = get_badges(&irc_message);
+                    // parse ircV3 badges
+                    if let Some(word) = words.next() {
+                        let mut word = word.to_lowercase();
+                        let mut args: Vec<String> = words.map(|w| w.to_owned()).collect();
+                        let badges = get_badges(&irc_message);
 
-                    let mut subscriber = false;
-                    if let Some(_value) = badges.get("subscriber") { subscriber = true }
+                        let mut subscriber = false;
+                        if let Some(_value) = badges.get("subscriber") { subscriber = true }
 
-                    let mut auth = false;
-                    if let Some(_value) = badges.get("broadcaster") { auth = true }
-                    if let Some(_value) = badges.get("moderator") { auth = true }
+                        let mut auth = false;
+                        if let Some(_value) = badges.get("broadcaster") { auth = true }
+                        if let Some(_value) = badges.get("moderator") { auth = true }
 
-                    if let Some(donated) = get_bits(&irc_message) {
-                        // TODO: queue agent actions
-                        let mut bits: u16 = 0;
-                        let keys: Vec<String> = from_redis_value(&redis_call(db.clone(), vec!["keys", &format!("channel:{}:events:bits:*", channel)]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
-                        for key in keys {
-                            let key: Vec<&str> = key.split(":").collect();
-                            let r1: Result<u16,_> = donated.parse();
-                            let r2: Result<u16,_> = key[4].parse();
-                            if let (Ok(donated), Ok(num)) = (r1, r2) {
-                                if donated >= num && num > bits {
-                                    bits = num;
+                        if let Some(donated) = get_bits(&irc_message) {
+                            // TODO: queue agent actions
+                            let mut bits: u16 = 0;
+                            let keys: Vec<String> = from_redis_value(&redis_call(db.clone(), vec!["keys", &format!("channel:{}:events:bits:*", channel)]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
+                            for key in keys {
+                                let key: Vec<&str> = key.split(":").collect();
+                                let r1: Result<u16,_> = donated.parse();
+                                let r2: Result<u16,_> = key[4].parse();
+                                if let (Ok(donated), Ok(num)) = (r1, r2) {
+                                    if donated >= num && num > bits {
+                                        bits = num;
+                                    }
+                                }
+                            }
+                            if bits > 0 {
+                                let etype: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:events:bits:{}", channel, bits), "type"]).expect(&format!("channel:{}:events:bits:{}", channel, bits))).unwrap();
+                                match etype.as_ref() {
+                                    "local" => {
+                                        let ids: Vec<String> = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:events:bits:{}", channel, bits), "actions"]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
+                                        redis_call(db.clone(), vec!["lpush", &format!("channel:{}:local:actions", channel), &ids.join(" ")]);
+                                    }
+                                    _ => {}
                                 }
                             }
                         }
-                        if bits > 0 {
-                            let etype: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:events:bits:{}", channel, bits), "type"]).expect(&format!("channel:{}:events:bits:{}", channel, bits))).unwrap();
-                            match etype.as_ref() {
-                                "local" => {
-                                    let ids: Vec<String> = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:events:bits:{}", channel, bits), "actions"]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
-                                    redis_call(db.clone(), vec!["lpush", &format!("channel:{}:local:actions", channel), &ids.join(" ")]);
-                                }
-                                _ => {}
-                            }
-                        }
-                    }
 
-                    // moderate incoming messages
-                    // TODO: symbols, length
-                    if !auth {
-                        let display: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:moderation:display", channel)]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
-                        let caps: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:moderation:caps", channel)]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
-                        let colors: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:moderation:colors", channel)]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
-                        let links: HashSet<String> = from_redis_value(&redis_call(db.clone(), vec!["smembers", &format!("channel:{}:moderation:links", channel)]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
-                        let bkeys: Vec<String> = from_redis_value(&redis_call(db.clone(), vec!["keys", &format!("channel:{}:moderation:blacklist:*", channel)]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
-                        let age: Result<Value,_> = redis_call(db.clone(), vec!["get", &format!("channel:{}:moderation:age", channel)]);
-                        if colors == "true" && msg.len() > 6 && msg.as_bytes()[0] == 1 && &msg[1..7] == "ACTION" {
-                            let _ = client.send_privmsg(chan, format!("/timeout {} 1", nick));
-                            if display == "true" { send_message(client.clone(), channel.to_owned(), format!("@{} you've been timed out for posting colors", nick), db.clone()); }
-                        }
-                        if let Ok(value) = age {
-                            let age: String = from_redis_value(&value).unwrap();
-                            let res: Result<i64,_> = age.parse();
-                            if let Ok(age) = res { spawn_age_check(client.clone(), db.clone(), channel.to_string(), nick.clone(), age, display.to_string()); }
-                        }
-                        if caps == "true" {
-                            let limit: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:moderation:caps:limit", channel)]).expect(&format!("channel:{}:moderation:caps:limit", channel))).unwrap();
-                            let trigger: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:moderation:caps:trigger", channel)]).expect(&format!("channel:{}:moderation:caps:trigger", channel))).unwrap();
-                            let subs: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:moderation:caps:subs", channel)]).expect(&format!("channel:{}:moderation:caps:subs", channel))).unwrap();
-                            let limit: Result<f32,_> = limit.parse();
-                            let trigger: Result<f32,_> = trigger.parse();
-                            if let (Ok(limit), Ok(trigger)) = (limit, trigger) {
-                                let len = msg.len() as f32;
-                                if len >= trigger {
-                                    let num = msg.chars().fold(0.0, |acc, c| if c.is_uppercase() { acc + 1.0 } else { acc });
-                                    let ratio = num / len;
-                                    if ratio >= (limit / 100.0) {
-                                        if !subscriber || subscriber && subs != "true" {
-                                            let _ = client.send_privmsg(chan, format!("/timeout {} 1", nick));
-                                            if display == "true" { send_message(client.clone(), channel.to_owned(), format!("@{} you've been timed out for posting too many caps", nick), db.clone()); }
+                        // moderate incoming messages
+                        // TODO: symbols, length
+                        if !auth {
+                            let display: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:moderation:display", channel)]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
+                            let caps: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:moderation:caps", channel)]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
+                            let colors: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:moderation:colors", channel)]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
+                            let links: HashSet<String> = from_redis_value(&redis_call(db.clone(), vec!["smembers", &format!("channel:{}:moderation:links", channel)]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
+                            let bkeys: Vec<String> = from_redis_value(&redis_call(db.clone(), vec!["keys", &format!("channel:{}:moderation:blacklist:*", channel)]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
+                            let age: Result<Value,_> = redis_call(db.clone(), vec!["get", &format!("channel:{}:moderation:age", channel)]);
+                            if colors == "true" && msg.len() > 6 && msg.as_bytes()[0] == 1 && &msg[1..7] == "ACTION" {
+                                let _ = client.send_privmsg(chan, format!("/timeout {} 1", nick));
+                                if display == "true" { send_message(client.clone(), channel.to_owned(), format!("@{} you've been timed out for posting colors", nick), db.clone()); }
+                            }
+                            if let Ok(value) = age {
+                                let age: String = from_redis_value(&value).unwrap();
+                                let res: Result<i64,_> = age.parse();
+                                if let Ok(age) = res { spawn_age_check(client.clone(), db.clone(), channel.to_string(), nick.clone(), age, display.to_string()); }
+                            }
+                            if caps == "true" {
+                                let limit: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:moderation:caps:limit", channel)]).expect(&format!("channel:{}:moderation:caps:limit", channel))).unwrap();
+                                let trigger: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:moderation:caps:trigger", channel)]).expect(&format!("channel:{}:moderation:caps:trigger", channel))).unwrap();
+                                let subs: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:moderation:caps:subs", channel)]).expect(&format!("channel:{}:moderation:caps:subs", channel))).unwrap();
+                                let limit: Result<f32,_> = limit.parse();
+                                let trigger: Result<f32,_> = trigger.parse();
+                                if let (Ok(limit), Ok(trigger)) = (limit, trigger) {
+                                    let len = msg.len() as f32;
+                                    if len >= trigger {
+                                        let num = msg.chars().fold(0.0, |acc, c| if c.is_uppercase() { acc + 1.0 } else { acc });
+                                        let ratio = num / len;
+                                        if ratio >= (limit / 100.0) {
+                                            if !subscriber || subscriber && subs != "true" {
+                                                let _ = client.send_privmsg(chan, format!("/timeout {} 1", nick));
+                                                if display == "true" { send_message(client.clone(), channel.to_owned(), format!("@{} you've been timed out for posting too many caps", nick), db.clone()); }
+                                            }
                                         }
                                     }
                                 }
                             }
-                        }
-                        if links.len() > 0 && url_regex().is_match(&msg) {
-                            let sublinks: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:moderation:links:subs", channel)]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
-                            let permitted: Vec<String> = from_redis_value(&redis_call(db.clone(), vec!["keys", &format!("channel:{}:moderation:permitted:*", channel)]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
-                            let permitted: Vec<String> = permitted.iter().map(|key| { let key: Vec<&str> = key.split(":").collect(); key[4].to_owned() }).collect();
-                            if !(permitted.contains(&nick) || (sublinks == "true" && subscriber)) {
-                                for word in msg.split_whitespace() {
-                                    if url_regex().is_match(word) {
-                                        let mut url: String = word.to_owned();
-                                        if url.len() > 7 && url.is_char_boundary(7) && &url[..7] != "http://" && &url[..8] != "https://" { url = format!("http://{}", url) }
-                                        match Url::parse(&url) {
-                                            Err(_) => {}
-                                            Ok(url) => {
-                                                let mut whitelisted = false;
-                                                for link in &links {
-                                                    let link: Vec<&str> = link.split("/").collect();
-                                                    let mut domain = url.domain().unwrap();
-                                                    if domain.len() > 0 && &domain[..4] == "www." { domain = &domain[4..] }
-                                                    if domain == link[0] {
-                                                        if link.len() > 1 {
-                                                            if url.path().len() > 1 && url.path()[1..] == link[1..].join("/") {
+                            if links.len() > 0 && url_regex().is_match(&msg) {
+                                let sublinks: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:moderation:links:subs", channel)]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
+                                let permitted: Vec<String> = from_redis_value(&redis_call(db.clone(), vec!["keys", &format!("channel:{}:moderation:permitted:*", channel)]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
+                                let permitted: Vec<String> = permitted.iter().map(|key| { let key: Vec<&str> = key.split(":").collect(); key[4].to_owned() }).collect();
+                                if !(permitted.contains(&nick) || (sublinks == "true" && subscriber)) {
+                                    for word in msg.split_whitespace() {
+                                        if url_regex().is_match(word) {
+                                            let mut url: String = word.to_owned();
+                                            if url.len() > 7 && url.is_char_boundary(7) && &url[..7] != "http://" && &url[..8] != "https://" { url = format!("http://{}", url) }
+                                            match Url::parse(&url) {
+                                                Err(_) => {}
+                                                Ok(url) => {
+                                                    let mut whitelisted = false;
+                                                    for link in &links {
+                                                        let link: Vec<&str> = link.split("/").collect();
+                                                        let mut domain = url.domain().unwrap();
+                                                        if domain.len() > 0 && &domain[..4] == "www." { domain = &domain[4..] }
+                                                        if domain == link[0] {
+                                                            if link.len() > 1 {
+                                                                if url.path().len() > 1 && url.path()[1..] == link[1..].join("/") {
+                                                                    whitelisted = true;
+                                                                    break;
+                                                                }
+                                                            } else {
                                                                 whitelisted = true;
                                                                 break;
                                                             }
-                                                        } else {
-                                                            whitelisted = true;
-                                                            break;
                                                         }
                                                     }
-                                                }
-                                                if !whitelisted {
-                                                    let _ = client.send_privmsg(chan, format!("/timeout {} 1", nick));
-                                                    if display == "true" { send_message(client.clone(), channel.to_owned(), format!("@{} you've been timed out for posting links", nick), db.clone()); }
+                                                    if !whitelisted {
+                                                        let _ = client.send_privmsg(chan, format!("/timeout {} 1", nick));
+                                                        if display == "true" { send_message(client.clone(), channel.to_owned(), format!("@{} you've been timed out for posting links", nick), db.clone()); }
+                                                    }
                                                 }
                                             }
                                         }
                                     }
                                 }
                             }
-                        }
-                        for key in bkeys {
-                            let key: Vec<&str> = key.split(":").collect();
-                            let rgx: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:moderation:blacklist:{}", channel, key[4]), "regex"]).expect(&format!("channel:{}:moderation:blacklist:{}", channel, key[4]))).unwrap();
-                            let length: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:moderation:blacklist:{}", channel, key[4]), "length"]).expect(&format!("channel:{}:moderation:blacklist:{}", channel, key[4]))).unwrap();
-                            match RegexBuilder::new(&rgx).case_insensitive(true).build() {
-                                Err(e) => { log_error(Some(Right(vec![&channel])), "regex_error", &e.to_string(), db.clone()) }
-                                Ok(rgx) => {
-                                    if rgx.is_match(&msg) {
-                                        let _ = client.send_privmsg(chan, format!("/timeout {} {}", nick, length));
-                                        if display == "true" { send_message(client.clone(), channel.to_owned(), format!("@{} you've been timed out for posting a blacklisted phrase", nick), db.clone()); }
-                                        break;
+                            for key in bkeys {
+                                let key: Vec<&str> = key.split(":").collect();
+                                let rgx: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:moderation:blacklist:{}", channel, key[4]), "regex"]).expect(&format!("channel:{}:moderation:blacklist:{}", channel, key[4]))).unwrap();
+                                let length: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:moderation:blacklist:{}", channel, key[4]), "length"]).expect(&format!("channel:{}:moderation:blacklist:{}", channel, key[4]))).unwrap();
+                                match RegexBuilder::new(&rgx).case_insensitive(true).build() {
+                                    Err(e) => { log_error(Some(Right(vec![&channel])), "regex_error", &e.to_string(), db.clone()) }
+                                    Ok(rgx) => {
+                                        if rgx.is_match(&msg) {
+                                            let _ = client.send_privmsg(chan, format!("/timeout {} {}", nick, length));
+                                            if display == "true" { send_message(client.clone(), channel.to_owned(), format!("@{} you've been timed out for posting a blacklisted phrase", nick), db.clone()); }
+                                            break;
+                                        }
                                     }
                                 }
                             }
                         }
-                    }
 
-                    // expand aliases
-                    let res: Result<Value,_> = redis_call(db.clone(), vec!["hget", &format!("channel:{}:aliases", channel), &word]);
-                    if let Ok(value) = res {
-                        let alias: String = from_redis_value(&value).unwrap();
-                        let mut awords = alias.split_whitespace();
-                        if let Some(aword) = awords.next() {
-                            let mut cargs = args.clone();
-                            let mut awords: Vec<String> = awords.map(|w| w.to_owned()).collect();
-                            awords.append(&mut cargs);
-                            word = aword.to_owned();
-                            args = awords.to_owned();
-                        }
-                    }
-
-                    // parse native commands
-                    for cmd in commands::native_commands.iter() {
-                        if format!("{}{}", prefix, cmd.0) == word {
-                            if args.len() == 0 {
-                                if !cmd.2 || auth { (cmd.1)(client.clone(), channel.to_owned(), args.clone(), Some(irc_message.clone()), db.clone()) }
-                            } else {
-                                if !cmd.3 || auth { (cmd.1)(client.clone(), channel.to_owned(), args.clone(), Some(irc_message.clone()), db.clone()) }
-                            }
-                            break;
-                        }
-                    }
-
-                    // parse custom commands
-                    let res: Result<Value,_> = redis_call(db.clone(), vec!["hget", &format!("channel:{}:commands:{}", channel.to_owned(), word), "message"]);
-                    if let Ok(value) = res {
-                        let message: String = from_redis_value(&value).unwrap();
-                        let res: Result<Value,_> = redis_call(db.clone(), vec!["hget", &format!("channel:{}:commands:{}", channel.to_owned(), word), "lastrun"]);
-                        let mut within5 = false;
+                        // expand aliases
+                        let res: Result<Value,_> = redis_call(db.clone(), vec!["hget", &format!("channel:{}:aliases", channel), &word]);
                         if let Ok(value) = res {
-                            let lastrun: String = from_redis_value(&value).unwrap();
-                            let timestamp = DateTime::parse_from_rfc3339(&lastrun).unwrap();
-                            let diff = Utc::now().signed_duration_since(timestamp);
-                            if diff.num_seconds() < 5 { within5 = true }
-                        }
-                        if !within5 {
-                            let mut protected: &str = "cmd";
-                            if args.len() > 0 { protected = "arg" }
-                            let protected: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:commands:{}", channel, word), &format!("{}_protected", protected)]).expect(&format!("{}:{}", &format!("channel:{}:commands:{}", channel, word), &format!("{}_protected", protected)))).unwrap();
-                            if protected == "false" || auth {
-                                redis_call(db.clone(), vec!["hset", &format!("channel:{}:commands:{}", channel, word), "lastrun", &Utc::now().to_rfc3339()]);
-                                send_parsed_message(client.clone(), channel.to_owned(), message.to_owned(), args.clone(), Some(irc_message.clone()), db.clone());
+                            let alias: String = from_redis_value(&value).unwrap();
+                            let mut awords = alias.split_whitespace();
+                            if let Some(aword) = awords.next() {
+                                let mut cargs = args.clone();
+                                let mut awords: Vec<String> = awords.map(|w| w.to_owned()).collect();
+                                awords.append(&mut cargs);
+                                word = aword.to_owned();
+                                args = awords.to_owned();
                             }
                         }
-                    }
 
-                    // parse greetings
-                    let keys: Vec<String> = from_redis_value(&redis_call(db.clone(), vec!["keys", &format!("channel:{}:greetings:*", channel)]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
-                    for key in keys.iter() {
-                        let key: Vec<&str> = key.split(":").collect();
-                        if key[3] == nick {
-                            let msg: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:greetings:{}", channel, key[3]), "message"]).expect(&format!("channel:{}:greetings:{}", channel, key[3]))).unwrap();
-                            let hours: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:greetings:{}", channel, key[3]), "hours"]).expect(&format!("channel:{}:greetings:{}", channel, key[3]))).unwrap();
-                            let res: Result<Value,_> = redis_call(db.clone(), vec!["hget", &format!("channel:{}:lastseen", channel), key[3]]);
+                        // parse native commands
+                        for cmd in commands::native_commands.iter() {
+                            if format!("{}{}", prefix, cmd.0) == word {
+                                if args.len() == 0 {
+                                    if !cmd.2 || auth { (cmd.1)(client.clone(), channel.to_owned(), args.clone(), Some(irc_message.clone()), db.clone()) }
+                                } else {
+                                    if !cmd.3 || auth { (cmd.1)(client.clone(), channel.to_owned(), args.clone(), Some(irc_message.clone()), db.clone()) }
+                                }
+                                break;
+                            }
+                        }
+
+                        // parse custom commands
+                        let res: Result<Value,_> = redis_call(db.clone(), vec!["hget", &format!("channel:{}:commands:{}", channel.to_owned(), word), "message"]);
+                        if let Ok(value) = res {
+                            let message: String = from_redis_value(&value).unwrap();
+                            let res: Result<Value,_> = redis_call(db.clone(), vec!["hget", &format!("channel:{}:commands:{}", channel.to_owned(), word), "lastrun"]);
+                            let mut within5 = false;
                             if let Ok(value) = res {
-                                let lastseen: String = from_redis_value(&value).unwrap();
-                                let hours: i64 = hours.parse().expect("hours:parse");
-                                let timestamp = DateTime::parse_from_rfc3339(&lastseen).unwrap();
+                                let lastrun: String = from_redis_value(&value).unwrap();
+                                let timestamp = DateTime::parse_from_rfc3339(&lastrun).unwrap();
                                 let diff = Utc::now().signed_duration_since(timestamp);
-                                if diff.num_hours() < hours { break }
+                                if diff.num_seconds() < 5 { within5 = true }
                             }
-                            send_parsed_message(client.clone(), channel.to_owned(), msg, Vec::new(), None, db.clone());
-                            break;
+                            if !within5 {
+                                let mut protected: &str = "cmd";
+                                if args.len() > 0 { protected = "arg" }
+                                let protected: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:commands:{}", channel, word), &format!("{}_protected", protected)]).expect(&format!("{}:{}", &format!("channel:{}:commands:{}", channel, word), &format!("{}_protected", protected)))).unwrap();
+                                if protected == "false" || auth {
+                                    redis_call(db.clone(), vec!["hset", &format!("channel:{}:commands:{}", channel, word), "lastrun", &Utc::now().to_rfc3339()]);
+                                    send_parsed_message(client.clone(), channel.to_owned(), message.to_owned(), args.clone(), Some(irc_message.clone()), db.clone());
+                                }
+                            }
                         }
-                    }
 
-                    redis_call(db.clone(), vec!["hset", &format!("channel:{}:lastseen", channel), &nick, &Utc::now().to_rfc3339()]);
+                        // parse greetings
+                        let keys: Vec<String> = from_redis_value(&redis_call(db.clone(), vec!["keys", &format!("channel:{}:greetings:*", channel)]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
+                        for key in keys.iter() {
+                            let key: Vec<&str> = key.split(":").collect();
+                            if key[3] == nick {
+                                let msg: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:greetings:{}", channel, key[3]), "message"]).expect(&format!("channel:{}:greetings:{}", channel, key[3]))).unwrap();
+                                let hours: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:greetings:{}", channel, key[3]), "hours"]).expect(&format!("channel:{}:greetings:{}", channel, key[3]))).unwrap();
+                                let res: Result<Value,_> = redis_call(db.clone(), vec!["hget", &format!("channel:{}:lastseen", channel), key[3]]);
+                                if let Ok(value) = res {
+                                    let lastseen: String = from_redis_value(&value).unwrap();
+                                    let hours: i64 = hours.parse().expect("hours:parse");
+                                    let timestamp = DateTime::parse_from_rfc3339(&lastseen).unwrap();
+                                    let diff = Utc::now().signed_duration_since(timestamp);
+                                    if diff.num_hours() < hours { break }
+                                }
+                                send_parsed_message(client.clone(), channel.to_owned(), msg, Vec::new(), None, db.clone());
+                                break;
+                            }
+                        }
+
+                        redis_call(db.clone(), vec!["hset", &format!("channel:{}:lastseen", channel), &nick, &Utc::now().to_rfc3339()]);
+                    }
                 }
             }
             _ => {}
