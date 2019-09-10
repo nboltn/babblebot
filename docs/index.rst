@@ -9,6 +9,7 @@ Documentation
 
    installation
    control
+   local
    settings/index
    commands/index
    variables/index
