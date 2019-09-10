@@ -8,6 +8,7 @@
     <div id='header'>
       <div id='title'>Babblebot</div>
       <div id='links'>
+        <a href='https://headwayapp.co/babblebot-release-notes' target='_window'>release notes</a>
         <a href='http://docs.babblebot.io/en/latest/index.html' target='_window'>documentation</a>
         <a id='login' href='javascript:void(0)'>login</a>
       </div>
