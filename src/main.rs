@@ -81,12 +81,12 @@ fn main() {
         log_info(None, "main", "connecting to irc", db.clone());
         thread::spawn(move || {
             let mut bots: HashMap<String, (HashSet<String>, Config)> = HashMap::new();
-            let bs: HashSet<String> = from_redis_value(&redis_call(db.clone(), vec!["smembers", "bots"]).unwrap()).unwrap();
+            let bs: HashSet<String> = from_redis_value(&redis_call(db.clone(), vec!["smembers", "bots"]).expect("smembers:bots")).unwrap();
             for bot in bs {
                 let db = db.clone();
-                let channelH: HashSet<String> = from_redis_value(&redis_call(db.clone(), vec!["smembers", &format!("bot:{}:channels", bot)]).unwrap()).unwrap();
+                let channelH: HashSet<String> = from_redis_value(&redis_call(db.clone(), vec!["smembers", &format!("bot:{}:channels", bot)]).expect(&format!("bot:{}:channels", bot))).unwrap();
                 if channelH.len() > 0 {
-                    let passphrase: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("bot:{}:token", bot)]).unwrap()).unwrap();
+                    let passphrase: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("bot:{}:token", bot)]).expect(&format!("bot:{}:token", bot))).unwrap();
                     let mut channels: Vec<String> = Vec::new();
                     channels.extend(channelH.iter().cloned().map(|chan| { format!("#{}", chan) }));
                     let config = Config {
@@ -212,7 +212,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, db: (Sender<Vec
                             }
                         }
                         if bits > 0 {
-                            let etype: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:events:bits:{}", channel, bits), "type"]).unwrap()).unwrap();
+                            let etype: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:events:bits:{}", channel, bits), "type"]).expect(&format!("channel:{}:events:bits:{}", channel, bits))).unwrap();
                             match etype.as_ref() {
                                 "local" => {
                                     let ids: Vec<String> = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:events:bits:{}", channel, bits), "actions"]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
@@ -242,9 +242,9 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, db: (Sender<Vec
                             if let Ok(age) = res { spawn_age_check(client.clone(), db.clone(), channel.to_string(), nick.clone(), age, display.to_string()); }
                         }
                         if caps == "true" {
-                            let limit: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:moderation:caps:limit", channel)]).unwrap()).unwrap();
-                            let trigger: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:moderation:caps:trigger", channel)]).unwrap()).unwrap();
-                            let subs: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:moderation:caps:subs", channel)]).unwrap()).unwrap();
+                            let limit: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:moderation:caps:limit", channel)]).expect(&format!("channel:{}:moderation:caps:limit", channel))).unwrap();
+                            let trigger: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:moderation:caps:trigger", channel)]).expect(&format!("channel:{}:moderation:caps:trigger", channel))).unwrap();
+                            let subs: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:moderation:caps:subs", channel)]).expect(&format!("channel:{}:moderation:caps:subs", channel))).unwrap();
                             let limit: Result<f32,_> = limit.parse();
                             let trigger: Result<f32,_> = trigger.parse();
                             if let (Ok(limit), Ok(trigger)) = (limit, trigger) {
@@ -302,8 +302,8 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, db: (Sender<Vec
                         }
                         for key in bkeys {
                             let key: Vec<&str> = key.split(":").collect();
-                            let rgx: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:moderation:blacklist:{}", channel, key[4]), "regex"]).unwrap()).unwrap();
-                            let length: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:moderation:blacklist:{}", channel, key[4]), "length"]).unwrap()).unwrap();
+                            let rgx: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:moderation:blacklist:{}", channel, key[4]), "regex"]).expect(&format!("channel:{}:moderation:blacklist:{}", channel, key[4]))).unwrap();
+                            let length: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:moderation:blacklist:{}", channel, key[4]), "length"]).expect(&format!("channel:{}:moderation:blacklist:{}", channel, key[4]))).unwrap();
                             match RegexBuilder::new(&rgx).case_insensitive(true).build() {
                                 Err(e) => { log_error(Some(Right(vec![&channel])), "regex_error", &e.to_string(), db.clone()) }
                                 Ok(rgx) => {
@@ -358,7 +358,7 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, db: (Sender<Vec
                         if !within5 {
                             let mut protected: &str = "cmd";
                             if args.len() > 0 { protected = "arg" }
-                            let protected: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:commands:{}", channel, word), &format!("{}_protected", protected)]).unwrap()).unwrap();
+                            let protected: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:commands:{}", channel, word), &format!("{}_protected", protected)]).expect(&format!("{}:{}", &format!("channel:{}:commands:{}", channel, word), &format!("{}_protected", protected)))).unwrap();
                             if protected == "false" || auth {
                                 redis_call(db.clone(), vec!["hset", &format!("channel:{}:commands:{}", channel, word), "lastrun", &Utc::now().to_rfc3339()]);
                                 send_parsed_message(client.clone(), channel.to_owned(), message.to_owned(), args.clone(), Some(irc_message.clone()), db.clone());
@@ -371,8 +371,8 @@ fn register_handler(client: IrcClient, reactor: &mut IrcReactor, db: (Sender<Vec
                     for key in keys.iter() {
                         let key: Vec<&str> = key.split(":").collect();
                         if key[3] == nick {
-                            let msg: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:greetings:{}", channel, key[3]), "message"]).unwrap()).unwrap();
-                            let hours: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:greetings:{}", channel, key[3]), "hours"]).unwrap()).unwrap();
+                            let msg: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:greetings:{}", channel, key[3]), "message"]).expect(&format!("channel:{}:greetings:{}", channel, key[3]))).unwrap();
+                            let hours: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:greetings:{}", channel, key[3]), "hours"]).expect(&format!("channel:{}:greetings:{}", channel, key[3]))).unwrap();
                             let res: Result<Value,_> = redis_call(db.clone(), vec!["hget", &format!("channel:{}:lastseen", channel), key[3]]);
                             if let Ok(value) = res {
                                 let lastseen: String = from_redis_value(&value).unwrap();
@@ -454,8 +454,8 @@ fn new_channel_listener(db: (Sender<Vec<String>>, Receiver<Result<Value, String>
             if let Ok(msg) = res {
                 let channel: String = msg.get_payload().expect("redis:get_payload");
                 let mut bots: HashMap<String, (HashSet<String>, Config)> = HashMap::new();
-                let bot: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:bot", channel)]).unwrap()).unwrap();
-                let passphrase: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("bot:{}:token", bot)]).unwrap()).unwrap();
+                let bot: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:bot", channel)]).expect(&format!("channel:{}:bot", channel))).unwrap();
+                let passphrase: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("bot:{}:token", bot)]).expect(&format!("bot:{}:token", bot))).unwrap();
                 let mut channel_hash: HashSet<String> = HashSet::new();
                 let mut channels: Vec<String> = Vec::new();
                 channel_hash.insert(channel.to_owned());
@@ -539,7 +539,7 @@ fn rename_channel_listener(channel: String, client: Arc<IrcClient>, receiver: Re
                                     if json.name != channel {
                                         let _ = client.send_part(format!("#{}", channel));
 
-                                        let bot: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:bot", &channel)]).unwrap()).unwrap();
+                                        let bot: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:bot", &channel)]).expect(&format!("channel:{}:bot", &channel))).unwrap();
                                         redis_call(db.clone(), vec!["srem", &format!("bot:{}:channels", &bot), &channel]);
                                         redis_call(db.clone(), vec!["sadd", "bots", &json.name]);
                                         redis_call(db.clone(), vec!["sadd", &format!("bot:{}:channels", &json.name), &channel]);
@@ -667,13 +667,13 @@ fn run_notices(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
                     }).collect();
 
                     for int in ints.iter() {
-                        let num: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:notices:{}:countdown", channel, int)]).unwrap()).unwrap();
+                        let num: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:notices:{}:countdown", channel, int)]).expect(&format!("channel:{}:notices:{}:countdown", channel, int))).unwrap();
                         let num: u16 = num.parse().unwrap();
                         if num > 0 { redis_call(db.clone(), vec!["decrby", &format!("channel:{}:notices:{}:countdown", channel, int), "60"]); }
                     };
 
                     let int = ints.iter().filter(|int| {
-                        let num: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:notices:{}:countdown", channel, int)]).unwrap()).unwrap();
+                        let num: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:notices:{}:countdown", channel, int)]).expect(&format!("channel:{}:notices:{}:countdown", channel, int))).unwrap();
                         let num: u16 = num.parse().unwrap();
                         return num <= 0;
                     }).fold(0, |acc, int| {
@@ -683,7 +683,7 @@ fn run_notices(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
 
                     if int != 0 {
                         redis_call(db.clone(), vec!["set", &format!("channel:{}:notices:{}:countdown", channel, int), int.to_string().as_ref()]);
-                        let cmd: String = from_redis_value(&redis_call(db.clone(), vec!["lpop", &format!("channel:{}:notices:{}:commands", channel, int)]).unwrap()).unwrap();
+                        let cmd: String = from_redis_value(&redis_call(db.clone(), vec!["lpop", &format!("channel:{}:notices:{}:commands", channel, int)]).expect(&format!("channel:{}:notices:{}:commands", channel, int))).unwrap();
                         redis_call(db.clone(), vec!["rpush", &format!("channel:{}:notices:{}:commands", channel, int), &cmd]);
                         let res: Result<Value,_> = redis_call(db.clone(), vec!["hget", &format!("channel:{}:commands:{}", channel, cmd), "message"]);
                         if let Ok(value) = res {
@@ -707,8 +707,8 @@ fn run_scheduled_notices(db: (Sender<Vec<String>>, Receiver<Result<Value, String
                 if live == "true" {
                     let keys: Vec<String> = from_redis_value(&redis_call(db.clone(), vec!["keys", &format!("channel:{}:snotices:*", channel)]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
                     keys.iter().for_each(|key| {
-                        let time: String = from_redis_value(&redis_call(db.clone(), vec!["hget", key, "time"]).unwrap()).unwrap();
-                        let cmd: String = from_redis_value(&redis_call(db.clone(), vec!["hget", key, "cmd"]).unwrap()).unwrap();
+                        let time: String = from_redis_value(&redis_call(db.clone(), vec!["hget", key, "time"]).expect(&format!("{}:{}", key, "time"))).unwrap();
+                        let cmd: String = from_redis_value(&redis_call(db.clone(), vec!["hget", key, "cmd"]).expect(&format!("{}:{}", key, "cmd"))).unwrap();
                         let res = NaiveTime::parse_from_str(&time, "%H:%M%z");
                         if let Ok(time) = res {
                             let hour = time.hour();
@@ -897,10 +897,10 @@ fn run_commercials(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
                             }
                         }
                         if !within8 {
-                            let id: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:id", channel)]).unwrap()).unwrap();
+                            let id: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:id", channel)]).expect(&format!("channel:{}:id", channel))).unwrap();
                             let submode: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:commercials:submode", channel)]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
                             let nres: Result<Value,_> = redis_call(db.clone(), vec!["get", &format!("channel:{}:commercials:notice", channel)]);
-                            let length: u16 = from_redis_value(&redis_call(db.clone(), vec!["llen", &format!("channel:{}:commercials:recent", channel)]).unwrap()).unwrap();
+                            let length: u16 = from_redis_value(&redis_call(db.clone(), vec!["llen", &format!("channel:{}:commercials:recent", channel)]).expect(&format!("channel:{}:commercials:recent", channel))).unwrap();
                             redis_call(db.clone(), vec!["lpush", &format!("channel:{}:commercials:recent", channel), &format!("{} {}", Utc::now().to_rfc3339(), num)]);
                             if length > 7 {
                                 redis_call(db.clone(), vec!["rpop", &format!("channel:{}:commercials:recent", channel)]);
@@ -924,7 +924,7 @@ fn run_commercials(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
                             }
                             log_info(Some(Right(vec![&channel])), "run_commercials", &format!("{} commercials have been run", num), db.clone());
                             connect_and_send_message(channel.clone(), format!("{} commercials have been run", num), db.clone());
-                            let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).unwrap()).unwrap();
+                            let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).expect(&format!("channel:{}:token", &channel))).unwrap();
                             let future = twitch_kraken_request(token, Some("application/json"), Some(format!("{{\"length\": {}}}", num * 30).as_bytes().to_owned()), Method::POST, &format!("https://api.twitch.tv/kraken/channels/{}/commercial", &id)).send().and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() }).map_err(|e| println!("request error: {}", e)).map(move |_body| {});
                             thread::spawn(move || { tokio::run(future) });
                         }
@@ -945,7 +945,7 @@ fn update_patreon(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
                 let dbC = db.clone();
                 let res: Result<Value,_> = redis_call(db.clone(), vec!["get", &format!("channel:{}:patreon:token", &channel)]);
                 if let Ok(_value) = res {
-                    let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:patreon:token", &channel)]).unwrap()).unwrap();
+                    let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:patreon:token", &channel)]).expect(&format!("channel:{}:patreon:token", &channel))).unwrap();
                     let future = patreon_request(token, Method::GET, "https://www.patreon.com/api/oauth2/v2/identity?include=memberships").send()
                         .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                         .map_err(|e| println!("request error: {}", e))
@@ -974,7 +974,7 @@ fn update_patreon(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
                                                         redis_call(db.clone(), vec!["set", &format!("channel:{}:patreon:token", &channel), &json.access_token]);
                                                         redis_call(db.clone(), vec!["set", &format!("channel:{}:patreon:refresh", &channel), &json.refresh_token]);
 
-                                                        let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:patreon:token", &channel)]).unwrap()).unwrap();
+                                                        let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:patreon:token", &channel)]).expect(&format!("channel:{}:patreon:token", &channel))).unwrap();
                                                         let future = patreon_request(token, Method::GET, "https://www.patreon.com/api/oauth2/v2/identity?include=memberships").send()
                                                             .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                                                             .map_err(|e| println!("request error: {}", e))
@@ -991,7 +991,7 @@ fn update_patreon(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
                                                                         settings.merge(config::File::with_name("Settings")).unwrap();
                                                                         settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
                                                                         let patreon_id = settings.get_str("patreon_id").unwrap_or("".to_owned());
-                                                                        let patreon_sub: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:patreon:subscribed", &channel)]).unwrap()).unwrap();
+                                                                        let patreon_sub: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:patreon:subscribed", &channel)]).expect(&format!("channel:{}:patreon:subscribed", &channel))).unwrap();
 
                                                                         let mut subscribed = false;
                                                                         for membership in &json.data.relationships.memberships.data {
@@ -1022,7 +1022,7 @@ fn update_patreon(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
                                     settings.merge(config::File::with_name("Settings")).unwrap();
                                     settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
                                     let patreon_id = settings.get_str("patreon_id").unwrap_or("".to_owned());
-                                    let patreon_sub: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:patreon:subscribed", &channel)]).unwrap()).unwrap();
+                                    let patreon_sub: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:patreon:subscribed", &channel)]).expect(&format!("channel:{}:patreon:subscribed", &channel))).unwrap();
 
                                     let mut subscribed = false;
                                     for membership in &json.data.relationships.memberships.data {
@@ -1310,11 +1310,11 @@ fn update_live(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
             if channels.len() > 0 {
                 let mut ids = Vec::new();
                 for channel in channels.clone() {
-                    let id: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:id", channel)]).unwrap()).unwrap();
+                    let id: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:id", channel)]).expect(&format!("channel:{}:id", channel))).unwrap();
                     ids.push(id);
                 }
                 let channel = channels.iter().next().unwrap();
-                let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).unwrap()).unwrap();
+                let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).expect(&format!("channel:{}:token", &channel))).unwrap();
                 let future = twitch_kraken_request(token, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/streams?channel={}", ids.join(","))).send()
                     .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                     .map_err(|e| println!("request error: {}", e))
@@ -1344,12 +1344,11 @@ fn update_live(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
                                             // send discord announcements
                                             let tres: Result<Value,_> = redis_call(db.clone(), vec!["hget", &format!("channel:{}:settings", channel), "discord:token"]);
                                             let ires: Result<Value,_> = redis_call(db.clone(), vec!["hget",&format!("channel:{}:settings", channel), "discord:channel-id"]);
-                                            if let (Ok(_token), Ok(value)) = (tres, ires) {
+                                            if let (Ok(token), Ok(value)) = (tres, ires) {
                                                 let id: String = from_redis_value(&value).unwrap();
                                                 let message: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:settings", channel), "discord:live-message"]).unwrap_or(Value::Data("".as_bytes().to_owned()))).unwrap();
-                                                let display: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:display-name", channel)]).unwrap()).unwrap();
+                                                let display: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:display-name", channel)]).expect(&format!("channel:{}:display-name", channel))).unwrap();
                                                 let body = format!("{{ \"content\": \"{}\", \"embed\": {{ \"author\": {{ \"name\": \"{}\" }}, \"title\": \"{}\", \"url\": \"http://twitch.tv/{}\", \"thumbnail\": {{ \"url\": \"{}\" }}, \"fields\": [{{ \"name\": \"Now Playing\", \"value\": \"{}\" }}] }} }}", &message, &display, stream.channel.status, channel, stream.channel.logo, stream.channel.game);
-                                                let token: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:settings", &channel), "discord:token"]).unwrap()).unwrap();
                                                 let future = discord_request(token, Some(body.as_bytes().to_owned()), Method::POST, &format!("https://discordapp.com/api/channels/{}/messages", id)).send().and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() }).map_err(|e| println!("request error: {}", e)).map(move |_body| {});
                                                 thread::spawn(move || { tokio::run(future) });
                                             }
@@ -1401,7 +1400,7 @@ fn update_stats(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
                         }
                     }
                 }
-                let live: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:live", &channel)]).unwrap()).unwrap();
+                let live: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:live", &channel)]).expect(&format!("channel:{}:live", &channel))).unwrap();
                 if live == "true" {
                     let res1: Result<Value,_> = redis_call(db.clone(), vec!["hget", &format!("channel:{}:settings", &channel), "pubg:token"]);
                     let res2: Result<Value,_> = redis_call(db.clone(), vec!["hget", &format!("channel:{}:settings", &channel), "pubg:name"]);
@@ -1540,7 +1539,7 @@ fn update_stats(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
                         }
                     }
                 }
-                let live: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:live", &channel)]).unwrap()).unwrap();
+                let live: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:live", &channel)]).expect(&format!("channel:{}:live", &channel))).unwrap();
                 if live == "true" {
                     let res1: Result<Value,_> = redis_call(db.clone(), vec!["hget", &format!("channel:{}:settings", &channel), "fortnite:token"]);
                     let res2: Result<Value,_> = redis_call(db.clone(), vec!["hget", &format!("channel:{}:settings", &channel), "fortnite:name"]);

@@ -79,8 +79,8 @@ fn cmd_var(client: Option<Arc<IrcClient>>, channel: String, irc_message: Option<
 }
 
 fn uptime_var(_client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) -> Option<(RequestBuilder, fn((String, (Sender<Vec<String>>, Receiver<Result<Value, String>>), Chunk)) -> String)> {
-    let id: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:id", &channel)]).unwrap()).unwrap();
-    let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).unwrap()).unwrap();
+    let id: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:id", &channel)]).expect(&format!("channel:{}:id", &channel))).unwrap();
+    let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).expect(&format!("channel:{}:token", &channel))).unwrap();
     let builder = twitch_kraken_request(token, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/streams?channel={}", &id));
     let func = move |(channel, db, body): (String, (Sender<Vec<String>>, Receiver<Result<Value, String>>), Chunk)| -> String {
         let body = std::str::from_utf8(&body).unwrap().to_string();
@@ -132,7 +132,7 @@ fn user_var(_client: Option<Arc<IrcClient>>, _channel: String, message: Option<M
 }
 
 fn channel_var(_client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) -> String {
-    let display: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:display-name", channel)]).unwrap()).unwrap();
+    let display: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:display-name", channel)]).expect(&format!("channel:{}:display-name", channel))).unwrap();
     display
 }
 
@@ -157,12 +157,12 @@ fn counterinc_var(_client: Option<Arc<IrcClient>>, channel: String, _message: Op
 
 fn followage_var(_client: Option<Arc<IrcClient>>, channel: String, message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) -> Option<(RequestBuilder, fn((String, (Sender<Vec<String>>, Receiver<Result<Value, String>>), Chunk)) -> String)> {
     if let Some(message) = message {
-        let id: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:id", channel)]).unwrap()).unwrap();
+        let id: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:id", channel)]).expect(&format!("channel:{}:id", channel))).unwrap();
         let user_id = get_id(&message).unwrap();
-        let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).unwrap()).unwrap();
+        let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).expect(&format!("channel:{}:token", &channel))).unwrap();
         let builder = twitch_kraken_request(token, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/users/{}/follows/channels/{}", &user_id, &id));
         let func = move |(channel, db, body): (String, (Sender<Vec<String>>, Receiver<Result<Value, String>>), Chunk)| -> String {
-            let id: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:id", channel)]).unwrap()).unwrap();
+            let id: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:id", channel)]).expect(&format!("channel:{}:id", channel))).unwrap();
             let body = std::str::from_utf8(&body).unwrap().to_string();
             let json: Result<KrakenFollow,_> = serde_json::from_str(&body);
             match json {
@@ -185,11 +185,11 @@ fn followage_var(_client: Option<Arc<IrcClient>>, channel: String, message: Opti
 }
 
 fn subcount_var(_client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) -> Option<(RequestBuilder, fn((String, (Sender<Vec<String>>, Receiver<Result<Value, String>>), Chunk)) -> String)> {
-    let id: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:id", channel)]).unwrap()).unwrap();
-    let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).unwrap()).unwrap();
+    let id: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:id", channel)]).expect(&format!("channel:{}:id", channel))).unwrap();
+    let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).expect(&format!("channel:{}:token", &channel))).unwrap();
     let builder = twitch_kraken_request(token, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/channels/{}/subscriptions", &id));
     let func = move |(channel, db, body): (String, (Sender<Vec<String>>, Receiver<Result<Value, String>>), Chunk)| -> String {
-        let id: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:id", channel)]).unwrap()).unwrap();
+        let id: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:id", channel)]).expect(&format!("channel:{}:id", channel))).unwrap();
         let body = std::str::from_utf8(&body).unwrap().to_string();
         let json: Result<KrakenSubs,_> = serde_json::from_str(&body);
         match json {
@@ -201,11 +201,11 @@ fn subcount_var(_client: Option<Arc<IrcClient>>, channel: String, _message: Opti
 }
 
 fn followcount_var(_client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) -> Option<(RequestBuilder, fn((String, (Sender<Vec<String>>, Receiver<Result<Value, String>>), Chunk)) -> String)> {
-    let id: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:id", channel)]).unwrap()).unwrap();
-    let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).unwrap()).unwrap();
+    let id: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:id", channel)]).expect(&format!("channel:{}:id", channel))).unwrap();
+    let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).expect(&format!("channel:{}:token", &channel))).unwrap();
     let builder = twitch_kraken_request(token, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/channels/{}/follows", &id));
     let func = move |(channel, db, body): (String, (Sender<Vec<String>>, Receiver<Result<Value, String>>), Chunk)| -> String {
-        let id: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:id", channel)]).unwrap()).unwrap();
+        let id: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:id", channel)]).expect(&format!("channel:{}:id", channel))).unwrap();
         let body = std::str::from_utf8(&body).unwrap().to_string();
         let json: Result<KrakenFollows,_> = serde_json::from_str(&body);
         match json {
@@ -404,7 +404,7 @@ fn urlfetch_var(_client: Option<Arc<IrcClient>>, _channel: String, _message: Opt
 }
 
 fn spotify_playing_title_var(_client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) -> Option<(RequestBuilder, fn((String, (Sender<Vec<String>>, Receiver<Result<Value, String>>), Chunk)) -> String)> {
-    let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:spotify:token", &channel)]).unwrap()).unwrap();
+    let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:spotify:token", &channel)]).expect(&format!("channel:{}:spotify:token", &channel))).unwrap();
     let builder = spotify_request(token, Method::GET, "https://api.spotify.com/v1/me/player/currently-playing", None);
     let func = move |(channel, db, body): (String, (Sender<Vec<String>>, Receiver<Result<Value, String>>), Chunk)| -> String {
         let body = std::str::from_utf8(&body).unwrap();
@@ -422,7 +422,7 @@ fn spotify_playing_title_var(_client: Option<Arc<IrcClient>>, channel: String, _
 }
 
 fn spotify_playing_album_var(_client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) -> Option<(RequestBuilder, fn((String, (Sender<Vec<String>>, Receiver<Result<Value, String>>), Chunk)) -> String)> {
-    let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:spotify:token", &channel)]).unwrap()).unwrap();
+    let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:spotify:token", &channel)]).expect(&format!("channel:{}:spotify:token", &channel))).unwrap();
     let builder = spotify_request(token, Method::GET, "https://api.spotify.com/v1/me/player/currently-playing", None);
     let func = move |(channel, db, body): (String, (Sender<Vec<String>>, Receiver<Result<Value, String>>), Chunk)| -> String {
         let body = std::str::from_utf8(&body).unwrap();
@@ -440,7 +440,7 @@ fn spotify_playing_album_var(_client: Option<Arc<IrcClient>>, channel: String, _
 }
 
 fn spotify_playing_artist_var(_client: Option<Arc<IrcClient>>, channel: String, _message: Option<Message>, _vargs: Vec<String>, _cargs: Vec<String>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) -> Option<(RequestBuilder, fn((String, (Sender<Vec<String>>, Receiver<Result<Value, String>>), Chunk)) -> String)> {
-    let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:spotify:token", &channel)]).unwrap()).unwrap();
+    let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:spotify:token", &channel)]).expect(&format!("channel:{}:spotify:token", &channel))).unwrap();
     let builder = spotify_request(token, Method::GET, "https://api.spotify.com/v1/me/player/currently-playing", None);
     let func = move |(channel, db, body): (String, (Sender<Vec<String>>, Receiver<Result<Value, String>>), Chunk)| -> String {
         let body = std::str::from_utf8(&body).unwrap();
@@ -599,9 +599,9 @@ fn command_cmd(client: Arc<IrcClient>, channel: String, args: Vec<String>, _mess
 }
 
 fn title_cmd(client: Arc<IrcClient>, channel: String, args: Vec<String>, _message: Option<Message>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
-    let id: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:id", channel)]).unwrap()).unwrap();
+    let id: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:id", channel)]).expect(&format!("channel:{}:id", channel))).unwrap();
     if args.len() == 0 {
-        let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).unwrap()).unwrap();
+        let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).expect(&format!("channel:{}:token", &channel))).unwrap();
         let future = twitch_kraken_request(token, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/channels/{}", &id)).send()
             .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
             .map_err(|e| println!("request error: {}", e))
@@ -618,7 +618,7 @@ fn title_cmd(client: Arc<IrcClient>, channel: String, args: Vec<String>, _messag
             });
         thread::spawn(move || { tokio::run(future) });
     } else {
-        let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).unwrap()).unwrap();
+        let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).expect(&format!("channel:{}:token", &channel))).unwrap();
         let future = twitch_kraken_request(token, Some("application/x-www-form-urlencoded"), Some(format!("channel[status]={}", args.join(" ")).as_bytes().to_owned()), Method::PUT, &format!("https://api.twitch.tv/kraken/channels/{}", &id)).send()
             .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
             .map_err(|e| println!("request error: {}", e))
@@ -638,9 +638,9 @@ fn title_cmd(client: Arc<IrcClient>, channel: String, args: Vec<String>, _messag
 }
 
 fn game_cmd(client: Arc<IrcClient>, channel: String, args: Vec<String>, _message: Option<Message>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
-    let id: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:id", channel)]).unwrap()).unwrap();
+    let id: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:id", channel)]).expect(&format!("channel:{}:id", channel))).unwrap();
     if args.len() == 0 {
-        let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).unwrap()).unwrap();
+        let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).expect(&format!("channel:{}:token", &channel))).unwrap();
         let future = twitch_kraken_request(token, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/channels/{}", &id)).send()
             .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
             .map_err(|e| println!("request error: {}", e))
@@ -657,7 +657,7 @@ fn game_cmd(client: Arc<IrcClient>, channel: String, args: Vec<String>, _message
             });
         thread::spawn(move || { tokio::run(future) });
     } else {
-        let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).unwrap()).unwrap();
+        let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).expect(&format!("channel:{}:token", &channel))).unwrap();
         let future = twitch_helix_request(token, None, None, Method::GET, &format!("https://api.twitch.tv/helix/games?name={}", args.join(" "))).send()
             .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
             .map_err(|e| println!("request error: {}", e))
@@ -674,7 +674,7 @@ fn game_cmd(client: Arc<IrcClient>, channel: String, args: Vec<String>, _message
                             send_message(client, channel, format!("Unable to find a game matching: {}", args.join(" ")), db.clone());
                         } else {
                             let name = json.data[0].name.clone();
-                            let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).unwrap()).unwrap();
+                            let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).expect(&format!("channel:{}:token", &channel))).unwrap();
                             let future = twitch_kraken_request(token, Some("application/x-www-form-urlencoded"), Some(format!("channel[game]={}", name).as_bytes().to_owned()), Method::PUT, &format!("https://api.twitch.tv/kraken/channels/{}", &id)).send()
                                 .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                                 .map_err(|e| println!("request error: {}", e))
@@ -823,8 +823,8 @@ fn permit_cmd(client: Arc<IrcClient>, channel: String, args: Vec<String>, _messa
 }
 
 fn clip_cmd(client: Arc<IrcClient>, channel: String, _args: Vec<String>, _message: Option<Message>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
-    let id: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:id", channel)]).unwrap()).unwrap();
-    let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).unwrap()).unwrap();
+    let id: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:id", channel)]).expect(&format!("channel:{}:id", channel))).unwrap();
+    let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).expect(&format!("channel:{}:token", &channel))).unwrap();
     let future = twitch_helix_request(token, None, None, Method::POST, &format!("https://api.twitch.tv/helix/clips?broadcaster_id={}", &id)).send()
         .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
         .map_err(|e| println!("request error: {}", e))
@@ -920,7 +920,7 @@ fn commercials_cmd(client: Arc<IrcClient>, channel: String, args: Vec<String>, _
                 }
             }
             "notice" => {
-                let exists: bool = from_redis_value(&redis_call(db.clone(), vec!["exists", &format!("channel:{}:commands:{}", channel, &args[1])]).unwrap()).unwrap();
+                let exists: bool = from_redis_value(&redis_call(db.clone(), vec!["exists", &format!("channel:{}:commands:{}", channel, &args[1])]).expect(&format!("channel:{}:commands:{}", channel, &args[1]))).unwrap();
                 if exists {
                     redis_call(db.clone(), vec!["set", &format!("channel:{}:commercials:notice", channel), &args[1]]);
                     send_message(client, channel, format!("{} will be run at the start of commercials", &args[1]), db.clone());
@@ -959,10 +959,10 @@ fn commercials_cmd(client: Arc<IrcClient>, channel: String, args: Vec<String>, _
                             if within8 {
                                 send_message(client, channel, "Commercials can't be run within eight minutes of each other".to_owned(), db.clone());
                             } else {
-                                let id: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:id", channel)]).unwrap()).unwrap();
+                                let id: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:id", channel)]).expect(&format!("channel:{}:id", channel))).unwrap();
                                 let submode: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:commercials:submode", channel)]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
                                 let nres: Result<Value,_> = redis_call(db.clone(), vec!["get", &format!("channel:{}:commercials:notice", channel)]);
-                                let length: u16 = from_redis_value(&redis_call(db.clone(), vec!["llen", &format!("channel:{}:commercials:recent", channel)]).unwrap()).unwrap();
+                                let length: u16 = from_redis_value(&redis_call(db.clone(), vec!["llen", &format!("channel:{}:commercials:recent", channel)]).expect(&format!("channel:{}:commercials:recent", channel))).unwrap();
                                 redis_call(db.clone(), vec!["lpush", &format!("channel:{}:commercials:recent", channel), &format!("{} {}", Utc::now().to_rfc3339(), num)]);
                                 if length > 7 {
                                     redis_call(db.clone(), vec!["rpop", &format!("channel:{}:commercials:recent", channel)]);
@@ -986,7 +986,7 @@ fn commercials_cmd(client: Arc<IrcClient>, channel: String, args: Vec<String>, _
                                 }
                                 log_info(Some(Right(vec![&channel])), "run_commercials", &format!("{} commercials have been run", args[1]), db.clone());
                                 send_message(client.clone(), channel.clone(), format!("{} commercials have been run", args[1]), db.clone());
-                                let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).unwrap()).unwrap();
+                                let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).expect(&format!("channel:{}:token", &channel))).unwrap();
                                 let future = twitch_kraken_request(token, Some("application/json"), Some(format!("{{\"length\": {}}}", num * 30).as_bytes().to_owned()), Method::POST, &format!("https://api.twitch.tv/kraken/channels/{}/commercial", &id)).send().and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() }).map_err(|e| println!("request error: {}", e)).map(move |_body| {});
                                 thread::spawn(move || { tokio::run(future) });
                             }
@@ -1020,7 +1020,7 @@ fn songreq_cmd(client: Arc<IrcClient>, channel: String, args: Vec<String>, messa
                 _ => {
                     let rgx = Regex::new(r"^[\-_a-zA-Z0-9]+$").unwrap();
                     if rgx.is_match(&args[0]) {
-                        let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).unwrap()).unwrap();
+                        let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).expect(&format!("channel:{}:token", &channel))).unwrap();
                         let future = twitch_helix_request(token, None, None, Method::GET, &format!("https://www.youtube.com/oembed?format=json&url=https://youtube.com/watch?v={}", args[0])).send()
                             .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                             .map_err(|e| println!("request error: {}", e))
@@ -1030,7 +1030,7 @@ fn songreq_cmd(client: Arc<IrcClient>, channel: String, args: Vec<String>, messa
                                     let mut exists = false;
                                     let entries: Vec<String> = from_redis_value(&redis_call(db.clone(), vec!["lrange", &format!("channel:{}:songreqs", channel), "1", "-1"]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
                                     for key in entries.iter() {
-                                        let entry: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:songreqs:{}", channel, key), "nick"]).unwrap()).unwrap();
+                                        let entry: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:songreqs:{}", channel, key), "nick"]).expect(&format!("channel:{}:songreqs:{}", channel, key))).unwrap();
                                         if entry == nick {
                                             exists = true;
                                             break;

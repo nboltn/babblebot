@@ -169,8 +169,8 @@ pub fn redis_call(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>), ar
 
 pub fn connect_and_send_privmsg(channel: String, message: String, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
     thread::spawn(move || {
-        let bot: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:bot", channel)]).unwrap()).unwrap();
-        let passphrase: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("bot:{}:token", bot)]).unwrap()).unwrap();
+        let bot: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:bot", channel)]).expect(&format!("channel:{}:bot", channel))).unwrap();
+        let passphrase: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("bot:{}:token", bot)]).expect(&format!("bot:{}:token", bot))).unwrap();
         let config = Config {
             server: Some("irc.chat.twitch.tv".to_owned()),
             use_ssl: Some(true),
@@ -200,8 +200,8 @@ pub fn connect_and_send_privmsg(channel: String, message: String, db: (Sender<Ve
 
 pub fn connect_and_send_message(channel: String, message: String, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
     thread::spawn(move || {
-        let bot: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:bot", channel)]).unwrap()).unwrap();
-        let passphrase: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("bot:{}:token", bot)]).unwrap()).unwrap();
+        let bot: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:bot", channel)]).expect(&format!("channel:{}:bot", channel))).unwrap();
+        let passphrase: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("bot:{}:token", bot)]).expect(&format!("bot:{}:token", bot))).unwrap();
         let config = Config {
             server: Some("irc.chat.twitch.tv".to_owned()),
             use_ssl: Some(true),
@@ -229,8 +229,8 @@ pub fn connect_and_send_message(channel: String, message: String, db: (Sender<Ve
 
 pub fn connect_and_run_command(cmd: fn(Arc<IrcClient>, String, Vec<String>, Option<Message>, (Sender<Vec<String>>, Receiver<Result<Value, String>>)), channel: String, args: Vec<String>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
     thread::spawn(move || {
-        let bot: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:bot", channel)]).unwrap()).unwrap();
-        let passphrase: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("bot:{}:token", bot)]).unwrap()).unwrap();
+        let bot: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:bot", channel)]).expect(&format!("channel:{}:bot", channel))).unwrap();
+        let passphrase: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("bot:{}:token", bot)]).expect(&format!("bot:{}:token", bot))).unwrap();
         let config = Config {
             server: Some("irc.chat.twitch.tv".to_owned()),
             use_ssl: Some(true),
@@ -326,7 +326,7 @@ pub fn spawn_age_check(client: Arc<IrcClient>, db: (Sender<Vec<String>>, Receive
             if display == "true" { send_message(client.clone(), channel.to_owned(), format!("@{} you've been timed out for not reaching the minimum account age", nick), db.clone()); }
         }
     } else {
-        let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).unwrap()).unwrap();
+        let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).expect(&format!("channel:{}:token", &channel))).unwrap();
         let future = twitch_kraken_request(token, None, None, Method::GET, &format!("https://api.twitch.tv/kraken/users?login={}", &nick)).send()
             .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
             .map_err(|e| println!("request error: {}", e))
