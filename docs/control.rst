@@ -16,6 +16,10 @@ For now, intervals must be a multiple of 60; may change in the future.
 
 Manage a list of regexes for each chat message to be filtered through, and the user timed out if a match is found. For supported syntax, visit: https://docs.rs/regex/1.2.1/regex/#syntax
 
+.. rubric:: Keywords
+
+Manage a list of regexes for each chat message to be filtered through, and a command to be run if a match is found. For supported syntax, visit: https://docs.rs/regex/1.2.1/regex/#syntax
+
 
 .. rubric:: Song Requests
 
