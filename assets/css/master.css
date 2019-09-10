@@ -193,11 +193,19 @@ html.funky {
 #panes .pane .table .actions .icons .icon.success {
   color: #22c65b;
 }
-#panes .pane .table#blacklist .regex {
+#panes .pane .table#blacklist .regex,
+#panes .pane .table#keytable .regex {
   width: 600px;
 }
-#panes .pane .table#blacklist .length {
+#panes .pane .table#blacklist .command,
+#panes .pane .table#keytable .command {
+  width: 200px;
+  padding-top: 8px;
+}
+#panes .pane .table#blacklist .length,
+#panes .pane .table#keytable .length {
   width: 160px;
+  padding-top: 8px;
 }
 #panes .pane .table#songreqs {
   margin-top: 40px;

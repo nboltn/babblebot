@@ -9,6 +9,7 @@
     <div class='pane' v-on:click='pane("commands", $event)'>Commands</div>
     <div class='pane' v-on:click='pane("notices", $event)'>Notices</div>
     <div class='pane' v-on:click='pane("moderation", $event)'>Moderation</div>
+    <div class='pane' v-on:click='pane("keywords", $event)'>Keywords</div>
     <div class='pane' v-on:click='pane("songrequests", $event)'>Song Requests</div>
     <div class='pane' v-on:click='pane("integrations", $event)'>Integrations</div>
     <div class='pane' v-on:click='pane("logs", $event)'>Logs</div>
@@ -159,6 +160,33 @@
         </tbody>
       </table>
     </div>
+    <div class='pane' id='keywords'>
+      <div class='title is-4'>Keywords</div>
+      <table class='table is-striped' id='keytable'>
+        <tbody>
+          <tr class='new'>
+            <td class='regex'><input class='input' placeholder='regex' v-model='newKeyword.regex'></td>
+            <td class='command'><input class='input' placeholder='command' v-model='newKeyword.command'></td>
+            <td class='actions'>
+              <div class='icons'>
+                <span class='icon save' v-on:click='submitNewKeyword'><i class='fas fa-save'></i></span>
+                <span class='icon success'><i class='fas fa-check-circle hidden animated'></i></span>
+              </div>
+            </td>
+          </tr>
+          <tr v-for='(data, key) in keywords'>
+            <td class='regex'><input class='input' v-model='keywords[key].regex'></td>
+            <td class='command'><input class='input' v-model='keywords[key].cmd'></td>
+            <td class='actions'>
+              <div class='icons'>
+                <span class='icon save' v-on:click='saveKeyword(key, $event)'><i class='fas fa-save'></i></span>
+                <span class='icon trash' v-on:click='trashKeyword(key)'><i class='fas fa-trash'></i></span>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
     <div class='pane' id='settings'>
       <div class='title is-4'>Settings</div>
       <table class='table is-striped'>
@@ -252,12 +280,14 @@
       notices: {},
       settings: {},
       blacklist: {},
+      keywords: {},
       integrations: { spotify: { token: '', connected: false }, patreon: { connected: false, subscribed: false } },
       songreqs: [],
       newCmd: { name: '', message: '' },
       newNotice: { interval: '', command: ''},
       newSetting: { name: '', value: '' },
       newBlacklist: { regex: '', length: '' },
+      newKeyword: { regex: '', command: '' },
       error: '',
       logs: 'test',
       player: null,
@@ -283,6 +313,7 @@
         vm.notices = _.sortKeysBy(data.notices);
         vm.settings = _.sortKeysBy(data.settings);
         vm.blacklist = _.sortKeysBy(data.blacklist);
+        vm.keywords = _.sortKeysBy(data.keywords);
 
         vm.player = new MediaElementPlayer('audio');
         var player = document.getElementById('audio');
@@ -716,6 +747,98 @@
               }).then(res => res.json());
 
               vm.blacklist = _.sortKeysBy(data.blacklist);
+            }
+            fetch_data();
+          }
+        }
+
+        submitForm();
+      },
+      submitNewKeyword: function(e){
+        var vm = this;
+        const submitForm = async () => {
+          const data = await fetch('/api/new_keyword', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'NoForward': '' },
+            body: "regex=" + encodeURIComponent(vm.newKeyword.regex) + "&command=" + encodeURIComponent(vm.newKeyword.command)
+          }).then(res => res.json());
+
+          if (data.success) {
+            vm.newKeyword.regex = '';
+            vm.newKeyword.command = '';
+
+            u('#keytable tr.new .icons .success i').addClass('fadeIn');
+            u('#keytable tr.new .icons .success i').removeClass('hidden');
+            setTimeout(function(){
+                _ => {}
+              u('#keytable tr.new .icons .success i').removeClass('fadeIn');
+              u('#keytable tr.new .icons .success i').addClass('fadeOut');
+            }, 4000);
+
+            const fetch_data = async () => {
+              const data = await fetch('/api/data', {
+                method: 'GET',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'NoForward': '' }
+              }).then(res => res.json());
+
+              vm.keywords = _.sortKeysBy(data.keywords);
+            }
+            fetch_data();
+          }
+        }
+
+        submitForm();
+      },
+      saveKeyword: function(key, e){
+        var vm = this;
+        const submitForm = async () => {
+          const data = await fetch('/api/save_keyword', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'NoForward': '' },
+            body: "regex=" + encodeURIComponent(vm.keywords[key].regex) + "&command=" + encodeURIComponent(vm.keywords[key].command) + "&key=" + encodeURIComponent(key)
+          }).then(res => res.json());
+
+          if (data.success) {
+            var target = u(e.target);
+            while (!target.hasClass('actions')) { target = target.parent() }
+            target.siblings('.regex').children('input').addClass('is-success');
+            target.siblings('.command').children('input').addClass('is-success');
+            setTimeout(function(){
+              target.siblings('.regex').children('input').removeClass('is-success');
+              target.siblings('.command').children('input').removeClass('is-success');
+            }, 4000);
+
+            const fetch_data = async () => {
+              const data = await fetch('/api/data', {
+                method: 'GET',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'NoForward': '' }
+              }).then(res => res.json());
+
+              vm.keywords = _.sortKeysBy(data.keywords);
+            }
+            fetch_data();
+          }
+        }
+
+        submitForm();
+      },
+      trashKeyword: function(key){
+        var vm = this;
+        const submitForm = async () => {
+          const data = await fetch('/api/trash_keyword', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'NoForward': '' },
+            body: "key=" + encodeURIComponent(key)
+          }).then(res => res.json());
+
+          if (data.success) {
+            const fetch_data = async () => {
+              const data = await fetch('/api/data', {
+                method: 'GET',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'NoForward': '' }
+              }).then(res => res.json());
+
+              vm.keywords = _.sortKeysBy(data.keywords);
             }
             fetch_data();
           }

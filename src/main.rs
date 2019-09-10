@@ -23,7 +23,7 @@ use flexi_logger::{Criterion,Naming,Cleanup,Duplicate,Logger};
 use crossbeam_channel::{bounded,unbounded,Sender,Receiver,RecvTimeoutError};
 use irc::client::prelude::*;
 use url::Url;
-use regex::RegexBuilder;
+use regex::{Regex,RegexBuilder};
 use serde_json::value::Value::Number;
 use chrono::{Utc, DateTime, NaiveTime, Timelike};
 use http::header::{self,HeaderValue};
@@ -387,6 +387,25 @@ fn register_handler(bot: String, client: IrcClient, reactor: &mut IrcReactor, db
                             }
                         }
 
+                        // parse keywords
+                        let keys: Vec<String> = from_redis_value(&redis_call(db.clone(), vec!["keys", &format!("channel:{}:keywords:*", channel)]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
+                        for key in keys.iter() {
+                            let key: Vec<&str> = key.split(":").collect();
+                            let regex: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:keywords:{}", channel, key[3]), "regex"]).expect(&format!("channel:{}:keywords:{}", channel, key[3]))).unwrap();
+                            let cmd: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:keywords:{}", channel, key[3]), "cmd"]).expect(&format!("channel:{}:keywords:{}", channel, key[3]))).unwrap();
+                            let res = Regex::new(&regex);
+                            if let Ok(rgx) = res {
+                                if rgx.is_match(&msg) {
+                                    let res: Result<Value,_> = redis_call(db.clone(), vec!["hget", &format!("channel:{}:commands:{}", channel, cmd), "message"]);
+                                    if let Ok(value) = res {
+                                        let message: String = from_redis_value(&value).unwrap();
+                                        connect_and_send_message(channel.to_string(), message, db.clone());
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+
                         redis_call(db.clone(), vec!["hset", &format!("channel:{}:lastseen", channel), &nick, &Utc::now().to_rfc3339()]);
                     }
                 }
@@ -403,7 +422,7 @@ fn start_rocket() {
     thread::spawn(move || {
         rocket::ignite()
           .mount("/assets", StaticFiles::from("assets"))
-          .mount("/", routes![web::index, web::dashboard, web::commands, web::patreon_cb, web::patreon_refresh, web::spotify_cb, web::twitch_cb, web::public_data, web::data, web::logs, web::local, web::login, web::logout, web::signup, web::password, web::title, web::game, web::new_command, web::save_command, web::trash_command, web::new_notice, web::trash_notice, web::save_setting, web::trash_setting, web::new_blacklist, web::save_blacklist, web::trash_blacklist, web::trash_song])
+          .mount("/", routes![web::index, web::dashboard, web::commands, web::patreon_cb, web::patreon_refresh, web::spotify_cb, web::twitch_cb, web::public_data, web::data, web::logs, web::local, web::login, web::logout, web::signup, web::password, web::title, web::game, web::new_command, web::save_command, web::trash_command, web::new_notice, web::trash_notice, web::save_setting, web::trash_setting, web::new_blacklist, web::save_blacklist, web::trash_blacklist, web::new_keyword, web::save_keyword, web::trash_keyword, web::trash_song])
           .register(catchers![web::internal_error, web::not_found])
           .attach(Template::fairing())
           .attach(RedisConnection::fairing())

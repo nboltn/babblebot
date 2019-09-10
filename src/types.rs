@@ -426,6 +426,7 @@ pub struct ApiData {
     pub notices: HashMap<String, Vec<String>>,
     pub settings: HashMap<String, String>,
     pub blacklist: HashMap<String, HashMap<String,String>>,
+    pub keywords: HashMap<String, HashMap<String,String>>,
     pub songreqs: Vec<(String,String,String)>,
     pub integrations: HashMap<String, HashMap<String,String>>
 }
@@ -578,6 +579,24 @@ pub struct ApiSaveBlacklistReq {
 
 #[derive(FromForm)]
 pub struct ApiTrashBlacklistReq {
+    pub key: String
+}
+
+#[derive(FromForm)]
+pub struct ApiNewKeywordReq {
+    pub regex: String,
+    pub command: String
+}
+
+#[derive(FromForm)]
+pub struct ApiSaveKeywordReq {
+    pub regex: String,
+    pub command: String,
+    pub key: String
+}
+
+#[derive(FromForm)]
+pub struct ApiTrashKeywordReq {
     pub key: String
 }
 

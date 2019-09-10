@@ -405,9 +405,10 @@ pub fn data(con: RedisConnection, auth: Auth) -> Json<ApiData> {
             let notices: HashMap<String, Vec<String>> = HashMap::new();
             let settings: HashMap<String, String> = HashMap::new();
             let blacklist: HashMap<String, HashMap<String,String>> = HashMap::new();
+            let keywords: HashMap<String, HashMap<String,String>> = HashMap::new();
             let songreqs: Vec<(String,String,String)> = Vec::new();
             let integrations: HashMap<String, HashMap<String,String>> = HashMap::new();
-            let json = ApiData { channel: auth.channel, state: state, fields: fields, commands: commands, notices: notices, settings: settings, blacklist: blacklist, songreqs: songreqs, integrations: integrations };
+            let json = ApiData { channel: auth.channel, state: state, fields: fields, commands: commands, notices: notices, settings: settings, blacklist: blacklist, keywords: keywords, songreqs: songreqs, integrations: integrations };
             return Json(json);
         }
         Ok(mut rsp) => {
@@ -420,9 +421,10 @@ pub fn data(con: RedisConnection, auth: Auth) -> Json<ApiData> {
                     let notices: HashMap<String, Vec<String>> = HashMap::new();
                     let settings: HashMap<String, String> = HashMap::new();
                     let blacklist: HashMap<String, HashMap<String,String>> = HashMap::new();
+                    let keywords: HashMap<String, HashMap<String,String>> = HashMap::new();
                     let songreqs: Vec<(String,String,String)> = Vec::new();
                     let integrations: HashMap<String, HashMap<String,String>> = HashMap::new();
-                    let json = ApiData { channel: auth.channel, state: state, fields: fields, commands: commands, notices: notices, settings: settings, blacklist: blacklist, songreqs: songreqs, integrations: integrations };
+                    let json = ApiData { channel: auth.channel, state: state, fields: fields, commands: commands, notices: notices, settings: settings, blacklist: blacklist, keywords: keywords, songreqs: songreqs, integrations: integrations };
                     return Json(json);
                 }
                 Ok(json) => {
@@ -430,6 +432,7 @@ pub fn data(con: RedisConnection, auth: Auth) -> Json<ApiData> {
                     let mut commands: HashMap<String, String> = HashMap::new();
                     let mut notices: HashMap<String, Vec<String>> = HashMap::new();
                     let mut blacklist: HashMap<String, HashMap<String,String>> = HashMap::new();
+                    let mut keywords: HashMap<String, HashMap<String,String>> = HashMap::new();
                     let mut songreqs: Vec<(String,String,String)> = Vec::new();
                     let mut integrations: HashMap<String, HashMap<String,String>> = HashMap::new();
                     let mut twitch: HashMap<String,String> = HashMap::new();
@@ -491,6 +494,13 @@ pub fn data(con: RedisConnection, auth: Auth) -> Json<ApiData> {
                         blacklist.insert(key[4].to_owned(), data);
                     }
 
+                    let keys: Vec<String> = redis::cmd("KEYS").arg(format!("channel:{}:keywords:*", &auth.channel)).query(&*con).unwrap();
+                    for key in keys {
+                        let key: Vec<&str> = key.split(":").collect();
+                        let data: HashMap<String,String> = redis::cmd("HGETALL").arg(format!("channel:{}:keywords:{}", &auth.channel, key[3])).query(&*con).unwrap();
+                        keywords.insert(key[3].to_owned(), data);
+                    }
+
                     let keys: Vec<String> = redis::cmd("LRANGE").arg(format!("channel:{}:songreqs", &auth.channel)).arg(0).arg(-1).query(&*con).unwrap();
                     for key in keys.iter() {
                         let data: HashMap<String,String> = redis::cmd("HGETALL").arg(format!("channel:{}:songreqs:{}", &auth.channel, key)).query(&*con).unwrap();
@@ -500,7 +510,7 @@ pub fn data(con: RedisConnection, auth: Auth) -> Json<ApiData> {
                         songreqs.push((src,title,nick));
                     }
 
-                    let json = ApiData { channel: auth.channel, state: state, fields: fields, commands: commands, notices: notices, settings: settings, blacklist: blacklist, songreqs: songreqs, integrations: integrations };
+                    let json = ApiData { channel: auth.channel, state: state, fields: fields, commands: commands, notices: notices, settings: settings, blacklist: blacklist, keywords: keywords, songreqs: songreqs, integrations: integrations };
                     return Json(json);
                 }
             }
@@ -517,6 +527,7 @@ pub fn public_data(con: RedisConnection, channel: String) -> Json<ApiData> {
         let settings: HashMap<String, String> = HashMap::new();
         let notices: HashMap<String, Vec<String>> = HashMap::new();
         let blacklist: HashMap<String, HashMap<String,String>> = HashMap::new();
+        let keywords: HashMap<String, HashMap<String,String>> = HashMap::new();
         let songreqs: Vec<(String,String,String)> = Vec::new();
         let integrations: HashMap<String, HashMap<String,String>> = HashMap::new();
 
@@ -529,7 +540,7 @@ pub fn public_data(con: RedisConnection, channel: String) -> Json<ApiData> {
             }
         }
 
-        let json = ApiData { channel: "".to_owned(), state: "".to_owned(), fields: fields, commands: commands, notices: notices, settings: settings, blacklist: blacklist, songreqs: songreqs, integrations: integrations };
+        let json = ApiData { channel: "".to_owned(), state: "".to_owned(), fields: fields, commands: commands, notices: notices, settings: settings, blacklist: blacklist, keywords: keywords, songreqs: songreqs, integrations: integrations };
         return Json(json);
     } else {
         let fields: HashMap<String, String> = HashMap::new();
@@ -537,9 +548,10 @@ pub fn public_data(con: RedisConnection, channel: String) -> Json<ApiData> {
         let notices: HashMap<String, Vec<String>> = HashMap::new();
         let settings: HashMap<String, String> = HashMap::new();
         let blacklist: HashMap<String, HashMap<String,String>> = HashMap::new();
+        let keywords: HashMap<String, HashMap<String,String>> = HashMap::new();
         let songreqs: Vec<(String,String,String)> = Vec::new();
         let integrations: HashMap<String, HashMap<String,String>> = HashMap::new();
-        let json = ApiData { channel: "".to_owned(), state: "".to_owned(), fields: fields, commands: commands, notices: notices, settings: settings, blacklist: blacklist, songreqs: songreqs, integrations: integrations };
+        let json = ApiData { channel: "".to_owned(), state: "".to_owned(), fields: fields, commands: commands, notices: notices, settings: settings, blacklist: blacklist, keywords: keywords, songreqs: songreqs, integrations: integrations };
         return Json(json);
     }
 }
@@ -960,6 +972,45 @@ pub fn save_blacklist(con: RedisConnection, data: Form<ApiSaveBlacklistReq>, aut
 pub fn trash_blacklist(con: RedisConnection, data: Form<ApiTrashBlacklistReq>, auth: Auth) -> Json<ApiRsp> {
     if !data.key.is_empty() {
         redis::cmd("DEL").arg(format!("channel:{}:moderation:blacklist:{}", &auth.channel, &data.key)).execute(&*con);
+        let json = ApiRsp { success: true, success_value: None, field: None, error_message: None };
+        return Json(json);
+    } else {
+        let json = ApiRsp { success: false, success_value: None, field: None, error_message: None };
+        return Json(json);
+    }
+}
+
+#[post("/api/new_keyword", data="<data>")]
+pub fn new_keyword(con: RedisConnection, data: Form<ApiNewKeywordReq>, auth: Auth) -> Json<ApiRsp> {
+    if !data.regex.is_empty() && !data.command.is_empty() {
+        let key = hash(&data.regex, 6).unwrap();
+        redis::cmd("HSET").arg(format!("channel:{}:keywords:{}", &auth.channel, &key)).arg("regex").arg(&data.regex).execute(&*con);
+        redis::cmd("HSET").arg(format!("channel:{}:keywords:{}", &auth.channel, &key)).arg("cmd").arg(&data.command).execute(&*con);
+        let json = ApiRsp { success: true, success_value: None, field: None, error_message: None };
+        return Json(json);
+    } else {
+        let json = ApiRsp { success: false, success_value: None, field: None, error_message: None };
+        return Json(json);
+    }
+}
+
+#[post("/api/save_keyword", data="<data>")]
+pub fn save_keyword(con: RedisConnection, data: Form<ApiSaveKeywordReq>, auth: Auth) -> Json<ApiRsp> {
+    if !data.key.is_empty() && !data.regex.is_empty() && !data.command.is_empty() {
+        redis::cmd("HSET").arg(format!("channel:{}:keywords:{}", &auth.channel, &data.key)).arg("regex").arg(&data.regex).execute(&*con);
+        redis::cmd("HSET").arg(format!("channel:{}:keywords:{}", &auth.channel, &data.key)).arg("command").arg(&data.command).execute(&*con);
+        let json = ApiRsp { success: true, success_value: None, field: None, error_message: None };
+        return Json(json);
+    } else {
+        let json = ApiRsp { success: false, success_value: None, field: None, error_message: None };
+        return Json(json);
+    }
+}
+
+#[post("/api/trash_keyword", data="<data>")]
+pub fn trash_keyword(con: RedisConnection, data: Form<ApiTrashKeywordReq>, auth: Auth) -> Json<ApiRsp> {
+    if !data.key.is_empty() {
+        redis::cmd("DEL").arg(format!("channel:{}:keywords:{}", &auth.channel, &data.key)).execute(&*con);
         let json = ApiRsp { success: true, success_value: None, field: None, error_message: None };
         return Json(json);
     } else {
