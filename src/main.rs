@@ -507,7 +507,6 @@ fn rename_channel_listener(channel: String, client: Arc<IrcClient>, receiver: Re
                 Err(e) => {
                     if !e.is_timeout() {
                         log_error(Some(Right(vec![&channel])), "rename_channel_listener", &e.to_string(), db.clone());
-                        break;
                     }
                 }
                 Ok(msg) => {
