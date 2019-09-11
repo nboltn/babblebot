@@ -966,7 +966,7 @@ fn update_patreon(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
                 let res: Result<Value,_> = redis_call(db.clone(), vec!["get", &format!("channel:{}:patreon:token", &channel)]);
                 if let Ok(_value) = res {
                     let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:patreon:token", &channel)]).expect(&format!("channel:{}:patreon:token", &channel))).unwrap();
-                    let future = patreon_request(token, Method::GET, "https://www.patreon.com/api/oauth2/v2/identity?include=memberships").send()
+                    let future = patreon_request(token, Method::GET, "https://www.patreon.com/api/oauth2/v2/identity?include=memberships.campaign").send()
                         .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                         .map_err(|e| println!("request error: {}", e))
                         .map(move |body| {
@@ -995,7 +995,7 @@ fn update_patreon(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
                                                         redis_call(db.clone(), vec!["set", &format!("channel:{}:patreon:refresh", &channel), &json.refresh_token]);
 
                                                         let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:patreon:token", &channel)]).expect(&format!("channel:{}:patreon:token", &channel))).unwrap();
-                                                        let future = patreon_request(token, Method::GET, "https://www.patreon.com/api/oauth2/v2/identity?include=memberships").send()
+                                                        let future = patreon_request(token, Method::GET, "https://www.patreon.com/api/oauth2/v2/identity?include=memberships.campaign").send()
                                                             .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                                                             .map_err(|e| println!("request error: {}", e))
                                                             .map(move |body| {
@@ -1014,8 +1014,20 @@ fn update_patreon(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
                                                                         let patreon_sub: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:patreon:subscribed", &channel)]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
 
                                                                         let mut subscribed = false;
+                                                                        let mut memberships = Vec::new();
+
                                                                         for membership in &json.data.relationships.memberships.data {
-                                                                            if membership.id == patreon_id { subscribed = true }
+                                                                            memberships.push(membership.id.to_string());
+                                                                        }
+
+                                                                        for id in memberships {
+                                                                            for inc in &json.included {
+                                                                                if let Some(relationships) = &inc.relationships {
+                                                                                    if id == inc.id && patreon_id == relationships.campaign.data.id {
+                                                                                        subscribed = true;
+                                                                                    }
+                                                                                }
+                                                                            }
                                                                         }
 
                                                                         if subscribed {
@@ -1045,8 +1057,20 @@ fn update_patreon(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
                                     let patreon_sub: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:patreon:subscribed", &channel)]).expect(&format!("channel:{}:patreon:subscribed", &channel))).unwrap();
 
                                     let mut subscribed = false;
+                                    let mut memberships = Vec::new();
+
                                     for membership in &json.data.relationships.memberships.data {
-                                        if membership.id == patreon_id { subscribed = true }
+                                        memberships.push(membership.id.to_string());
+                                    }
+
+                                    for id in memberships {
+                                        for inc in &json.included {
+                                            if let Some(relationships) = &inc.relationships {
+                                                if id == inc.id && patreon_id == relationships.campaign.data.id {
+                                                    subscribed = true;
+                                                }
+                                            }
+                                        }
                                     }
 
                                     if subscribed {

@@ -171,7 +171,31 @@ pub struct PatreonRsp {
 
 #[derive(Debug, Deserialize)]
 pub struct PatreonIdentity {
-    pub data: PatreonIdentityData
+    pub data: PatreonIdentityData,
+    pub included: Vec<PatreonIdentityIncluded>
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PatreonIdentityIncluded {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub type_: String,
+    pub relationships: Option<PatreonIdentityIncludedRelationships>
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PatreonIdentityIncludedRelationships {
+    pub campaign: PatreonIdentityIncludedCampaign
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PatreonIdentityIncludedCampaign {
+    pub data: PatreonIdentityIncludedData
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PatreonIdentityIncludedData {
+    pub id: String
 }
 
 #[derive(Debug, Deserialize)]
@@ -191,7 +215,9 @@ pub struct PatreonIdentityMemberships {
 
 #[derive(Debug, Deserialize)]
 pub struct PatreonIdentityMembershipsData {
-    pub id: String
+    pub id: String,
+    #[serde(rename = "type")]
+    pub type_: String
 }
 
 #[derive(Debug, Deserialize)]

@@ -252,7 +252,7 @@ pub fn patreon_cb(con: RedisConnection, code: String, state: String) -> Template
                 }
                 Ok(json) => {
                     let client = reqwest::Client::new();
-                    let rsp = client.get("https://www.patreon.com/api/oauth2/v2/identity?include=memberships").header(header::AUTHORIZATION, format!("Bearer {}", &json.access_token)).send();
+                    let rsp = client.get("https://www.patreon.com/api/oauth2/v2/identity?include=memberships.campaign").header(header::AUTHORIZATION, format!("Bearer {}", &json.access_token)).send();
                     match rsp {
                         Err(e) => { /*log_error(None, "patreon_cb", &e.to_string(), db.clone())*/ }
                         Ok(mut rsp) => {
@@ -267,10 +267,19 @@ pub fn patreon_cb(con: RedisConnection, code: String, state: String) -> Template
                                     let patreon_id = settings.get_str("patreon_id").unwrap_or("".to_owned());
 
                                     let mut subscribed = false;
+                                    let mut memberships = Vec::new();
+
                                     for membership in &json.data.relationships.memberships.data {
-                                        if membership.id == patreon_id {
-                                            subscribed = true;
-                                            break;
+                                        memberships.push(membership.id.to_string());
+                                    }
+
+                                    for id in memberships {
+                                        for inc in &json.included {
+                                            if let Some(relationships) = &inc.relationships {
+                                                if id == inc.id && patreon_id == relationships.campaign.data.id {
+                                                    subscribed = true;
+                                                }
+                                            }
                                         }
                                     }
 
@@ -295,7 +304,7 @@ pub fn patreon_refresh(con: RedisConnection, auth: Auth) -> Template {
     let res: Result<String,_> = redis::cmd("get").arg(format!("channel:{}:patreon:token", &auth.channel)).query(&*con);
     if let Ok(token) = res {
         let client = reqwest::Client::new();
-        let rsp = client.get("https://www.patreon.com/api/oauth2/v2/identity?include=memberships").header(header::ACCEPT, "application/vnd.api+json").header(header::AUTHORIZATION, format!("Bearer {}", token)).send();
+        let rsp = client.get("https://www.patreon.com/api/oauth2/v2/identity?include=memberships.campaign").header(header::ACCEPT, "application/vnd.api+json").header(header::AUTHORIZATION, format!("Bearer {}", token)).send();
         match rsp {
             Err(e) => {
                 //log_error(None, "patreon_refresh", &e.to_string(), db.clone());
@@ -315,8 +324,20 @@ pub fn patreon_refresh(con: RedisConnection, auth: Auth) -> Template {
                         let patreon_id = settings.get_str("patreon_id").unwrap_or("".to_owned());
 
                         let mut subscribed = false;
+                        let mut memberships = Vec::new();
+
                         for membership in &json.data.relationships.memberships.data {
-                            if membership.id == patreon_id { subscribed = true }
+                            memberships.push(membership.id.to_string());
+                        }
+
+                        for id in memberships {
+                            for inc in &json.included {
+                                if let Some(relationships) = &inc.relationships {
+                                    if id == inc.id && patreon_id == relationships.campaign.data.id {
+                                        subscribed = true;
+                                    }
+                                }
+                            }
                         }
 
                         if subscribed {
