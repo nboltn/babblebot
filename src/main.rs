@@ -158,7 +158,6 @@ fn run_reactor(bots: HashMap<String, (HashSet<String>, Config)>, db: (Sender<Vec
 fn register_handler(bot: String, client: IrcClient, reactor: &mut IrcReactor, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
     let clientC = Arc::new(client.clone());
     let msg_handler = move |client: &IrcClient, irc_message: Message| -> irc::error::Result<()> {
-        println!("{:?}",&irc_message);
         match &irc_message.command {
             Command::PING(_,_) => { let _ = client.send_pong(":tmi.twitch.tv"); }
             Command::Raw(cmd, chans, _) => {
