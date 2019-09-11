@@ -411,8 +411,10 @@ fn spotify_playing_title_var(_client: Option<Arc<IrcClient>>, channel: String, _
         let json: Result<SpotifyPlaying,_> = serde_json::from_str(&body);
         match json {
             Err(e) => {
-                log_error(None, "spotify_playing_title_var", &e.to_string(), db.clone());
-                log_error(None, "request_body", &body, db.clone());
+                if !body.is_empty() {
+                    log_error(None, "spotify_playing_title_var", &e.to_string(), db.clone());
+                    log_error(None, "request_body", &body, db.clone());
+                }
                 "".to_owned()
             }
             Ok(json) => { json.item.name.to_owned() }
@@ -449,8 +451,10 @@ fn spotify_playing_artist_var(_client: Option<Arc<IrcClient>>, channel: String, 
         let json: Result<SpotifyPlaying,_> = serde_json::from_str(&body);
         match json {
             Err(e) => {
-                log_error(None, "spotify_playing_artist_var", &e.to_string(), db.clone());
-                log_error(None, "request_body", &body, db.clone());
+                if !body.is_empty() {
+                    log_error(None, "spotify_playing_artist_var", &e.to_string(), db.clone());
+                    log_error(None, "request_body", &body, db.clone());
+                }
                 "".to_owned()
             }
             Ok(json) => { json.item.artists[0].name.to_owned() }
