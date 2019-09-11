@@ -1011,7 +1011,7 @@ fn update_patreon(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
                                                                         settings.merge(config::File::with_name("Settings")).unwrap();
                                                                         settings.merge(config::Environment::with_prefix("BABBLEBOT")).unwrap();
                                                                         let patreon_id = settings.get_str("patreon_id").unwrap_or("".to_owned());
-                                                                        let patreon_sub: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:patreon:subscribed", &channel)]).expect(&format!("channel:{}:patreon:subscribed", &channel))).unwrap();
+                                                                        let patreon_sub: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:patreon:subscribed", &channel)]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
 
                                                                         let mut subscribed = false;
                                                                         for membership in &json.data.relationships.memberships.data {
