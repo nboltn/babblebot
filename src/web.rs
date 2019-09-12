@@ -695,7 +695,7 @@ pub fn signup(con: RedisConnection, mut cookies: Cookies, data: Form<ApiSignupRe
                         redis::cmd("SET").arg(format!("channel:{}:refresh", &json.data[0].login)).arg(&data.refresh).execute(&*con);
                         redis::cmd("SET").arg(format!("channel:{}:password", &json.data[0].login)).arg(hash(&data.password, DEFAULT_COST).unwrap()).execute(&*con);
                         redis::cmd("SET").arg(format!("channel:{}:local:key", &json.data[0].login)).arg(local_key).execute(&*con);
-                        redis::cmd("SET").arg(format!("channel:{}:live", &json.data[0].login)).arg(false).execute(&*con);
+                        redis::cmd("SET").arg(format!("channel:{}:live", &json.data[0].login)).arg("false").execute(&*con);
                         redis::cmd("SET").arg(format!("channel:{}:id", &json.data[0].login)).arg(&json.data[0].id).execute(&*con);
                         redis::cmd("SET").arg(format!("channel:{}:display-name", &json.data[0].login)).arg(&json.data[0].display_name).execute(&*con);
 
@@ -859,8 +859,8 @@ pub fn game(con: RedisConnection, data: Form<ApiGameReq>, auth: Auth) -> Json<Ap
 pub fn new_command(con: RedisConnection, data: Form<ApiSaveCommandReq>, auth: Auth) -> Json<ApiRsp> {
     if !data.command.is_empty() && !data.message.is_empty() && !data.command.is_empty() {
         redis::cmd("HSET").arg(format!("channel:{}:commands:{}", &auth.channel, &data.command.to_lowercase())).arg("message").arg(&data.message).execute(&*con);
-        redis::cmd("HSET").arg(format!("channel:{}:commands:{}", &auth.channel, &data.command.to_lowercase())).arg("cmd_protected").arg(false).execute(&*con);
-        redis::cmd("HSET").arg(format!("channel:{}:commands:{}", &auth.channel, &data.command.to_lowercase())).arg("arg_protected").arg(false).execute(&*con);
+        redis::cmd("HSET").arg(format!("channel:{}:commands:{}", &auth.channel, &data.command.to_lowercase())).arg("cmd_protected").arg("false").execute(&*con);
+        redis::cmd("HSET").arg(format!("channel:{}:commands:{}", &auth.channel, &data.command.to_lowercase())).arg("arg_protected").arg("false").execute(&*con);
         let json = ApiRsp { success: true, success_value: None, field: None, error_message: None };
         return Json(json);
     } else {
