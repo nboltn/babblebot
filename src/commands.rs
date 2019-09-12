@@ -570,34 +570,34 @@ fn command_cmd(client: Arc<IrcClient>, channel: String, args: Vec<String>, _mess
         match args[0].to_lowercase().as_ref() {
             "add" => {
                 if args.len() > 2 {
-                    redis_call(db.clone(), vec!["hset", &format!("channel:{}:commands:{}", channel, &args[1]), "message", &args[2..].join(" ")]);
-                    redis_call(db.clone(), vec!["hset", &format!("channel:{}:commands:{}", channel, &args[1]), "cmd_protected", "false"]);
-                    redis_call(db.clone(), vec!["hset", &format!("channel:{}:commands:{}", channel, &args[1]), "arg_protected", "false"]);
+                    redis_call(db.clone(), vec!["hset", &format!("channel:{}:commands:{}", channel, &args[1].to_lowercase()), "message", &args[2..].join(" ")]);
+                    redis_call(db.clone(), vec!["hset", &format!("channel:{}:commands:{}", channel, &args[1].to_lowercase()), "cmd_protected", "false"]);
+                    redis_call(db.clone(), vec!["hset", &format!("channel:{}:commands:{}", channel, &args[1].to_lowercase()), "arg_protected", "false"]);
                     send_message(client, channel, format!("{} has been added", &args[1]), db.clone());
                 }
             }
             "modadd" => {
                 if args.len() > 2 {
-                    redis_call(db.clone(), vec!["hset", &format!("channel:{}:commands:{}", channel, &args[1]), "message", &args[2..].join(" ")]);
-                    redis_call(db.clone(), vec!["hset", &format!("channel:{}:commands:{}", channel, &args[1]), "cmd_protected", "true"]);
-                    redis_call(db.clone(), vec!["hset", &format!("channel:{}:commands:{}", channel, &args[1]), "arg_protected", "true"]);
+                    redis_call(db.clone(), vec!["hset", &format!("channel:{}:commands:{}", channel, &args[1].to_lowercase()), "message", &args[2..].join(" ")]);
+                    redis_call(db.clone(), vec!["hset", &format!("channel:{}:commands:{}", channel, &args[1].to_lowercase()), "cmd_protected", "true"]);
+                    redis_call(db.clone(), vec!["hset", &format!("channel:{}:commands:{}", channel, &args[1].to_lowercase()), "arg_protected", "true"]);
                     send_message(client, channel, format!("{} has been added", &args[1]), db.clone());
                 }
             }
             "remove" => {
-                redis_call(db.clone(), vec!["del", &format!("channel:{}:commands:{}", channel, &args[1])]);
+                redis_call(db.clone(), vec!["del", &format!("channel:{}:commands:{}", channel, &args[1].to_lowercase())]);
                 send_message(client, channel, format!("{} has been removed", &args[1]), db.clone());
             }
             "alias" => {
                 if args.len() > 2 {
                     // TODO: validate command exists
-                    redis_call(db.clone(), vec!["hset", &format!("channel:{}:aliases", channel), &args[1], &args[2..].join(" ")]);
-                    send_message(client, channel, format!("{} has been added as an alias to {}", &args[1], args[2..].join(" ")), db.clone());
+                    redis_call(db.clone(), vec!["hset", &format!("channel:{}:aliases", channel), &args[1].to_lowercase(), &args[2..].join(" ").to_lowercase()]);
+                    send_message(client, channel, format!("{} has been added as an alias to {}", &args[1].to_lowercase(), args[2..].join(" ").to_lowercase()), db.clone());
                 }
             }
             "remalias" => {
-                redis_call(db.clone(), vec!["hdel", &format!("channel:{}:aliases", channel), &args[1]]);
-                send_message(client, channel, format!("{} has been removed as an alias", &args[1]), db.clone());
+                redis_call(db.clone(), vec!["hdel", &format!("channel:{}:aliases", channel), &args[1].to_lowercase()]);
+                send_message(client, channel, format!("{} has been removed as an alias", &args[1].to_lowercase()), db.clone());
             }
             _ => {}
         }
