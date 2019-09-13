@@ -311,10 +311,10 @@ pub fn send_parsed_message(client: Arc<IrcClient>, channel: String, mut message:
             }
 
             thread::spawn(move || {
-                let mut core = tokio_core::reactor::Core::new().unwrap();
+                let mut core = tokio_core::reactor::Core::new().expect("reactor:new");
                 let work = join_all(futures);
-                for (i,res) in core.run(work).unwrap().into_iter().enumerate() {
-                    let rgx = Regex::new(&escape(&regexes[i])).unwrap();
+                for (i,res) in core.run(work).expect("core:run").into_iter().enumerate() {
+                    let rgx = Regex::new(&escape(&regexes[i])).expect("regex:new");
                     message = rgx.replace(&message, |_: &Captures| { &res }).to_string();
                 }
                 let _ = client.send_privmsg(format!("#{}", channel), message);
