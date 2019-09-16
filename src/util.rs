@@ -277,50 +277,46 @@ pub fn send_message(client: Arc<IrcClient>, channel: String, mut message: String
 }
 
 pub fn send_parsed_message(client: Arc<IrcClient>, channel: String, mut message: String, args: Vec<String>, irc_message: Option<Message>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
-    thread::spawn(move || {
-        let auth: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:auth", channel)]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
-        if auth == "true" {
-            if args.len() > 0 {
-                if let Some(char) = args[args.len()-1].chars().next() {
-                    if char == '@' { message = format!("{} -> {}", args[args.len()-1], message) }
-                }
+    let auth: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:auth", channel)]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
+    if auth == "true" {
+        if args.len() > 0 {
+            if let Some(char) = args[args.len()-1].chars().next() {
+                if char == '@' { message = format!("{} -> {}", args[args.len()-1], message) }
             }
-            let me: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:settings", channel), "channel:me"]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
-            if me == "true" { message = format!("/me {}", message); }
+        }
+        let me: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:settings", channel), "channel:me"]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
+        if me == "true" { message = format!("/me {}", message); }
 
-            for var in command_vars.iter() {
-                message = parse_var(var, &message, Some(client.clone()), channel.clone(), irc_message.clone(), args.clone(), db.clone());
-            }
+        for var in command_vars.iter() {
+            message = parse_var(var, &message, Some(client.clone()), channel.clone(), irc_message.clone(), args.clone(), db.clone());
+        }
 
-            let mut futures = Vec::new();
-            let mut regexes: Vec<String> = Vec::new();
-            for var in command_vars_async.iter() {
-                let rgx = Regex::new(&format!("\\({} ?((?:[\\w\\-\\?\\._:/&!= ]+)*)\\)", var.0)).unwrap();
-                for captures in rgx.captures_iter(&message) {
-                    if let (Some(capture), Some(vargs)) = (captures.get(0), captures.get(1)) {
-                        let vargs: Vec<String> = vargs.as_str().split_whitespace().map(|str| str.to_owned()).collect();
-                        if let Some((builder, func)) = (var.1)(Some(client.clone()), channel.clone(), irc_message.clone(), vargs.clone(), args.clone(), db.clone()) {
-                            let db = db.clone();
-                            let chan = channel.clone();
-                            let future = builder.send().and_then(|mut res| { (Ok(chan), Ok(db), mem::replace(res.body_mut(), Decoder::empty()).concat2()) }).map_err(|e| println!("request error: {}", e)).map(func);
-                            futures.push(future);
-                            regexes.push(capture.as_str().to_owned());
-                        }
+        let mut futures = Vec::new();
+        let mut regexes: Vec<String> = Vec::new();
+        for var in command_vars_async.iter() {
+            let rgx = Regex::new(&format!("\\({} ?((?:[\\w\\-\\?\\._:/&!= ]+)*)\\)", var.0)).unwrap();
+            for captures in rgx.captures_iter(&message) {
+                if let (Some(capture), Some(vargs)) = (captures.get(0), captures.get(1)) {
+                    let vargs: Vec<String> = vargs.as_str().split_whitespace().map(|str| str.to_owned()).collect();
+                    if let Some((builder, func)) = (var.1)(Some(client.clone()), channel.clone(), irc_message.clone(), vargs.clone(), args.clone(), db.clone()) {
+                        let db = db.clone();
+                        let chan = channel.clone();
+                        let future = builder.send().and_then(|mut res| { (Ok(chan), Ok(db), mem::replace(res.body_mut(), Decoder::empty()).concat2()) }).map_err(|e| println!("request error: {}", e)).map(func);
+                        futures.push(future);
+                        regexes.push(capture.as_str().to_owned());
                     }
                 }
             }
-
-            thread::spawn(move || {
-                let mut core = tokio_core::reactor::Core::new().expect("reactor:new");
-                let work = join_all(futures);
-                for (i,res) in core.run(work).expect("core:run").into_iter().enumerate() {
-                    let rgx = Regex::new(&escape(&regexes[i])).expect("regex:new");
-                    message = rgx.replace(&message, |_: &Captures| { &res }).to_string();
-                }
-                let _ = client.send_privmsg(format!("#{}", channel), message);
-            });
         }
-    });
+
+        for (i,future) in futures.into_iter().enumerate() {
+            let res = future.wait().unwrap();
+            let rgx = Regex::new(&escape(&regexes[i])).expect("regex:new");
+            message = rgx.replace(&message, |_: &Captures| { &res }).to_string();
+        }
+
+        let _ = client.send_privmsg(format!("#{}", channel), message);
+    }
 }
 
 pub fn spawn_age_check(client: Arc<IrcClient>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>), channel: String, nick: String, age: i64, display: String) {

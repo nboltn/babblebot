@@ -434,7 +434,7 @@ fn start_rocket() {
 
 fn redis_listener(receiver: Receiver<Vec<String>>, sender: Sender<Result<Value, String>>) {
     thread::spawn(move || {
-        let con = Arc::new(acquire_con());
+        let con = acquire_con();
         loop {
             let rsp = receiver.recv();
             match rsp {
@@ -445,7 +445,7 @@ fn redis_listener(receiver: Receiver<Vec<String>>, sender: Sender<Result<Value, 
                         for arg in args[1..].iter() {
                             cmd = cmd.arg(arg.clone());
                         }
-                        let res = cmd.query(&*con);
+                        let res = cmd.query(&con);
                         match res {
                             Err(e) => {
                                 println!("[redis_listener] {}", &e.to_string());
