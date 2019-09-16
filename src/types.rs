@@ -59,13 +59,15 @@ impl EventHandler for DiscordHandler {
                         }
                     }
 
-                    for (i,future) in futures.into_iter().enumerate() {
-                        let res = future.wait().unwrap();
-                        let rgx = Regex::new(&escape(&regexes[i])).expect("regex:new");
-                        message = rgx.replace(&message, |_: &Captures| { &res }).to_string();
-                    }
-
-                    let _ = msg.channel_id.say(&ctx.http, message);
+                    thread::spawn(move || {
+                        let mut core = tokio_core::reactor::Core::new().unwrap();
+                        let work = join_all(futures);
+                        for (i,res) in core.run(work).unwrap().into_iter().enumerate() {
+                            let rgx = Regex::new(&escape(&regexes[i])).unwrap();
+                            message = rgx.replace(&message, |_: &Captures| { &res }).to_string();
+                        }
+                        let _ = msg.channel_id.say(&ctx.http, message);
+                    });
                 }
             }
         }
