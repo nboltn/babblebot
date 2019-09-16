@@ -30,7 +30,7 @@ pub fn log_info(id: Option<Either<&str, Vec<&str>>>, descriptor: &str, content: 
                 Left(bot) => {
                     let bot = bot.to_string();
                     let descriptor = descriptor.to_string();
-                    let content = content.to_string();
+                    let content = content.to_string().replace("\n", " ");
                     thread::spawn(move || {
                         let mut channels: Vec<String> = Vec::new();
                         let channels_: Vec<String> = from_redis_value(&redis_call(db.clone(), vec!["smembers", "channels"]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
@@ -52,7 +52,7 @@ pub fn log_info(id: Option<Either<&str, Vec<&str>>>, descriptor: &str, content: 
                 Right(channels) => {
                     let channels: Vec<String> = channels.iter().map(|c| c.to_string()).collect();
                     let descriptor = descriptor.to_string();
-                    let content = content.to_string();
+                    let content = content.to_string().replace("\n", " ");
                     thread::spawn(move || {
                         if channels.len() > 0 {
                             if channels.len() > 1 {
@@ -91,7 +91,7 @@ pub fn log_error(id: Option<Either<&str, Vec<&str>>>, descriptor: &str, content:
                 Left(bot) => {
                     let bot = bot.to_string();
                     let descriptor = descriptor.to_string();
-                    let content = content.to_string();
+                    let content = content.to_string().replace("\n", " ");
                     thread::spawn(move || {
                         let mut channels: Vec<String> = Vec::new();
                         let channels_: Vec<String> = from_redis_value(&redis_call(db.clone(), vec!["smembers", "channels"]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
@@ -113,7 +113,7 @@ pub fn log_error(id: Option<Either<&str, Vec<&str>>>, descriptor: &str, content:
                 Right(channels) => {
                     let channels: Vec<String> = channels.iter().map(|c| c.to_string()).collect();
                     let descriptor = descriptor.to_string();
-                    let content = content.to_string();
+                    let content = content.to_string().replace("\n", " ");
                     thread::spawn(move || {
                         if channels.len() > 0 {
                             if channels.len() > 1 {
