@@ -11,7 +11,7 @@ use http::header::{self,HeaderValue};
 use crossbeam_channel::{Sender,Receiver};
 use reqwest::Method;
 use reqwest::r#async::{RequestBuilder,Decoder};
-use futures::future::{Future,join_all};
+use futures::future::{Future,join_all,ok};
 use irc::client::prelude::*;
 use regex::{Regex,RegexBuilder,Captures,escape};
 use redis::{self,Value,Commands,from_redis_value};
@@ -197,7 +197,7 @@ pub fn connect_and_send_privmsg(channel: String, message: String, db: (Sender<Ve
                 }
             }
         });
-        if res.is_err() { log_error(Some(Right(vec![&channel])), "connect_and_run_command", "irc panic", db.clone()) }
+        if res.is_err() { log_error(Some(Right(vec![&channel])), "connect_and_run_privmsg", "irc panic", db.clone()) }
     });
 }
 
@@ -219,17 +219,11 @@ pub fn connect_and_send_message(channel: String, message: String, db: (Sender<Ve
             match IrcClient::from_config(config) {
                 Err(e) => { log_error(Some(Right(vec![&channel])), "connect_and_send_message", &e.to_string(), db.clone()) }
                 Ok(client) => {
-                    let client = Arc::new(client);
-                    let _ = client.identify();
-                    let _ = client.send("CAP REQ :twitch.tv/tags");
-                    let _ = client.send("CAP REQ :twitch.tv/commands");
-                    send_parsed_message(client.clone(), channel.clone(), message, Vec::new(), None, db.clone());
-                    thread::sleep(time::Duration::from_secs(10));
-                    let _ = client.send_quit("");
+                    tokio::run(send_msg(client, channel.clone(), db.clone(), message));
                 }
             }
         });
-        if res.is_err() { log_error(Some(Right(vec![&channel])), "connect_and_run_command", "irc panic", db.clone()) }
+        if res.is_err() { log_error(Some(Right(vec![&channel])), "connect_and_run_message", "irc panic", db.clone()) }
     });
 }
 
@@ -251,7 +245,7 @@ pub fn connect_and_run_command(cmd: fn(Arc<IrcClient>, String, Vec<String>, Opti
             match IrcClient::from_config(config) {
                 Err(e) => { log_error(Some(Right(vec![&channel])), "connect_and_run_command", &e.to_string(), db.clone()) }
                 Ok(client) => {
-                    tokio::run(run_command(client, channel.clone(), args, db.clone(), cmd));
+                    tokio::run(run_cmd(client, channel.clone(), args, db.clone(), cmd));
                 }
             }
         });
@@ -259,7 +253,18 @@ pub fn connect_and_run_command(cmd: fn(Arc<IrcClient>, String, Vec<String>, Opti
     });
 }
 
-fn run_command(client: IrcClient, channel: String, args: Vec<String>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>), cmd: fn(Arc<IrcClient>, String, Vec<String>, Option<Message>, (Sender<Vec<String>>, Receiver<Result<Value, String>>))) -> impl Future<Item = (), Error = ()> {
+fn send_msg(client: IrcClient, channel: String, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>), message: String) -> impl Future<Item = (), Error = ()> {
+    let client = Arc::new(client);
+    let _ = client.identify();
+    let _ = client.send("CAP REQ :twitch.tv/tags");
+    let _ = client.send("CAP REQ :twitch.tv/commands");
+    send_parsed_message(client.clone(), channel.clone(), message, Vec::new(), None, db.clone());
+    thread::sleep(time::Duration::from_secs(10));
+    let _ = client.send_quit("");
+    return ok(());
+}
+
+fn run_cmd(client: IrcClient, channel: String, args: Vec<String>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>), cmd: fn(Arc<IrcClient>, String, Vec<String>, Option<Message>, (Sender<Vec<String>>, Receiver<Result<Value, String>>))) -> impl Future<Item = (), Error = ()> {
     let client = Arc::new(client);
     let _ = client.identify();
     let _ = client.send("CAP REQ :twitch.tv/tags");
@@ -267,7 +272,7 @@ fn run_command(client: IrcClient, channel: String, args: Vec<String>, db: (Sende
     (cmd)(client.clone(), channel.clone(), args, None, db.clone());
     thread::sleep(time::Duration::from_secs(10));
     let _ = client.send_quit("");
-    futures::future::ok(())
+    return ok(());
 }
 
 pub fn send_message(client: Arc<IrcClient>, channel: String, mut message: String, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
