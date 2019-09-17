@@ -61,7 +61,7 @@ fn cmd_var(client: Option<Arc<IrcClient>>, channel: String, irc_message: Option<
                         message = parse_var(var, &message, Some(client.clone()), channel.clone(), irc_message.clone(), args, db.clone());
                     }
                 }
-                send_parsed_message(client, channel.to_owned(), message, cargs, irc_message, db.clone());
+                send_parsed_message(client, channel.to_owned(), message, cargs, irc_message, db.clone(), None);
             } else {
                 for cmd in native_commands.iter() {
                     if format!("!{}", cmd.0) == vargs[0] {

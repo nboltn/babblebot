@@ -12,6 +12,7 @@ use crossbeam_channel::{Sender,Receiver};
 use reqwest::Method;
 use reqwest::r#async::{RequestBuilder,Decoder};
 use futures::future::{Future,join_all,ok};
+use tokio::runtime::Runtime;
 use irc::client::prelude::*;
 use regex::{Regex,RegexBuilder,Captures,escape};
 use redis::{self,Value,Commands,from_redis_value};
@@ -197,7 +198,7 @@ pub fn connect_and_send_privmsg(channel: String, message: String, db: (Sender<Ve
                 }
             }
         });
-        if res.is_err() { log_error(Some(Right(vec![&channel])), "connect_and_run_privmsg", "irc panic", db.clone()) }
+        if res.is_err() { log_error(Some(Right(vec![&channel])), "connect_and_send_privmsg", "irc panic", db.clone()) }
     });
 }
 
@@ -219,11 +220,18 @@ pub fn connect_and_send_message(channel: String, message: String, db: (Sender<Ve
             match IrcClient::from_config(config) {
                 Err(e) => { log_error(Some(Right(vec![&channel])), "connect_and_send_message", &e.to_string(), db.clone()) }
                 Ok(client) => {
-                    tokio::run(send_msg(client, channel.clone(), db.clone(), message));
+                    let rt = Runtime::new().unwrap();
+                    let client = Arc::new(client);
+                    let _ = client.identify();
+                    let _ = client.send("CAP REQ :twitch.tv/tags");
+                    let _ = client.send("CAP REQ :twitch.tv/commands");
+                    send_parsed_message(client.clone(), channel.clone(), message, Vec::new(), None, db.clone(), Some(rt));
+                    thread::sleep(time::Duration::from_secs(10));
+                    let _ = client.send_quit("");
                 }
             }
         });
-        if res.is_err() { log_error(Some(Right(vec![&channel])), "connect_and_run_message", "irc panic", db.clone()) }
+        if res.is_err() { log_error(Some(Right(vec![&channel])), "connect_and_send_message", "irc panic", db.clone()) }
     });
 }
 
@@ -245,34 +253,18 @@ pub fn connect_and_run_command(cmd: fn(Arc<IrcClient>, String, Vec<String>, Opti
             match IrcClient::from_config(config) {
                 Err(e) => { log_error(Some(Right(vec![&channel])), "connect_and_run_command", &e.to_string(), db.clone()) }
                 Ok(client) => {
-                    tokio::run(run_cmd(client, channel.clone(), args, db.clone(), cmd));
+                    let client = Arc::new(client);
+                    let _ = client.identify();
+                    let _ = client.send("CAP REQ :twitch.tv/tags");
+                    let _ = client.send("CAP REQ :twitch.tv/commands");
+                    (cmd)(client.clone(), channel.clone(), args, None, db.clone());
+                    thread::sleep(time::Duration::from_secs(10));
+                    let _ = client.send_quit("");
                 }
             }
         });
         if res.is_err() { log_error(Some(Right(vec![&channel])), "connect_and_run_command", "irc panic", db.clone()) }
     });
-}
-
-fn send_msg(client: IrcClient, channel: String, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>), message: String) -> impl Future<Item = (), Error = ()> {
-    let client = Arc::new(client);
-    let _ = client.identify();
-    let _ = client.send("CAP REQ :twitch.tv/tags");
-    let _ = client.send("CAP REQ :twitch.tv/commands");
-    send_parsed_message(client.clone(), channel.clone(), message, Vec::new(), None, db.clone());
-    thread::sleep(time::Duration::from_secs(10));
-    let _ = client.send_quit("");
-    return ok(());
-}
-
-fn run_cmd(client: IrcClient, channel: String, args: Vec<String>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>), cmd: fn(Arc<IrcClient>, String, Vec<String>, Option<Message>, (Sender<Vec<String>>, Receiver<Result<Value, String>>))) -> impl Future<Item = (), Error = ()> {
-    let client = Arc::new(client);
-    let _ = client.identify();
-    let _ = client.send("CAP REQ :twitch.tv/tags");
-    let _ = client.send("CAP REQ :twitch.tv/commands");
-    (cmd)(client.clone(), channel.clone(), args, None, db.clone());
-    thread::sleep(time::Duration::from_secs(10));
-    let _ = client.send_quit("");
-    return ok(());
 }
 
 pub fn send_message(client: Arc<IrcClient>, channel: String, mut message: String, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
@@ -286,7 +278,7 @@ pub fn send_message(client: Arc<IrcClient>, channel: String, mut message: String
     });
 }
 
-pub fn send_parsed_message(client: Arc<IrcClient>, channel: String, mut message: String, args: Vec<String>, irc_message: Option<Message>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
+pub fn send_parsed_message(client: Arc<IrcClient>, channel: String, mut message: String, args: Vec<String>, irc_message: Option<Message>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>), runtime: Option<Runtime>) {
     let auth: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:auth", channel)]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
     if auth == "true" {
         if args.len() > 0 {
@@ -319,13 +311,25 @@ pub fn send_parsed_message(client: Arc<IrcClient>, channel: String, mut message:
             }
         }
 
-        for (i,future) in futures.into_iter().enumerate() {
-            let res = future.wait().unwrap();
-            let rgx = Regex::new(&escape(&regexes[i])).expect("regex:new");
-            message = rgx.replace(&message, |_: &Captures| { &res }).to_string();
+        match runtime {
+            Some(mut rt) => {
+                for (i,future) in futures.into_iter().enumerate() {
+                    let res = rt.block_on(future).unwrap();
+                    let rgx = Regex::new(&escape(&regexes[i])).expect("regex:new");
+                    message = rgx.replace(&message, |_: &Captures| { &res }).to_string();
+                }
+                let _ = client.send_privmsg(format!("#{}", channel), message);
+                rt.shutdown_now();
+            }
+            None => {
+                for (i,future) in futures.into_iter().enumerate() {
+                    let res = future.wait().unwrap();
+                    let rgx = Regex::new(&escape(&regexes[i])).expect("regex:new");
+                    message = rgx.replace(&message, |_: &Captures| { &res }).to_string();
+                }
+                let _ = client.send_privmsg(format!("#{}", channel), message);
+            }
         }
-
-        let _ = client.send_privmsg(format!("#{}", channel), message);
     }
 }
 
