@@ -734,7 +734,7 @@ fn moderation_cmd(client: Arc<IrcClient>, channel: String, args: Vec<String>, _m
                 match args[1].to_lowercase().as_ref() {
                     "add" => {
                         if args.len() > 2 {
-                            redis_call(db.clone(), vec!["sadd", &format!("channel:{}:notices:{}:countdown", channel, args[1]), &args[1]]);
+                            redis_call(db.clone(), vec!["sadd", &format!("channel:{}:moderation:links", channel, args[1]), &args[1]]);
                             send_message(client, channel, format!("{} has been whitelisted", &args[2]), db.clone());
                         }
                     }
