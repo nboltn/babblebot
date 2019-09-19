@@ -92,7 +92,13 @@ pub enum AuthError {
 
 #[derive(Debug)]
 pub enum ThreadAction {
-    Kill,
+    Kill
+}
+
+#[derive(Debug)]
+pub enum ClientAction {
+    Command(String, Vec<String>),
+    Privmsg(String, String),
     Part(String)
 }
 
