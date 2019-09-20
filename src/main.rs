@@ -123,28 +123,33 @@ fn run_reactor(bots: HashMap<String, (HashSet<String>, Config)>, db: (Sender<Vec
                 log_info(Some(Right(chans.clone())), "run_reactor", "connecting to irc", db.clone());
                 let (sender, receiver) = bounded(0);
                 let (sender1, receiver1) = unbounded();
+                let mut senders: HashMap<String, Vec<Sender<ThreadAction>>> = HashMap::new();
                 let mut reactor = IrcReactor::new().unwrap();
-                let mut senders: Vec<Sender<ThreadAction>> = Vec::new();
                 let client = Arc::new(reactor.prepare_client_and_connect(&channels.1).unwrap());
                 let _ = client.identify();
                 let _ = client.send("CAP REQ :twitch.tv/tags");
                 let _ = client.send("CAP REQ :twitch.tv/commands");
                 register_handler(bot.clone(), (*client).clone(), &mut reactor, db.clone());
                 client_listener(client.clone(), db.clone(), receiver);
-                channel_authcheck(db.clone(), chans.iter().map(|c| c.to_string()).collect(), sender.clone(), receiver1);
                 for channel in channels.0.iter() {
                     let (sender1, receiver1) = unbounded();
-                    senders.push(sender1);
-                    rename_channel_listener(db.clone(), channel.to_owned(), sender.clone(), receiver1);
+                    senders.insert(channel.to_owned(), [sender1.clone()].to_vec());
+                    rename_channel_listener(db.clone(), channel.to_owned(), sender.clone(), sender1.clone(), receiver1);
                 }
+                channel_authcheck(db.clone(), chans.iter().map(|c| c.to_string()).collect(), senders.clone(), sender.clone(), receiver1);
                 let res = reactor.run();
                 match res {
                     Err(e) => {
                         log_error(Some(Right(chans)), "run_reactor", &e.to_string(), db.clone());
                         let _ = sender1.send(ThreadAction::Kill);
-                        for sender in senders {
-                            let _ = sender.send(ThreadAction::Kill);
+                        for channel in channels.0.iter() {
+                            if let Some(senders) = senders.get(channel) {
+                                for sender in senders {
+                                    let _ = sender.send(ThreadAction::Kill);
+                                }
+                            }
                         }
+
                         thread::sleep(time::Duration::from_secs(60));
                     }
                     Ok(_) => { break }
@@ -524,15 +529,21 @@ fn new_channel_listener(db: (Sender<Vec<String>>, Receiver<Result<Value, String>
     });
 }
 
-fn channel_authcheck(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>), channels: Vec<String>, client: Sender<ClientAction>, receiver: Receiver<ThreadAction>) {
+fn channel_authcheck(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>), channels: Vec<String>, senders: HashMap<String, Vec<Sender<ThreadAction>>>, client: Sender<ClientAction>, receiver: Receiver<ThreadAction>) {
     thread::spawn(move || {
+        let mut restart = false;
+        let mut channels = channels.clone();
         loop {
-            let channels = channels.clone();
             let rsp = receiver.recv_timeout(time::Duration::from_secs(60));
             match rsp {
                 Ok(action) => {
                     match action {
-                        ThreadAction::Kill => break
+                        ThreadAction::Kill => break,
+                        ThreadAction::Part(channel) => {
+                            channels.iter().position(|c| c == &channel).map(|i| channels.remove(i));
+                            restart = true;
+                            break;
+                        }
                     }
                 }
                 Err(err) => {
@@ -543,17 +554,42 @@ fn channel_authcheck(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>),
                 }
             }
 
-            for channel in channels {
+            for channel in channels.clone() {
+                let lastauth: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:auth:last", channel)]).unwrap_or(Value::Data("".as_bytes().to_owned()))).unwrap();
+                let res = DateTime::parse_from_rfc3339(&lastauth);
+                if let Ok(timestamp) = res {
+                    let diff = Utc::now().signed_duration_since(timestamp);
+                    if diff.num_hours() > 24 {
+                        client.send(ClientAction::Part(channel.clone()));
+                        if let Some(senders) = senders.get(&channel) {
+                            for sender in senders {
+                                let _ = sender.send(ThreadAction::Kill);
+                            }
+                        }
+
+                        channels.iter().position(|c| c == &channel).map(|i| channels.remove(i));
+                        restart = true;
+                    }
+                }
+            }
+
+            if restart { break }
+
+            for channel in channels.clone() {
                 let auth: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:auth", channel)]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
-                if auth == "false" {
-                    client.send(ClientAction::Privmsg(channel, "/me has entered".to_owned()));
+                match auth.as_ref() {
+                    "true" => { redis_call(db.clone(), vec!["set", &format!("channel:{}:auth:last", channel), &format!("{}", Utc::now().to_rfc3339())]); }
+                    "false" => { client.send(ClientAction::Privmsg(channel, "/me has entered".to_owned())); }
+                    _ => {}
                 }
             }
         }
+
+        if restart { channel_authcheck(db.clone(), channels, senders, client, receiver); }
     });
 }
 
-fn rename_channel_listener(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>), channel: String, client: Sender<ClientAction>, receiver: Receiver<ThreadAction>) {
+fn rename_channel_listener(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>), channel: String, client: Sender<ClientAction>, sender: Sender<ThreadAction>, receiver: Receiver<ThreadAction>) {
     thread::spawn(move || {
         let db = db.clone();
         let mut con = acquire_con();
@@ -565,7 +601,8 @@ fn rename_channel_listener(db: (Sender<Vec<String>>, Receiver<Result<Value, Stri
             match rsp {
                 Ok(action) => {
                     match action {
-                        ThreadAction::Kill => break
+                        ThreadAction::Kill => break,
+                        ThreadAction::Part(_) => {}
                     }
                 }
                 Err(err) => {
@@ -613,6 +650,7 @@ fn rename_channel_listener(db: (Sender<Vec<String>>, Receiver<Result<Value, Stri
                                 Ok(json) => {
                                     if json.name != channel {
                                         client.send(ClientAction::Part(channel.clone()));
+                                        sender.send(ThreadAction::Part(channel.clone()));
 
                                         let bot: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:bot", &channel)]).expect(&format!("channel:{}:bot", &channel))).unwrap();
                                         redis_call(db.clone(), vec!["srem", &format!("bot:{}:channels", &bot), &channel]);

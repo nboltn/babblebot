@@ -92,7 +92,8 @@ pub enum AuthError {
 
 #[derive(Debug)]
 pub enum ThreadAction {
-    Kill
+    Kill,
+    Part(String)
 }
 
 #[derive(Debug)]
