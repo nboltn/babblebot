@@ -692,8 +692,8 @@ fn rename_channel_listener(db: (Sender<Vec<String>>, Receiver<Result<Value, Stri
                                 }
                                 Ok(json) => {
                                     if json.name != channel {
-                                        client.send(ClientAction::Part(channel.clone()));
-                                        sender.send(ThreadAction::Part(channel.clone()));
+                                        client.send_timeout(ClientAction::Part(channel.clone()), time::Duration::from_secs(10));
+                                        sender.send_timeout(ThreadAction::Part(channel.clone()), time::Duration::from_secs(10));
 
                                         let bot: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:bot", &channel)]).expect(&format!("channel:{}:bot", &channel))).unwrap();
                                         redis_call(db.clone(), vec!["srem", &format!("bot:{}:channels", &bot), &channel]);
@@ -762,7 +762,7 @@ fn command_listener(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>), 
                 Ok(msg) => {
                     let payload: String = msg.get_payload().expect("redis:get_payload");
                     let words: Vec<String> = payload.split_whitespace().map(|w| w.to_string()).collect();
-                    client.send(ClientAction::Command(channel.clone(), words));
+                    client.send_timeout(ClientAction::Command(channel.clone(), words), time::Duration::from_secs(10));
                 }
             }
         }
