@@ -117,7 +117,7 @@ fn run_reactor(bots: HashMap<String, (HashSet<String>, Config)>, db: (Sender<Vec
                     chans.push(chan);
                 }
                 log_info(Some(Right(chans.clone())), "run_reactor", "connecting to irc", db.clone());
-                let (sender, receiver) = bounded(0);
+                let (senderC, receiverC) = bounded(0);
                 let (senderA, receiverA) = unbounded();
                 let mut senders: HashMap<String, Vec<Sender<ThreadAction>>> = HashMap::new();
                 let mut reactor = IrcReactor::new().unwrap();
@@ -126,7 +126,7 @@ fn run_reactor(bots: HashMap<String, (HashSet<String>, Config)>, db: (Sender<Vec
                 let _ = client.send("CAP REQ :twitch.tv/tags");
                 let _ = client.send("CAP REQ :twitch.tv/commands");
                 register_handler(bot.clone(), (*client).clone(), &mut reactor, db.clone());
-                client_listener(client.clone(), db.clone(), receiver);
+                client_listener(client.clone(), db.clone(), receiverC);
                 for channel in channels.0.iter() {
                     let (sender1, receiver1) = unbounded();
                     let (sender2, receiver2) = unbounded();
@@ -134,13 +134,13 @@ fn run_reactor(bots: HashMap<String, (HashSet<String>, Config)>, db: (Sender<Vec
                     let (sender4, receiver4) = unbounded();
                     let (sender5, receiver5) = unbounded();
                     senders.insert(channel.to_owned(), [sender1.clone(), sender2.clone(), sender3.clone(), sender4.clone(), sender5.clone()].to_vec());
-                    rename_channel_listener(db.clone(), channel.to_owned(), sender.clone(), senderA.clone(), receiver1);
-                    command_listener(db.clone(), channel.to_owned(), sender.clone(), receiver2);
-                    run_notices(db.clone(), channel.to_owned(), sender.clone(), receiver3);
-                    run_scheduled_notices(db.clone(), channel.to_owned(), sender.clone(), receiver4);
-                    run_commercials(db.clone(), channel.to_owned(), sender.clone(), receiver5);
+                    rename_channel_listener(db.clone(), channel.to_owned(), senders.clone(), senderC.clone(), senderA.clone(), receiver1);
+                    command_listener(db.clone(), channel.to_owned(), senderC.clone(), receiver2);
+                    run_notices(db.clone(), channel.to_owned(), senderC.clone(), receiver3);
+                    run_scheduled_notices(db.clone(), channel.to_owned(), senderC.clone(), receiver4);
+                    run_commercials(db.clone(), channel.to_owned(), senderC.clone(), receiver5);
                 }
-                channel_authcheck(db.clone(), chans.iter().map(|c| c.to_string()).collect(), senders.clone(), sender.clone(), receiverA);
+                channel_authcheck(db.clone(), chans.iter().map(|c| c.to_string()).collect(), senders.clone(), senderC.clone(), receiverA);
                 let res = reactor.run();
                 match res {
                     Err(e) => {
@@ -632,7 +632,7 @@ fn channel_authcheck(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>),
     });
 }
 
-fn rename_channel_listener(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>), channel: String, client: Sender<ClientAction>, sender: Sender<ThreadAction>, receiver: Receiver<ThreadAction>) {
+fn rename_channel_listener(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>), channel: String, senders: HashMap<String, Vec<Sender<ThreadAction>>>, client: Sender<ClientAction>, sender: Sender<ThreadAction>, receiver: Receiver<ThreadAction>) {
     thread::spawn(move || {
         let db = db.clone();
         let mut con = acquire_con();
@@ -694,6 +694,11 @@ fn rename_channel_listener(db: (Sender<Vec<String>>, Receiver<Result<Value, Stri
                                     if json.name != channel {
                                         client.send_timeout(ClientAction::Part(channel.clone()), time::Duration::from_secs(10));
                                         sender.send_timeout(ThreadAction::Part(channel.clone()), time::Duration::from_secs(10));
+                                        if let Some(senders) = senders.get(&channel) {
+                                            for sender in senders {
+                                                let _ = sender.send(ThreadAction::Kill);
+                                            }
+                                        }
 
                                         let bot: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:bot", &channel)]).expect(&format!("channel:{}:bot", &channel))).unwrap();
                                         redis_call(db.clone(), vec!["srem", &format!("bot:{}:channels", &bot), &channel]);
