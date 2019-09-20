@@ -172,6 +172,7 @@ fn register_handler(bot: String, client: IrcClient, reactor: &mut IrcReactor, db
                             for chan in chans {
                                 let channel = &chan[1..];
                                 redis_call(db.clone(), vec!["set", &format!("channel:{}:auth", channel), "true"]);
+                                redis_call(db.clone(), vec!["set", &format!("channel:{}:auth:last", channel), &format!("{}", Utc::now().to_rfc3339())]);
                             }
                         }
                         None => {
@@ -534,6 +535,15 @@ fn channel_authcheck(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>),
         let mut restart = false;
         let mut channels = channels.clone();
         loop {
+            for channel in channels.clone() {
+                let auth: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:auth", channel)]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
+                match auth.as_ref() {
+                    "true" => { redis_call(db.clone(), vec!["set", &format!("channel:{}:auth:last", channel), &format!("{}", Utc::now().to_rfc3339())]); }
+                    "false" => { client.send(ClientAction::Privmsg(channel, "/me has entered".to_owned())); }
+                    _ => {}
+                }
+            }
+
             let rsp = receiver.recv_timeout(time::Duration::from_secs(60));
             match rsp {
                 Ok(action) => {
@@ -567,22 +577,19 @@ fn channel_authcheck(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>),
                             }
                         }
 
+                        let bot: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:bot", &channel)]).expect(&format!("channel:{}:bot", &channel))).unwrap();
+                        redis_call(db.clone(), vec!["srem", &format!("bot:{}:channels", &bot), &channel]);
+                        redis_call(db.clone(), vec!["srem", "channels", &channel]);
+
                         channels.iter().position(|c| c == &channel).map(|i| channels.remove(i));
                         restart = true;
                     }
+                } else {
+                    redis_call(db.clone(), vec!["set", &format!("channel:{}:auth:last", channel), &format!("{}", Utc::now().to_rfc3339())]);
                 }
             }
 
             if restart { break }
-
-            for channel in channels.clone() {
-                let auth: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:auth", channel)]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
-                match auth.as_ref() {
-                    "true" => { redis_call(db.clone(), vec!["set", &format!("channel:{}:auth:last", channel), &format!("{}", Utc::now().to_rfc3339())]); }
-                    "false" => { client.send(ClientAction::Privmsg(channel, "/me has entered".to_owned())); }
-                    _ => {}
-                }
-            }
         }
 
         if restart { channel_authcheck(db.clone(), channels, senders, client, receiver); }
