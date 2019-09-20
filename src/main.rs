@@ -65,11 +65,7 @@ fn main() {
 
         start_rocket();
         new_channel_listener(db.clone());
-        command_listeners(db.clone());
         discord_handlers(db.clone());
-        run_notices(db.clone());
-        run_scheduled_notices(db.clone());
-        run_commercials(db.clone());
         update_live(db.clone());
         update_stats(db.clone());
         update_watchtime(db.clone());
@@ -122,7 +118,7 @@ fn run_reactor(bots: HashMap<String, (HashSet<String>, Config)>, db: (Sender<Vec
                 }
                 log_info(Some(Right(chans.clone())), "run_reactor", "connecting to irc", db.clone());
                 let (sender, receiver) = bounded(0);
-                let (sender1, receiver1) = unbounded();
+                let (senderA, receiverA) = unbounded();
                 let mut senders: HashMap<String, Vec<Sender<ThreadAction>>> = HashMap::new();
                 let mut reactor = IrcReactor::new().unwrap();
                 let client = Arc::new(reactor.prepare_client_and_connect(&channels.1).unwrap());
@@ -133,15 +129,23 @@ fn run_reactor(bots: HashMap<String, (HashSet<String>, Config)>, db: (Sender<Vec
                 client_listener(client.clone(), db.clone(), receiver);
                 for channel in channels.0.iter() {
                     let (sender1, receiver1) = unbounded();
-                    senders.insert(channel.to_owned(), [sender1.clone()].to_vec());
-                    rename_channel_listener(db.clone(), channel.to_owned(), sender.clone(), sender1.clone(), receiver1);
+                    let (sender2, receiver2) = unbounded();
+                    let (sender3, receiver3) = unbounded();
+                    let (sender4, receiver4) = unbounded();
+                    let (sender5, receiver5) = unbounded();
+                    senders.insert(channel.to_owned(), [sender1.clone(), sender2.clone(), sender3.clone(), sender4.clone(), sender5.clone()].to_vec());
+                    rename_channel_listener(db.clone(), channel.to_owned(), sender.clone(), senderA.clone(), receiver1);
+                    command_listener(db.clone(), channel.to_owned(), sender.clone(), receiver2);
+                    run_notices(db.clone(), channel.to_owned(), sender.clone(), receiver3);
+                    run_scheduled_notices(db.clone(), channel.to_owned(), sender.clone(), receiver4);
+                    run_commercials(db.clone(), channel.to_owned(), sender.clone(), receiver5);
                 }
-                channel_authcheck(db.clone(), chans.iter().map(|c| c.to_string()).collect(), senders.clone(), sender.clone(), receiver1);
+                channel_authcheck(db.clone(), chans.iter().map(|c| c.to_string()).collect(), senders.clone(), sender.clone(), receiverA);
                 let res = reactor.run();
                 match res {
                     Err(e) => {
                         log_error(Some(Right(chans)), "run_reactor", &e.to_string(), db.clone());
-                        let _ = sender1.send(ThreadAction::Kill);
+                        let _ = senderA.send(ThreadAction::Kill);
                         for channel in channels.0.iter() {
                             if let Some(senders) = senders.get(channel) {
                                 for sender in senders {
@@ -485,8 +489,40 @@ fn client_listener(client: Arc<IrcClient>, db: (Sender<Vec<String>>, Receiver<Re
                         ClientAction::Part(channel) => {
                             let _ = client.send_part(format!("#{}", &channel));
                         }
-                        ClientAction::Command(channel, words) => {
+                        ClientAction::Command(channel, mut words) => {
+                            let prefix: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:settings", channel), "command:prefix"]).unwrap_or(Value::Data("!".as_bytes().to_owned()))).unwrap();
+                            if words.len() > 0 {
+                                let mut word = words[0].to_lowercase();
+                                let mut args: Vec<String> = words[1..].to_vec();
 
+                                // expand aliases
+                                let res: Result<Value,_> = redis_call(db.clone(), vec!["hget", &format!("channel:{}:aliases", channel), &word]);
+                                if let Ok(value) = res {
+                                    let alias: String = from_redis_value(&value).unwrap();
+                                    let mut awords = alias.split_whitespace();
+                                    if let Some(aword) = awords.next() {
+                                        let mut cargs = args.clone();
+                                        let mut awords: Vec<String> = awords.map(|w| w.to_owned()).collect();
+                                        awords.append(&mut cargs);
+                                        word = aword.to_owned();
+                                        args = awords.to_owned();
+                                    }
+                                }
+
+                                // parse native commands
+                                for cmd in commands::native_commands.iter() {
+                                    if format!("{}{}", prefix, cmd.0) == word {
+                                        (cmd.1)(client.clone(), channel.clone(), args.clone(), None, db.clone());
+                                    }
+                                }
+
+                                // parse custom commands
+                                let res: Result<Value,_> = redis_call(db.clone(), vec!["hget", &format!("channel:{}:commands:{}", channel, word), "message"]);
+                                if let Ok(value) = res {
+                                    let message: String = from_redis_value(&value).unwrap();
+                                    let _ = client.send_privmsg(format!("#{}", channel), message);
+                                }
+                            }
                         }
                     }
                 }
@@ -694,61 +730,43 @@ fn rename_channel_listener(db: (Sender<Vec<String>>, Receiver<Result<Value, Stri
     });
 }
 
-fn command_listeners(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
-    let channels: HashSet<String> = from_redis_value(&redis_call(db.clone(), vec!["smembers", "channels"]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
-    for channel in channels {
+fn command_listener(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>), channel: String, client: Sender<ClientAction>, receiver: Receiver<ThreadAction>) {
+    thread::spawn(move || {
         let db = db.clone();
-        thread::spawn(move || {
-            let mut con = acquire_con();
-            let mut ps = con.as_pubsub();
-            ps.subscribe(format!("channel:{}:signals:command", channel)).unwrap();
-
-            loop {
-                let res = ps.get_message();
-                match res {
-                    Err(e) => { log_error(Some(Right(vec![&channel])), "command_listener", &e.to_string(), db.clone()) }
-                    Ok(msg) => {
-                        let payload: String = msg.get_payload().expect("redis:get_payload");
-                        let mut words = payload.split_whitespace();
-                        let prefix: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:settings", channel), "command:prefix"]).unwrap_or(Value::Data("!".as_bytes().to_owned()))).unwrap();
-                        if let Some(word) = words.next() {
-                            let mut word = word.to_lowercase();
-                            let mut args: Vec<String> = words.map(|w| w.to_owned()).collect();
-
-                            // expand aliases
-                            let res: Result<Value,_> = redis_call(db.clone(), vec!["hget", &format!("channel:{}:aliases", channel), &word]);
-                            if let Ok(value) = res {
-                                let alias: String = from_redis_value(&value).unwrap();
-                                let mut awords = alias.split_whitespace();
-                                if let Some(aword) = awords.next() {
-                                    let mut cargs = args.clone();
-                                    let mut awords: Vec<String> = awords.map(|w| w.to_owned()).collect();
-                                    awords.append(&mut cargs);
-                                    word = aword.to_owned();
-                                    args = awords.to_owned();
-                                }
-                            }
-
-                            // parse native commands
-                            for cmd in commands::native_commands.iter() {
-                                if format!("{}{}", prefix, cmd.0) == word {
-                                    connect_and_run_command(cmd.1, channel.clone(), args.clone(), db.clone());
-                                    break;
-                                }
-                            }
-
-                            // parse custom commands
-                            let res: Result<Value,_> = redis_call(db.clone(), vec!["hget", &format!("channel:{}:commands:{}", channel, word), "message"]);
-                            if let Ok(value) = res {
-                                let message: String = from_redis_value(&value).unwrap();
-                                connect_and_send_message(channel.clone(), message, db.clone());
-                            }
-                        }
+        let mut con = acquire_con();
+        let mut ps = con.as_pubsub();
+        ps.subscribe(format!("channel:{}:signals:command", channel)).unwrap();
+        ps.set_read_timeout(Some(time::Duration::from_secs(60)));
+        loop {
+            let rsp = receiver.try_recv();
+            match rsp {
+                Ok(action) => {
+                    match action {
+                        ThreadAction::Kill => break,
+                        ThreadAction::Part(_) => {}
+                    }
+                }
+                Err(err) => {
+                    match err {
+                        TryRecvError::Disconnected => break,
+                        TryRecvError::Empty => {}
                     }
                 }
             }
-        });
-    }
+
+            let res = ps.get_message();
+            match res {
+                Err(e) => {
+                    if !e.is_timeout() { log_error(Some(Right(vec![&channel])), "command_listener", &e.to_string(), db.clone()) }
+                }
+                Ok(msg) => {
+                    let payload: String = msg.get_payload().expect("redis:get_payload");
+                    let words: Vec<String> = payload.split_whitespace().map(|w| w.to_string()).collect();
+                    client.send(ClientAction::Command(channel.clone(), words));
+                }
+            }
+        }
+    });
 }
 
 fn discord_handlers(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
@@ -773,78 +791,104 @@ fn discord_handlers(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) 
     }
 }
 
-fn run_notices(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
+fn run_notices(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>), channel: String, client: Sender<ClientAction>, receiver: Receiver<ThreadAction>) {
     thread::spawn(move || {
+        let db = db.clone();
         loop {
-            let channels: HashSet<String> = from_redis_value(&redis_call(db.clone(), vec!["smembers", "channels"]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
-            for channel in channels {
-                let live: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:live", channel)]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
-                if live == "true" {
-                    let keys: Vec<String> = from_redis_value(&redis_call(db.clone(), vec!["keys", &format!("channel:{}:notices:*:commands", channel.clone())]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
-                    let ints: Vec<&str> = keys.iter().map(|str| {
-                        let int: Vec<&str> = str.split(":").collect();
-                        return int[3];
-                    }).collect();
-
-                    for int in ints.iter() {
-                        let num: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:notices:{}:countdown", channel, int)]).expect(&format!("channel:{}:notices:{}:countdown", channel, int))).unwrap();
-                        let num: u16 = num.parse().unwrap();
-                        if num > 0 { redis_call(db.clone(), vec!["decrby", &format!("channel:{}:notices:{}:countdown", channel, int), "60"]); }
-                    };
-
-                    let int = ints.iter().filter(|int| {
-                        let num: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:notices:{}:countdown", channel, int)]).expect(&format!("channel:{}:notices:{}:countdown", channel, int))).unwrap();
-                        let num: u16 = num.parse().unwrap();
-                        return num <= 0;
-                    }).fold(0, |acc, int| {
-                        let int = int.parse::<u16>().unwrap();
-                        if acc > int { return acc } else { return int }
-                    });
-
-                    if int != 0 {
-                        redis_call(db.clone(), vec!["set", &format!("channel:{}:notices:{}:countdown", channel, int), int.to_string().as_ref()]);
-                        let cmd: String = from_redis_value(&redis_call(db.clone(), vec!["lpop", &format!("channel:{}:notices:{}:commands", channel, int)]).expect(&format!("channel:{}:notices:{}:commands", channel, int))).unwrap();
-                        redis_call(db.clone(), vec!["rpush", &format!("channel:{}:notices:{}:commands", channel, int), &cmd]);
-                        let res: Result<Value,_> = redis_call(db.clone(), vec!["hget", &format!("channel:{}:commands:{}", channel, cmd), "message"]);
-                        if let Ok(value) = res {
-                            let message: String = from_redis_value(&value).unwrap();
-                            connect_and_send_message(channel.clone(), message, db.clone());
-                        }
+            let rsp = receiver.recv_timeout(time::Duration::from_secs(60));
+            match rsp {
+                Ok(action) => {
+                    match action {
+                        ThreadAction::Kill => break,
+                        ThreadAction::Part(_) => {}
+                    }
+                }
+                Err(err) => {
+                    match err {
+                        RecvTimeoutError::Disconnected => break,
+                        RecvTimeoutError::Timeout => {}
                     }
                 }
             }
-            thread::sleep(time::Duration::from_secs(60));
+
+            let live: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:live", channel)]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
+            if live == "true" {
+                let keys: Vec<String> = from_redis_value(&redis_call(db.clone(), vec!["keys", &format!("channel:{}:notices:*:commands", channel.clone())]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
+                let ints: Vec<&str> = keys.iter().map(|str| {
+                    let int: Vec<&str> = str.split(":").collect();
+                    return int[3];
+                }).collect();
+
+                for int in ints.iter() {
+                    let num: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:notices:{}:countdown", channel, int)]).expect(&format!("channel:{}:notices:{}:countdown", channel, int))).unwrap();
+                    let num: u16 = num.parse().unwrap();
+                    if num > 0 { redis_call(db.clone(), vec!["decrby", &format!("channel:{}:notices:{}:countdown", channel, int), "60"]); }
+                };
+
+                let int = ints.iter().filter(|int| {
+                    let num: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:notices:{}:countdown", channel, int)]).expect(&format!("channel:{}:notices:{}:countdown", channel, int))).unwrap();
+                    let num: u16 = num.parse().unwrap();
+                    return num <= 0;
+                }).fold(0, |acc, int| {
+                    let int = int.parse::<u16>().unwrap();
+                    if acc > int { return acc } else { return int }
+                });
+
+                if int != 0 {
+                    redis_call(db.clone(), vec!["set", &format!("channel:{}:notices:{}:countdown", channel, int), int.to_string().as_ref()]);
+                    let cmd: String = from_redis_value(&redis_call(db.clone(), vec!["lpop", &format!("channel:{}:notices:{}:commands", channel, int)]).expect(&format!("channel:{}:notices:{}:commands", channel, int))).unwrap();
+                    redis_call(db.clone(), vec!["rpush", &format!("channel:{}:notices:{}:commands", channel, int), &cmd]);
+                    let res: Result<Value,_> = redis_call(db.clone(), vec!["hget", &format!("channel:{}:commands:{}", channel, cmd), "message"]);
+                    if let Ok(value) = res {
+                        let message: String = from_redis_value(&value).unwrap();
+                        client.send(ClientAction::Privmsg(channel.clone(), message));
+                    }
+                }
+            }
         }
     });
 }
 
-fn run_scheduled_notices(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
+fn run_scheduled_notices(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>), channel: String, client: Sender<ClientAction>, receiver: Receiver<ThreadAction>) {
     thread::spawn(move || {
+        let db = db.clone();
         loop {
-            let channels: HashSet<String> = from_redis_value(&redis_call(db.clone(), vec!["smembers", "channels"]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
-            for channel in channels {
-                let live: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:live", channel)]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
-                if live == "true" {
-                    let keys: Vec<String> = from_redis_value(&redis_call(db.clone(), vec!["keys", &format!("channel:{}:snotices:*", channel)]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
-                    keys.iter().for_each(|key| {
-                        let time: String = from_redis_value(&redis_call(db.clone(), vec!["hget", key, "time"]).expect(&format!("{}:{}", key, "time"))).unwrap();
-                        let cmd: String = from_redis_value(&redis_call(db.clone(), vec!["hget", key, "cmd"]).expect(&format!("{}:{}", key, "cmd"))).unwrap();
-                        let res = NaiveTime::parse_from_str(&time, "%H:%M%z");
-                        if let Ok(time) = res {
-                            let hour = time.hour();
-                            let min = time.minute();
-                            if hour == Utc::now().time().hour() && min == Utc::now().time().minute() {
-                                let res: Result<Value,_> = redis_call(db.clone(), vec!["hget", &format!("channel:{}:commands:{}", channel, cmd), "message"]);
-                                if let Ok(value) = res {
-                                    let message: String = from_redis_value(&value).unwrap();
-                                    connect_and_send_message(channel.clone(), message, db.clone());
-                                }
-                            }
-                        }
-                    });
+            let rsp = receiver.recv_timeout(time::Duration::from_secs(60));
+            match rsp {
+                Ok(action) => {
+                    match action {
+                        ThreadAction::Kill => break,
+                        ThreadAction::Part(_) => {}
+                    }
+                }
+                Err(err) => {
+                    match err {
+                        RecvTimeoutError::Disconnected => break,
+                        RecvTimeoutError::Timeout => {}
+                    }
                 }
             }
-            thread::sleep(time::Duration::from_secs(60));
+
+            let live: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:live", channel)]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
+            if live == "true" {
+                let keys: Vec<String> = from_redis_value(&redis_call(db.clone(), vec!["keys", &format!("channel:{}:snotices:*", channel)]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
+                keys.iter().for_each(|key| {
+                    let time: String = from_redis_value(&redis_call(db.clone(), vec!["hget", key, "time"]).expect(&format!("{}:{}", key, "time"))).unwrap();
+                    let cmd: String = from_redis_value(&redis_call(db.clone(), vec!["hget", key, "cmd"]).expect(&format!("{}:{}", key, "cmd"))).unwrap();
+                    let res = NaiveTime::parse_from_str(&time, "%H:%M%z");
+                    if let Ok(time) = res {
+                        let hour = time.hour();
+                        let min = time.minute();
+                        if hour == Utc::now().time().hour() && min == Utc::now().time().minute() {
+                            let res: Result<Value,_> = redis_call(db.clone(), vec!["hget", &format!("channel:{}:commands:{}", channel, cmd), "message"]);
+                            if let Ok(value) = res {
+                                let message: String = from_redis_value(&value).unwrap();
+                                client.send(ClientAction::Privmsg(channel.clone(), message));
+                            }
+                        }
+                    }
+                });
+            }
         }
     });
 }
@@ -973,85 +1017,99 @@ fn run_shoutouts(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
     });
 }*/
 
-fn run_commercials(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
+fn run_commercials(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>), channel: String, client: Sender<ClientAction>, receiver: Receiver<ThreadAction>) {
     thread::spawn(move || {
+        let db = db.clone();
         loop {
-            let channels: HashSet<String> = from_redis_value(&redis_call(db.clone(), vec!["smembers", "channels"]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
-            for channel in channels {
-                let live: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:live", channel)]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
-                if live == "true" {
-                    let hourly: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:commercials:hourly", channel)]).unwrap_or(Value::Data("0".as_bytes().to_owned()))).unwrap();
-                    let hourly: u64 = hourly.parse().unwrap();
-                    let recents: Vec<String> = from_redis_value(&redis_call(db.clone(), vec!["lrange", &format!("channel:{}:commercials:recent", channel), "0", "-1"]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
-                    let num = recents.iter().fold(hourly, |acc, lastrun| {
-                        let lastrun: Vec<&str> = lastrun.split_whitespace().collect();
-                        let timestamp = DateTime::parse_from_rfc3339(&lastrun[0]).unwrap();
-                        let diff = Utc::now().signed_duration_since(timestamp);
-                        if diff.num_minutes() < 60 {
-                            let res: Result<u64,_> = lastrun[1].parse();
-                            if let Ok(num) = res {
-                                if acc >= num {
-                                    return acc - num;
-                                } else {
-                                    return acc;
-                                }
+            let rsp = receiver.recv_timeout(time::Duration::from_secs(600));
+            match rsp {
+                Ok(action) => {
+                    match action {
+                        ThreadAction::Kill => break,
+                        ThreadAction::Part(_) => {}
+                    }
+                }
+                Err(err) => {
+                    match err {
+                        RecvTimeoutError::Disconnected => break,
+                        RecvTimeoutError::Timeout => {}
+                    }
+                }
+            }
+
+            let live: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:live", channel)]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
+            if live == "true" {
+                let hourly: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:commercials:hourly", channel)]).unwrap_or(Value::Data("0".as_bytes().to_owned()))).unwrap();
+                let hourly: u64 = hourly.parse().unwrap();
+                let recents: Vec<String> = from_redis_value(&redis_call(db.clone(), vec!["lrange", &format!("channel:{}:commercials:recent", channel), "0", "-1"]).unwrap_or(Value::Bulk(Vec::new()))).unwrap();
+                let num = recents.iter().fold(hourly, |acc, lastrun| {
+                    let lastrun: Vec<&str> = lastrun.split_whitespace().collect();
+                    let timestamp = DateTime::parse_from_rfc3339(&lastrun[0]).unwrap();
+                    let diff = Utc::now().signed_duration_since(timestamp);
+                    if diff.num_minutes() < 60 {
+                        let res: Result<u64,_> = lastrun[1].parse();
+                        if let Ok(num) = res {
+                            if acc >= num {
+                                return acc - num;
                             } else {
                                 return acc;
                             }
                         } else {
                             return acc;
                         }
-                    });
+                    } else {
+                        return acc;
+                    }
+                });
 
-                    if num > 0 {
-                        let live: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:live", channel)]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
-                        let mut within8 = false;
-                        let res: Result<Value,_> = redis_call(db.clone(), vec!["lindex", &format!("channel:{}:commercials:recent", channel), "0"]);
-                        if let Ok(value) = res {
-                            let lastrun: String = from_redis_value(&value).unwrap();
-                            let lastrun: Vec<&str> = lastrun.split_whitespace().collect();
-                            let timestamp = DateTime::parse_from_rfc3339(&lastrun[0]).unwrap();
-                            let diff = Utc::now().signed_duration_since(timestamp);
-                            if diff.num_minutes() <= 9 {
-                                within8 = true;
+                if num > 0 {
+                    let live: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:live", channel)]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
+                    let mut within8 = false;
+                    let res: Result<Value,_> = redis_call(db.clone(), vec!["lindex", &format!("channel:{}:commercials:recent", channel), "0"]);
+                    if let Ok(value) = res {
+                        let lastrun: String = from_redis_value(&value).unwrap();
+                        let lastrun: Vec<&str> = lastrun.split_whitespace().collect();
+                        let timestamp = DateTime::parse_from_rfc3339(&lastrun[0]).unwrap();
+                        let diff = Utc::now().signed_duration_since(timestamp);
+                        if diff.num_minutes() <= 9 {
+                            within8 = true;
+                        }
+                    }
+                    if !within8 {
+                        let id: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:id", channel)]).expect(&format!("channel:{}:id", channel))).unwrap();
+                        let submode: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:commercials:submode", channel)]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
+                        let nres: Result<Value,_> = redis_call(db.clone(), vec!["get", &format!("channel:{}:commercials:notice", channel)]);
+                        let length: u16 = from_redis_value(&redis_call(db.clone(), vec!["llen", &format!("channel:{}:commercials:recent", channel)]).expect(&format!("channel:{}:commercials:recent", channel))).unwrap();
+                        redis_call(db.clone(), vec!["lpush", &format!("channel:{}:commercials:recent", channel), &format!("{} {}", Utc::now().to_rfc3339(), num)]);
+                        if length > 7 {
+                            redis_call(db.clone(), vec!["rpop", &format!("channel:{}:commercials:recent", channel)]);
+                        }
+                        if submode == "true" {
+                            let dbC = db.clone();
+                            let channelC = String::from(channel.clone());
+                            let clientC = client.clone();
+                            client.send(ClientAction::Privmsg(channel.clone(), "/subscribers".to_owned()));
+                            thread::spawn(move || {
+                                thread::sleep(time::Duration::from_secs(num * 30));
+                                clientC.send(ClientAction::Privmsg(channelC, "/subscribersoff".to_owned()));
+                            });
+                        }
+                        if let Ok(value) = nres {
+                            let notice: String = from_redis_value(&value).unwrap();
+                            let res: Result<Value,_> = redis_call(db.clone(), vec!["hget", &format!("channel:{}:commands:{}", channel, notice), "message"]);
+                            if let Ok(value) = res {
+                                let message: String = from_redis_value(&value).unwrap();
+                                client.send(ClientAction::Privmsg(channel.clone(), message));
                             }
                         }
-                        if !within8 {
-                            let id: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:id", channel)]).expect(&format!("channel:{}:id", channel))).unwrap();
-                            let submode: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:commercials:submode", channel)]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
-                            let nres: Result<Value,_> = redis_call(db.clone(), vec!["get", &format!("channel:{}:commercials:notice", channel)]);
-                            let length: u16 = from_redis_value(&redis_call(db.clone(), vec!["llen", &format!("channel:{}:commercials:recent", channel)]).expect(&format!("channel:{}:commercials:recent", channel))).unwrap();
-                            redis_call(db.clone(), vec!["lpush", &format!("channel:{}:commercials:recent", channel), &format!("{} {}", Utc::now().to_rfc3339(), num)]);
-                            if length > 7 {
-                                redis_call(db.clone(), vec!["rpop", &format!("channel:{}:commercials:recent", channel)]);
-                            }
-                            if submode == "true" {
-                                let dbC = db.clone();
-                                let channelC = String::from(channel.clone());
-                                connect_and_send_privmsg(channel.clone(), "/subscribers".to_owned(), db.clone());
-                                thread::spawn(move || {
-                                    thread::sleep(time::Duration::from_secs(num * 30));
-                                    connect_and_send_privmsg(channelC, "/subscribersoff".to_owned(), dbC.clone());
-                                });
-                            }
-                            if let Ok(value) = nres {
-                                let notice: String = from_redis_value(&value).unwrap();
-                                let res: Result<Value,_> = redis_call(db.clone(), vec!["hget", &format!("channel:{}:commands:{}", channel, notice), "message"]);
-                                if let Ok(value) = res {
-                                    let message: String = from_redis_value(&value).unwrap();
-                                    connect_and_send_message(channel.clone(), message, db.clone());
-                                }
-                            }
-                            log_info(Some(Right(vec![&channel])), "run_commercials", &format!("{} commercials have been run", num), db.clone());
-                            connect_and_send_message(channel.clone(), format!("{} commercials have been run", num), db.clone());
-                            let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).expect(&format!("channel:{}:token", &channel))).unwrap();
-                            let future = twitch_kraken_request(token, Some("application/json"), Some(format!("{{\"length\": {}}}", num * 30).as_bytes().to_owned()), Method::POST, &format!("https://api.twitch.tv/kraken/channels/{}/commercial", &id)).send().and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() }).map_err(|e| println!("request error: {}", e)).map(move |_body| {});
-                            thread::spawn(move || { tokio::run(future) });
-                        }
+                        log_info(Some(Right(vec![&channel])), "run_commercials", &format!("{} commercials have been run", num), db.clone());
+                        client.send(ClientAction::Privmsg(channel.clone(), format!("{} commercials have been run", num)));
+                        let token: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:token", &channel)]).expect(&format!("channel:{}:token", &channel))).unwrap();
+                        let future = twitch_kraken_request(token, Some("application/json"), Some(format!("{{\"length\": {}}}", num * 30).as_bytes().to_owned()), Method::POST, &format!("https://api.twitch.tv/kraken/channels/{}/commercial", &id)).send().and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() }).map_err(|e| println!("request error: {}", e)).map(move |_body| {});
+                        thread::spawn(move || { tokio::run(future) });
                     }
                 }
             }
-            thread::sleep(time::Duration::from_secs(600));
         }
     });
 }
