@@ -489,6 +489,9 @@ fn client_listener(client: Arc<IrcClient>, db: (Sender<Vec<String>>, Receiver<Re
                         ClientAction::Part(channel) => {
                             let _ = client.send_part(format!("#{}", &channel));
                         }
+                        ClientAction::Parsed(channel, message) => {
+                            send_parsed_message(client.clone(), channel.to_owned(), message, Vec::new(), None, db.clone(), None);
+                        }
                         ClientAction::Command(channel, mut words) => {
                             let prefix: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:settings", channel), "command:prefix"]).unwrap_or(Value::Data("!".as_bytes().to_owned()))).unwrap();
                             if words.len() > 0 {
@@ -846,7 +849,7 @@ fn run_notices(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>), chann
                     let res: Result<Value,_> = redis_call(db.clone(), vec!["hget", &format!("channel:{}:commands:{}", channel, cmd), "message"]);
                     if let Ok(value) = res {
                         let message: String = from_redis_value(&value).unwrap();
-                        client.send(ClientAction::Privmsg(channel.clone(), message));
+                        client.send(ClientAction::Parsed(channel.clone(), message));
                     }
                 }
             }
@@ -888,7 +891,7 @@ fn run_scheduled_notices(db: (Sender<Vec<String>>, Receiver<Result<Value, String
                             let res: Result<Value,_> = redis_call(db.clone(), vec!["hget", &format!("channel:{}:commands:{}", channel, cmd), "message"]);
                             if let Ok(value) = res {
                                 let message: String = from_redis_value(&value).unwrap();
-                                client.send(ClientAction::Privmsg(channel.clone(), message));
+                                client.send(ClientAction::Parsed(channel.clone(), message));
                             }
                         }
                     }
@@ -1104,7 +1107,7 @@ fn run_commercials(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>), c
                             let res: Result<Value,_> = redis_call(db.clone(), vec!["hget", &format!("channel:{}:commands:{}", channel, notice), "message"]);
                             if let Ok(value) = res {
                                 let message: String = from_redis_value(&value).unwrap();
-                                client.send(ClientAction::Privmsg(channel.clone(), message));
+                                client.send(ClientAction::Parsed(channel.clone(), message));
                             }
                         }
                         log_info(Some(Right(vec![&channel])), "run_commercials", &format!("{} commercials have been run", num), db.clone());

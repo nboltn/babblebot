@@ -100,6 +100,7 @@ pub enum ThreadAction {
 pub enum ClientAction {
     Command(String, Vec<String>),
     Privmsg(String, String),
+    Parsed(String, String),
     Part(String)
 }
 
