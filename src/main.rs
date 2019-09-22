@@ -525,7 +525,8 @@ fn client_listener(client: Arc<IrcClient>, db: (Sender<Vec<String>>, Receiver<Re
                                 let res: Result<Value,_> = redis_call(db.clone(), vec!["hget", &format!("channel:{}:commands:{}", channel, word), "message"]);
                                 if let Ok(value) = res {
                                     let message: String = from_redis_value(&value).unwrap();
-                                    send_parsed_message(client.clone(), channel.to_owned(), message.to_owned(), args.clone(), None, db.clone(), None);
+                                    let rt = Runtime::new().expect("runtime:new");
+                                    send_parsed_message(client.clone(), channel.to_owned(), message.to_owned(), args.clone(), None, db.clone(), Some(rt));
                                 }
                             }
                         }
