@@ -28,6 +28,7 @@ use serde_json::value::Value::Number;
 use chrono::{Utc, DateTime, NaiveTime, Timelike};
 use http::header::{self,HeaderValue};
 use futures::future::join_all;
+use tokio::runtime::Runtime;
 use reqwest::Method;
 use reqwest::r#async::Decoder;
 use serenity;
@@ -490,7 +491,8 @@ fn client_listener(client: Arc<IrcClient>, db: (Sender<Vec<String>>, Receiver<Re
                             let _ = client.send_part(format!("#{}", &channel));
                         }
                         ClientAction::Parsed(channel, message) => {
-                            send_parsed_message(client.clone(), channel.to_owned(), message, Vec::new(), None, db.clone(), None);
+                            let rt = Runtime::new().expect("runtime:new");
+                            send_parsed_message(client.clone(), channel.to_owned(), message, Vec::new(), None, db.clone(), Some(rt));
                         }
                         ClientAction::Command(channel, mut words) => {
                             let prefix: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:settings", channel), "command:prefix"]).unwrap_or(Value::Data("!".as_bytes().to_owned()))).unwrap();
