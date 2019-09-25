@@ -329,7 +329,7 @@ pub struct KrakenStream {
 
 #[derive(Debug, Deserialize)]
 pub struct SpotifyPlaying {
-    pub item: SpotifyItem
+    pub item: Option<SpotifyItem>
 }
 
 #[derive(Debug, Deserialize)]

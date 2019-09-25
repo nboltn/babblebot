@@ -417,7 +417,13 @@ fn spotify_playing_title_var(_client: Option<Arc<IrcClient>>, channel: String, _
                 }
                 "".to_owned()
             }
-            Ok(json) => { json.item.name.to_owned() }
+            Ok(json) => {
+                if let Some(item) = json.item {
+                    item.name.to_owned()
+                } else {
+                    "".to_owned()
+                }
+            }
         }
     };
     return Some((builder, func));
@@ -437,7 +443,13 @@ fn spotify_playing_album_var(_client: Option<Arc<IrcClient>>, channel: String, _
                 }
                 "".to_owned()
             }
-            Ok(json) => { json.item.album.name.to_owned() }
+            Ok(json) => {
+                if let Some(item) = json.item {
+                    item.album.name.to_owned()
+                } else {
+                    "".to_owned()
+                }
+            }
         }
     };
     return Some((builder, func));
@@ -457,7 +469,13 @@ fn spotify_playing_artist_var(_client: Option<Arc<IrcClient>>, channel: String, 
                 }
                 "".to_owned()
             }
-            Ok(json) => { json.item.artists[0].name.to_owned() }
+            Ok(json) => {
+                if let Some(item) = json.item {
+                    item.artists[0].name.to_owned()
+                } else {
+                    "".to_owned()
+                }
+            }
         }
     };
     return Some((builder, func));
