@@ -179,7 +179,7 @@ pub fn send_message(client: Arc<IrcClient>, channel: String, mut message: String
     });
 }
 
-pub fn send_parsed_message(client: Arc<IrcClient>, channel: String, mut message: String, args: Vec<String>, irc_message: Option<Message>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>), runtime: Option<Runtime>) {
+pub fn send_parsed_message(client: Arc<IrcClient>, channel: String, mut message: String, args: Vec<String>, irc_message: Option<Message>, db: (Sender<Vec<String>>, Receiver<Result<Value, String>>), runtime: bool) {
     let auth: String = from_redis_value(&redis_call(db.clone(), vec!["get", &format!("channel:{}:auth", channel)]).unwrap_or(Value::Data("false".as_bytes().to_owned()))).unwrap();
     if auth == "true" {
         if args.len() > 0 {
@@ -212,25 +212,22 @@ pub fn send_parsed_message(client: Arc<IrcClient>, channel: String, mut message:
             }
         }
 
-        match runtime {
-            Some(mut rt) => {
-                for (i,future) in futures.into_iter().enumerate() {
-                    let res = rt.block_on(future).unwrap();
-                    let rgx = Regex::new(&escape(&regexes[i])).expect("regex:new");
-                    message = rgx.replace(&message, |_: &Captures| { &res }).to_string();
-                }
-                let _ = client.send_privmsg(format!("#{}", channel), message);
-                rt.shutdown_now();
+        if runtime {
+            let mut rt = Runtime::new().expect("runtime:new");
+            for (i,future) in futures.into_iter().enumerate() {
+                let res = rt.block_on(future).unwrap();
+                let rgx = Regex::new(&escape(&regexes[i])).expect("regex:new");
+                message = rgx.replace(&message, |_: &Captures| { &res }).to_string();
             }
-            None => {
-                for (i,future) in futures.into_iter().enumerate() {
-                    let res = future.wait().unwrap();
-                    let rgx = Regex::new(&escape(&regexes[i])).expect("regex:new");
-                    message = rgx.replace(&message, |_: &Captures| { &res }).to_string();
-                }
-                let _ = client.send_privmsg(format!("#{}", channel), message);
+            rt.shutdown_now();
+        } else {
+            for (i,future) in futures.into_iter().enumerate() {
+                let res = future.wait().unwrap();
+                let rgx = Regex::new(&escape(&regexes[i])).expect("regex:new");
+                message = rgx.replace(&message, |_: &Captures| { &res }).to_string();
             }
         }
+        let _ = client.send_privmsg(format!("#{}", channel), message);
     }
 }
 

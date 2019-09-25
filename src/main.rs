@@ -374,7 +374,7 @@ fn register_handler(bot: String, client: IrcClient, reactor: &mut IrcReactor, db
                                 let protected: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:commands:{}", channel, word), &format!("{}_protected", protected)]).expect(&format!("{}:{}", &format!("channel:{}:commands:{}", channel, word), &format!("{}_protected", protected)))).unwrap();
                                 if protected == "false" || auth {
                                     redis_call(db.clone(), vec!["hset", &format!("channel:{}:commands:{}", channel, word), "lastrun", &Utc::now().to_rfc3339()]);
-                                    send_parsed_message(client.clone(), channel.to_owned(), message.to_owned(), args.clone(), Some(irc_message.clone()), db.clone(), None);
+                                    send_parsed_message(client.clone(), channel.to_owned(), message.to_owned(), args.clone(), Some(irc_message.clone()), db.clone(), false);
                                 }
                             }
                         }
@@ -394,7 +394,7 @@ fn register_handler(bot: String, client: IrcClient, reactor: &mut IrcReactor, db
                                     let diff = Utc::now().signed_duration_since(timestamp);
                                     if diff.num_hours() < hours { break }
                                 }
-                                send_parsed_message(client.clone(), channel.to_owned(), msg, Vec::new(), None, db.clone(), None);
+                                send_parsed_message(client.clone(), channel.to_owned(), msg, Vec::new(), None, db.clone(), false);
                                 break;
                             }
                         }
@@ -411,7 +411,7 @@ fn register_handler(bot: String, client: IrcClient, reactor: &mut IrcReactor, db
                                     let res: Result<Value,_> = redis_call(db.clone(), vec!["hget", &format!("channel:{}:commands:{}", channel, cmd), "message"]);
                                     if let Ok(value) = res {
                                         let message: String = from_redis_value(&value).unwrap();
-                                        send_parsed_message(client.clone(), channel.to_owned(), message, Vec::new(), None, db.clone(), None);
+                                        send_parsed_message(client.clone(), channel.to_owned(), message, Vec::new(), None, db.clone(), false);
                                     }
                                     break;
                                 }
@@ -492,7 +492,7 @@ fn client_listener(client: Arc<IrcClient>, db: (Sender<Vec<String>>, Receiver<Re
                         }
                         ClientAction::Parsed(channel, message) => {
                             let rt = Runtime::new().expect("runtime:new");
-                            send_parsed_message(client.clone(), channel.to_owned(), message, Vec::new(), None, db.clone(), Some(rt));
+                            send_parsed_message(client.clone(), channel.to_owned(), message, Vec::new(), None, db.clone(), true);
                         }
                         ClientAction::Command(channel, mut words) => {
                             let prefix: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:settings", channel), "command:prefix"]).unwrap_or(Value::Data("!".as_bytes().to_owned()))).unwrap();
@@ -525,8 +525,7 @@ fn client_listener(client: Arc<IrcClient>, db: (Sender<Vec<String>>, Receiver<Re
                                 let res: Result<Value,_> = redis_call(db.clone(), vec!["hget", &format!("channel:{}:commands:{}", channel, word), "message"]);
                                 if let Ok(value) = res {
                                     let message: String = from_redis_value(&value).unwrap();
-                                    let rt = Runtime::new().expect("runtime:new");
-                                    send_parsed_message(client.clone(), channel.to_owned(), message.to_owned(), args.clone(), None, db.clone(), Some(rt));
+                                    send_parsed_message(client.clone(), channel.to_owned(), message.to_owned(), args.clone(), None, db.clone(), true);
                                 }
                             }
                         }
@@ -1775,7 +1774,6 @@ fn update_stats(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
                                     }
                                     Ok(json) => {
                                         if json.recentMatches.len() > 0 {
-                                            if cursor == "" { cursor = json.recentMatches[0].id.to_string() }
                                             redis_call(db.clone(), vec!["hset", &format!("channel:{}:stats:fortnite", &channel), "cursor", &json.recentMatches[0].id.to_string()]);
                                             for match_ in json.recentMatches.iter() {
                                                 if match_.id.to_string() == cursor { break }
