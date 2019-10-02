@@ -15,7 +15,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::{thread,time,mem,panic};
 
-use either::Either::{self, Left, Right};
+use either::Either::{Left, Right};
 use config;
 use clap::load_yaml;
 use clap::{App, ArgMatches};
@@ -1607,7 +1607,9 @@ fn update_stats(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
                     let res: Result<u32,_> = hour.parse();
                     if let Ok(num) = res {
                         if num == Utc::now().time().hour() && reset == "true" {
+                            let cursor: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:stats:pubg", &channel), "cursor"]).unwrap_or(Value::Data("".as_bytes().to_owned()))).unwrap();
                             redis_call(db.clone(), vec!["del", &format!("channel:{}:stats:pubg", &channel)]);
+                            redis_call(db.clone(), vec!["hset", &format!("channel:{}:stats:pubg", &channel), "cursor", &cursor]);
                         } else if num != Utc::now().time().hour() && reset == "false" {
                             redis_call(db.clone(), vec!["hset", &format!("channel:{}:stats:pubg", &channel), "reset", "true"]);
                         }
@@ -1746,7 +1748,9 @@ fn update_stats(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
                     let num: Result<u32,_> = hour.parse();
                     if let Ok(hour) = num {
                         if hour == Utc::now().time().hour() && reset == "true" {
+                            let cursor: String = from_redis_value(&redis_call(db.clone(), vec!["hget", &format!("channel:{}:stats:fortnite", &channel), "cursor"]).unwrap_or(Value::Data("".as_bytes().to_owned()))).unwrap();
                             redis_call(db.clone(), vec!["del", &format!("channel:{}:stats:fortnite", &channel)]);
+                            redis_call(db.clone(), vec!["hset", &format!("channel:{}:stats:fortnite", &channel), "cursor", &cursor]);
                         } else if hour != Utc::now().time().hour() && reset == "false" {
                             redis_call(db.clone(), vec!["hset", &format!("channel:{}:stats:fortnite", &channel), "reset", "true"]);
                         }
@@ -1774,6 +1778,7 @@ fn update_stats(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
                                     }
                                     Ok(json) => {
                                         if json.recentMatches.len() > 0 {
+                                            if cursor == "" { cursor = json.recentMatches[0].id.to_string() }
                                             redis_call(db.clone(), vec!["hset", &format!("channel:{}:stats:fortnite", &channel), "cursor", &json.recentMatches[0].id.to_string()]);
                                             for match_ in json.recentMatches.iter() {
                                                 if match_.id.to_string() == cursor { break }

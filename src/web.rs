@@ -3,7 +3,6 @@ extern crate jsonwebtoken as jwt;
 use crate::types::*;
 use std::collections::HashMap;
 use std::time::{SystemTime};
-use either::Either::{Left, Right};
 use bcrypt::{DEFAULT_COST, hash, verify};
 use rand::Rng;
 use rand::distributions::Alphanumeric;
