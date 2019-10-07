@@ -5,6 +5,6 @@ watchtime
 
 .. code-block:: text
 
-    !set watchtime:blacklist nightbot
+    !set watchtime:blacklist nightbot moobot
 
-Blacklists a username from the `(watchtime)` variables and point system.
+Blacklists space-separated usernames from the ``(watchtime)`` variables and point system.
