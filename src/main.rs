@@ -1,4 +1,4 @@
-#![feature(proc_macro_hygiene, decl_macro, custom_attribute)]
+#![feature(proc_macro_hygiene, decl_macro)]
 
 #[macro_use] extern crate log;
 #[macro_use] extern crate rocket;
@@ -1651,7 +1651,7 @@ fn update_stats(db: (Sender<Vec<String>>, Receiver<Result<Value, String>>)) {
                                                     let channelC = channel.clone();
                                                     if match_.id == cursor { break }
                                                     else {
-                                                        let future = pubg_request(token, &format!("https://api.pubg.com/shards/pc-na/matches/{}", &match_.id)).send()
+                                                        let future = pubg_request(token, &format!("https://api.pubg.com/shards/{}/matches/{}", &platform, &match_.id)).send()
                                                             .and_then(|mut res| { mem::replace(res.body_mut(), Decoder::empty()).concat2() })
                                                             .map_err(|e| println!("request error: {}", e))
                                                             .map(move |body| {
