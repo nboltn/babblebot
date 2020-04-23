@@ -315,8 +315,6 @@ pub struct KrakenChannel {
 
 #[derive(Debug, Deserialize)]
 pub struct KrakenStreams {
-    #[serde(rename = "_total")]
-    pub total: u16,
     pub streams: Vec<KrakenStream>
 }
 

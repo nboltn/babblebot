@@ -92,7 +92,7 @@ fn uptime_var(_client: Option<Arc<IrcClient>>, channel: String, _message: Option
                 "".to_owned()
             }
             Ok(json) => {
-                if json.total > 0 {
+                if json.streams.len() > 0 {
                     let dt = DateTime::parse_from_rfc3339(&json.streams[0].created_at).unwrap();
                     let diff = Utc::now().signed_duration_since(dt);
                     let formatted = format_duration(diff.to_std().unwrap()).to_string();
